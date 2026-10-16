@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: mcp-command-center-linux-x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: mcp-command-center-windows-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: mcp-command-center-macos-aarch64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: mcp-command-center-macos-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Tests
+        run: cargo test --release
+
+      - name: Clippy (strict)
+        run: cargo clippy --release -- -D warnings
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Collecter le binaire
+        shell: bash
+        run: |
+          EXT=""
+          case "${{ matrix.target }}" in
+            *windows*) EXT=".exe" ;;
+          esac
+          FILE="${{ matrix.artifact }}${EXT}"
+          cp "target/${{ matrix.target }}/release/mcp-command-center${EXT}" "$FILE"
+          echo "FILE=$FILE" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ env.FILE }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+
+      - name: Extraire les notes du CHANGELOG
+        env:
+          VERSION: "${{ github.ref_name }}"
+        run: |
+          VERSION_NUM="${VERSION#v}"
+          python3 - <<'EOF' > notes.md
+          import os, re
+          version = os.environ["VERSION_NUM"]
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          m = re.search(rf"## \[{re.escape(version)}\].*?(?=\n## \[|\Z)", text, re.S)
+          print(m.group(0).strip() if m else f"Release {version}")
+          EOF
+
+      - name: Créer la release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: notes.md
+          files: dist/*
