@@ -82,17 +82,7 @@ jobs:
           path: dist
 
       - name: Extraire les notes du CHANGELOG
-        env:
-          VERSION: "${{ github.ref_name }}"
-        run: |
-          VERSION_NUM="${VERSION#v}"
-          python3 - <<'EOF' > notes.md
-          import os, re
-          version = os.environ["VERSION_NUM"]
-          text = open("CHANGELOG.md", encoding="utf-8").read()
-          m = re.search(rf"## \[{re.escape(version)}\].*?(?=\n## \[|\Z)", text, re.S)
-          print(m.group(0).strip() if m else f"Release {version}")
-          EOF
+        run: python3 scripts/extract_notes.py > notes.md
 
       - name: Créer la release
         uses: softprops/action-gh-release@v2
