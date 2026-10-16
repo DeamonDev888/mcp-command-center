@@ -19,13 +19,15 @@ fn main() {
         log: Mutex::new(std::collections::VecDeque::new()),
         settings: Mutex::new(settings.clone()),
         children: Mutex::new(std::collections::HashMap::new()),
+        peers: Mutex::new(std::collections::HashMap::new()),
         config_path,
     });
     manage::add_log(&state, "info", &format!("mcp-command-center v{} démarré", env!("CARGO_PKG_VERSION")));
 
     let mut ui_port = settings.ui_port;
+    let ui_bind = settings.ui_bind.clone();
     let listener = loop {
-        match TcpListener::bind(("127.0.0.1", ui_port)) {
+        match TcpListener::bind((ui_bind.as_str(), ui_port)) {
             Ok(l) => break l,
             Err(_) => {
                 manage::add_log(&state, "warn", &format!("port {} occupé, essai {}", ui_port, ui_port + 1));
@@ -41,8 +43,9 @@ fn main() {
         let mut st = lockv(&state.settings);
         st.ui_port = ui_port;
     }
-    println!("[UI] http://127.0.0.1:{}  (Ctrl+C pour arrêter)", ui_port);
-    manage::add_log(&state, "info", &format!("UI prête sur http://127.0.0.1:{}", ui_port));
+    let ui_host = if ui_bind == "0.0.0.0" { "<ip-lan>".to_string() } else { ui_bind.clone() };
+    println!("[UI] http://{}:{}  (Ctrl+C pour arrêter)", ui_host, ui_port);
+    manage::add_log(&state, "info", &format!("UI prête sur http://{}:{} (bind {})", ui_host, ui_port, ui_bind));
 
     // poller : première passe immédiate, ensuite refresh_secs
     {
@@ -59,6 +62,22 @@ fn main() {
         thread::spawn(move || {
             thread::sleep(Duration::from_millis(1200));
             manage::scan_ports(&st, None);
+        });
+    }
+    // découverte des pairs command-center + réseau (après le scan local)
+    {
+        let st = state.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_secs(30));
+            manage::discover_peers(&st);
+            let enabled = crate::types::lockv(&st.settings).network_enabled;
+            if enabled {
+                let (from, to) = {
+                    let s = crate::types::lockv(&st.settings);
+                    (s.scan_from, s.scan_to)
+                };
+                manage::scan_network(&st, Some((from, to)));
+            }
         });
     }
 
@@ -133,7 +152,7 @@ fn route(state: &Arc<AppState>, method: &str, path: &str, body: &[u8]) -> (u16, 
     if method == "GET" && (path == "/" || path.starts_with("/?")) {
         return (200, "text/html; charset=utf-8", ui::INDEX_HTML.as_bytes().to_vec());
     }
-    if method == "GET" && path == "/api/state" {
+    if (method == "GET" || method == "POST") && path == "/api/state" {
         let j = manage::state_json(state);
         return (200, "application/json", j.to_string().into_bytes());
     }

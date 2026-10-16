@@ -69,6 +69,13 @@ dialog::backdrop{background:#000a}
 .logline.warn{color:var(--warn)}
 .logline.error{color:var(--bad)}
 .empty{color:var(--dim);text-align:center;padding:40px;border:1px dashed var(--border);border-radius:12px}
+.peers{margin-top:14px}
+.peers h3{font-size:13px;color:var(--accent);margin-bottom:8px}
+.peer{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:6px;flex-wrap:wrap}
+.peer b{color:var(--fg)}
+.peer .pv{color:var(--dim);font:12px var(--mono)}
+.toolbtn{padding:1px 8px !important;font-size:11px !important;border-radius:4px !important}
+.toolbtn.off{opacity:.45;text-decoration:line-through;border-color:var(--bad)}
 form{display:grid;gap:10px;margin-top:8px}
 form label{font-size:12px;color:var(--dim);display:block;margin-bottom:3px}
 input{width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--fg);font:13px var(--mono)}
@@ -86,10 +93,13 @@ h4.sec{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:1
   <span class="badge ok">UP <b id="stUp">0</b>/<b id="stTotal">0</b></span>
   <span class="badge">tools <b id="stTools">0</b></span>
   <span class="badge">refresh <b id="stRefresh">15</b>s</span>
+  <span class="badge">v0.2.0 &mdash; LAN &amp; tools ON/OFF</span>
 </header>
 
 <div class="toolbar">
   <button class="primary" onclick="doScan()">&#128269; Scan ports</button>
+  <button onclick="doScanNet()">&#127760; Scan r&eacute;seau</button>
+  <button onclick="doPeers()">&#129309; D&eacute;tecter pairs</button>
   <button onclick="toggleAdd()">+ Ajouter serveur</button>
   <button onclick="refreshAll()">&#8635; Tout rafra&icirc;chir</button>
   <span class="spacer"></span>
@@ -128,6 +138,8 @@ h4.sec{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:1
 
 <div id="grid" class="grid"></div>
 
+<div id="peersBox" class="peers"></div>
+
 <dialog id="dlg">
   <div class="d-head">
     <h2 id="dlgTitle">D&eacute;tail</h2>
@@ -160,6 +172,7 @@ function render() {
   const g = document.getElementById('grid');
   if (!state.servers.length) { g.innerHTML = '<div class="empty">Aucun serveur. Lance un scan ou ajoute-en un.</div>'; }
   else g.innerHTML = state.servers.map(card).join('');
+  renderPeers();
   const lb = document.getElementById('logbox');
   lb.innerHTML = state.log.map(l => {
     const d = new Date(l.ts * 1000).toLocaleTimeString('fr-FR');
@@ -183,7 +196,9 @@ function card(s) {
       <span class="tag ${s.transport}">${s.transport}</span>
       <span>${ti}</span>
       ${s.latency_ms != null ? `<span>${s.latency_ms} ms</span>` : ''}
-      ${s.bound_host ? `<span>[${esc(s.bound_host)}]</span>` : ''}
+      ${s.transport_info.host ? `<span title="serveur distant">&#127760; ${esc(s.transport_info.host)}:${s.transport_info.port}</span>` : ''}
+      ${!s.transport_info.host && s.bound_host ? `<span>[${esc(s.bound_host)}]</span>` : ''}
+      ${s.tools_disabled.length ? `<span style="color:var(--bad)">${s.tools_disabled.length} tool(s) OFF</span>` : ''}
     </div>
     <div class="meta" style="margin-top:6px">
       ${name}
@@ -196,6 +211,7 @@ function card(s) {
         ? `<button onclick="act('start_stdio','${esc(s.id)}')">Start</button>` : ''}
       ${s.transport === 'stdio' && s.state === 'UP'
         ? `<button class="danger" onclick="act('kill_stdio','${esc(s.id)}')">Stop</button>` : ''}
+      <button onclick="detail('${esc(s.id)}')">Tools</button>
       <button onclick="act('refresh','${esc(s.id)}')">Sonder</button>
       <button onclick="act('toggle','${esc(s.id)}')">${s.enabled ? 'D&eacute;sactiver' : 'Activer'}</button>
       <button class="danger" onclick="act('remove','${esc(s.id)}')">Retirer</button>
@@ -222,6 +238,51 @@ async function doScan() {
 async function refreshAll() {
   const ids = state.servers.filter(s => s.enabled).map(s => s.id);
   for (const id of ids) await act('refresh', id);
+}
+
+async function doScanNet() {
+  const from = prompt('Scan r\u00e9seau ports de :', state.settings.scan_from ?? 3000);
+  if (from === null) return;
+  const to = prompt('jusqu\u2019\u00e0 :', state.settings.scan_to ?? 3200);
+  if (to === null) return;
+  alert('Scan r\u00e9seau lanc\u00e9 (254 h\u00f4tes, 1-2 min). Le journal affichera les d\u00e9tections.');
+  await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'scan_network', from: +from, to: +to})});
+  await load();
+}
+
+async function doPeers() {
+  await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'discover_peers'})});
+  await load();
+}
+
+async function importPeer(ip) {
+  await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'import_peer', ip})});
+  await load();
+}
+
+async function toggleTool(id, name) {
+  await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'toggle_tool', id, tool: name})});
+  await load();
+  detail(id);
+}
+
+function renderPeers() {
+  const box = document.getElementById('peersBox');
+  if (!state.peers || !state.peers.length) { box.innerHTML = ''; return; }
+  const rows = state.peers.map(p => {
+    const st = p.stats || {};
+    return `<div class="peer">
+      <b>&#129309; ${esc(p.ip)}</b>
+      <span class="pv">UI :${p.ui_port}</span>
+      <span class="pv">${st.up ?? '?'} UP / ${st.total ?? '?'} serveurs</span>
+      <button onclick="importPeer('${esc(p.ip)}')">Importer ses serveurs</button>
+    </div>`;
+  }).join('');
+  box.innerHTML = `<h3>Command centers d&eacute;tect&eacute;s sur le r&eacute;seau</h3>${rows}`;
 }
 
 function toggleAdd() { document.getElementById('addFormWrap').classList.toggle('open'); }
@@ -260,9 +321,17 @@ async function detail(id) {
     ['erreur', s.last_error ?? '-'],
   ].map(([k, v]) => `<div class="k">${k}</div><div class="v">${esc(v)}</div>`).join('');
   const tools = (s.tools_list || []).map(t =>
-    `<div class="tool"><code>${esc(t.name)}</code><span title="${esc(t.desc)}">${esc(t.desc)}</span></div>`).join('');
+    `<div class="tool">
+       <button class="toolbtn ${t.disabled ? 'off' : ''}" title="${t.disabled ? 'r\u00e9activer' : 'd\u00e9sactiver'} ce tool"
+               onclick="toggleTool('${esc(s.id)}','${esc(t.name).replace(/'/g, "\\'")}')">
+         ${t.disabled ? 'OFF' : 'ON'}
+       </button>
+       <code>${esc(t.name)}</code>
+       <span title="${esc(t.desc)}">${esc(t.desc)}</span>
+     </div>`).join('');
+  const nOn = (s.tools_list || []).filter(t => !t.disabled).length;
   document.getElementById('dlgBody').innerHTML =
-    `<div class="kv">${kv}</div><div class="tools"><h4>Tools (${(s.tools_list || []).length})</h4>${tools || '<span style="color:var(--dim)">aucun</span>'}</div>`;
+    `<div class="kv">${kv}</div><div class="tools"><h4>Tools — ${nOn} actifs / ${(s.tools_list || []).length} (${(s.tools_list || []).length - nOn} OFF)</h4>${tools || '<span style="color:var(--dim)">aucun</span>'}</div>`;
   dlg.showModal();
 }
 

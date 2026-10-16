@@ -40,7 +40,7 @@ fn find_sub(hay: &[u8], needle: &[u8]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
 }
 
-fn socket_addr(host: &str, port: u16) -> Result<SocketAddr, std::net::AddrParseError> {
+pub fn socket_addr(host: &str, port: u16) -> Result<SocketAddr, std::net::AddrParseError> {
     // crochets uniquement pour IPv6 ("[::1]:p") ; "127.0.0.1:p" tel quel
     let s = if host.contains(':') { format!("[{}]:{}", host, port) } else { format!("{}:{}", host, port) };
     s.parse()
@@ -56,12 +56,24 @@ pub fn port_open(host: &str, port: u16, timeout: Duration) -> bool {
 /// POST JSON vers localhost (essaye ::1 puis 127.0.0.1), lit toute la réponse (gère chunked).
 /// Renvoie (host_utilisé, corps).
 pub fn http_post(port: u16, path: &str, body: &str, timeout_ms: u64) -> Result<(String, Vec<u8>), String> {
-    let timeout = Duration::from_millis(timeout_ms);
     let mut last_err = String::new();
     for host in ["::1", "127.0.0.1"] {
+        match http_post_host(host, port, path, body, timeout_ms) {
+            Ok(b) => return Ok((host.to_string(), b)),
+            Err(e) => last_err = e,
+        }
+    }
+    Err(last_err)
+}
+
+/// POST JSON vers un hôte précis (localhost OU hôte du réseau local).
+pub fn http_post_host(host: &str, port: u16, path: &str, body: &str, timeout_ms: u64) -> Result<Vec<u8>, String> {
+    let timeout = Duration::from_millis(timeout_ms);
+    let mut last_err = String::new();
+    {
         let addr: SocketAddr = match socket_addr(host, port) {
             Ok(a) => a,
-            Err(e) => { last_err = format!("addr {}: {}", host, e); continue; }
+            Err(e) => return Err(format!("addr {}: {}", host, e)),
         };
         match TcpStream::connect_timeout(&addr, timeout) {
             Ok(mut stream) => {
@@ -72,8 +84,7 @@ pub fn http_post(port: u16, path: &str, body: &str, timeout_ms: u64) -> Result<(
                     path, body.len(), body
                 );
                 if let Err(e) = stream.write_all(req.as_bytes()) {
-                    last_err = format!("{} write: {}", host, e);
-                    continue;
+                    return Err(format!("{} write: {}", host, e));
                 }
                 let mut data = Vec::new();
                 let mut tmp = [0u8; 16384];
@@ -116,7 +127,7 @@ pub fn http_post(port: u16, path: &str, body: &str, timeout_ms: u64) -> Result<(
                 }
                 if data.is_empty() {
                     if last_err.is_empty() { last_err = format!("{}: réponse vide", host); }
-                    continue;
+                    return Err(last_err);
                 }
                 if header_len.is_some() && !status_ok {
                     return Err(format!("{}: réponse HTTP non-2xx (port occupé par un non-MCP ?)", host));
@@ -127,7 +138,7 @@ pub fn http_post(port: u16, path: &str, body: &str, timeout_ms: u64) -> Result<(
                 if head.contains("transfer-encoding: chunked") {
                     body_bytes = dechunk(&body_bytes);
                 }
-                return Ok((host.to_string(), body_bytes));
+                return Ok(body_bytes);
             }
             Err(e) => { last_err = format!("{}: {}", host, e); }
         }
@@ -345,6 +356,110 @@ pub fn probe_stdio(
 }
 
 
+/// Un appel JSON-RPC HTTP vers un hôte précis (POST + parse).
+pub fn rpc_call_host(host: &str, port: u16, path: &str, method: &str, params: Value, id: u64, timeout_ms: u64) -> Result<Value, String> {
+    let body = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string();
+    let bytes = http_post_host(host, port, path, &body, timeout_ms)?;
+    let v = extract_json(&bytes).ok_or_else(|| format!("réponse non JSON ({} octets)", bytes.len()))?;
+    if let Some(err) = v.get("error") {
+        return Err(format!("rpc error: {}", err));
+    }
+    Ok(v.get("result").cloned().unwrap_or(Value::Null))
+}
+
+/// Probe MCP streamable-HTTP sur un hôte précis : initialize + tools/list.
+pub fn probe_http_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> McpProbe {
+    let t0 = Instant::now();
+    if !port_open(host, port, Duration::from_millis(timeout_ms.min(1500))) {
+        return McpProbe::fail(format!("{}:{} injoignable", host, port), false);
+    }
+    let init_params = json!({
+        "protocolVersion": "2024-11-05",
+        "capabilities": {},
+        "clientInfo": {"name": "mcp-command-center", "version": env!("CARGO_PKG_VERSION")}
+    });
+    let res = match rpc_call_host(host, port, path, "initialize", init_params, 1, timeout_ms) {
+        Ok(x) => x,
+        Err(e) => return McpProbe::fail(e, true),
+    };
+    let latency = t0.elapsed().as_millis() as u64;
+    let si = res.get("serverInfo");
+    let name = si.and_then(|s| s.get("name")).and_then(|x| x.as_str()).map(String::from);
+    let version = si.and_then(|s| s.get("version")).and_then(|x| x.as_str()).map(String::from);
+    let protocol = res.get("protocolVersion").and_then(|x| x.as_str()).map(String::from);
+
+    let mut tools = Vec::new();
+    if let Ok(tr) = rpc_call_host(host, port, path, "tools/list", json!({}), 2, timeout_ms) {
+        if let Some(arr) = tr.get("tools").and_then(|t| t.as_array()) {
+            for t in arr {
+                tools.push(ToolInfo {
+                    name: t.get("name").and_then(|x| x.as_str()).unwrap_or("?").to_string(),
+                    desc: t.get("description").and_then(|x| x.as_str()).unwrap_or("").chars().take(160).collect(),
+                });
+            }
+        }
+    }
+    McpProbe {
+        mcp_up: true, port_open: true, pid: None, host: Some(host.to_string()),
+        name, version, protocol, tools, latency_ms: latency, error: None,
+    }
+}
+
+// ---------- découverte de pairs command-center sur le LAN ----------
+
+pub struct PeerProbe {
+    pub alive: bool,
+    pub servers: Option<Value>,
+}
+
+/// Sonde /api/state d'un command-center distant (cache de pairs).
+pub fn probe_peer(ip: &str, port: u16) -> PeerProbe {
+    let body = http_post_host(ip, port, "/api/state", "", 1200);
+    match body {
+        Ok(bytes) => {
+            // /api/state répond à tout POST : valider que c'est du JSON avec "servers"
+            match serde_json::from_slice::<Value>(&bytes) {
+                Ok(v) if v.get("servers").is_some() && v.get("stats").is_some() => {
+                    PeerProbe { alive: true, servers: Some(v) }
+                }
+                _ => PeerProbe { alive: false, servers: None },
+            }
+        }
+        Err(_) => PeerProbe { alive: false, servers: None },
+    }
+}
+
+/// IPs voisines depuis le cache ARP local (Windows: arp -a, Linux/mac: arp -a).
+/// Filtrées sur le /24 demandé, sans self.
+pub fn arp_hosts(prefix: &str, self_ip: &str) -> Vec<String> {
+    let out = Command::new("arp").arg("-a").output();
+    let stdout = match out {
+        Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
+        Err(_) => return Vec::new(),
+    };
+    let mut ips = std::collections::BTreeSet::new();
+    for line in stdout.lines() {
+        for tok in line.split_whitespace() {
+            let tok = tok.trim_matches(|c| c == '(' || c == ')');
+            if looks_like_ip(tok) && tok.starts_with(prefix) && tok != self_ip {
+                // écarter réseau (x.x.x.0) et broadcast (x.x.x.255)
+                if tok.rsplit_once('.').map(|(_, last)| last == "0" || last == "255").unwrap_or(true) {
+                    continue;
+                }
+                ips.insert(tok.to_string());
+            }
+        }
+    }
+    ips.into_iter().collect()
+}
+
+fn looks_like_ip(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('.').collect();
+    if parts.len() != 4 { return false; }
+    parts.iter().all(|p| !p.is_empty() && p.len() <= 3 && p.chars().all(|c| c.is_ascii_digit())
+        && p.parse::<u8>().is_ok())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,6 +559,46 @@ mod tests {
         let p = probe_http(port, "/mcp", 3000);
         assert!(!p.mcp_up, "un serveur non-MCP ne doit pas etre UP");
         assert!(p.error.is_some());
+    }
+
+    #[test]
+    fn probe_peer_accepte_le_format_api_state() {
+        // contrat : un command-center distant répond /api/state avec "servers" + "stats"
+        let corps = r#"{"servers":[{"id":"seed-overmind","label":"Overmind","transport":"http","transport_info":{"host":null,"port":3099,"path":"/mcp"},"enabled":true,"state":"UP","server_name":"OverMind-MCP","version":"3.10.5","tools_count":16}],"log":[],"stats":{"up":4,"total":7,"tools":59},"settings":{"refresh_secs":15}}"#;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let corps = corps.to_string();
+        thread::spawn(move || {
+            if let Ok((mut s, _)) = listener.accept() {
+                let mut buf = [0u8; 8192];
+                let _ = s.read(&mut buf);
+                let resp = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", corps.len(), corps);
+                let _ = s.write_all(resp.as_bytes());
+            }
+        });
+        let pr = probe_peer("127.0.0.1", port);
+        assert!(pr.alive, "un command-center doit être détecté comme pair");
+        let servers = pr.servers.expect("servers doit être présent");
+        assert_eq!(servers["stats"]["total"], serde_json::json!(7));
+        assert_eq!(servers["servers"][0]["server_name"], serde_json::json!("OverMind-MCP"));
+    }
+
+    #[test]
+    fn probe_peer_rejete_un_serveur_qui_ne_est_pas_un_command_center() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        thread::spawn(move || {
+            if let Ok((mut s, _)) = listener.accept() {
+                let mut buf = [0u8; 8192];
+                let _ = s.read(&mut buf);
+                let body = b"Use /health";
+                let resp = format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), String::from_utf8_lossy(body));
+                let _ = s.write_all(resp.as_bytes());
+            }
+        });
+        let pr = probe_peer("127.0.0.1", port);
+        assert!(!pr.alive, "un non-command-center ne doit pas être un pair");
+        assert!(pr.servers.is_none());
     }
 
     #[test]
