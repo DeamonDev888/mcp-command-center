@@ -1,3 +1,12 @@
+## [0.4.1] — ON/OFF = vrai interrupteur
+
+### Backend
+- toggle OFF tue le process lancé par le command center (stdio ou HTTP) et libère le pid — avant, désactiver un serveur UP laissait son process tourner.
+- toggle ON démarre/sonde immédiatement (poll_one) au lieu d'attendre le cycle suivant.
+
+### UI
+- Switch ON/OFF sur chaque ligne de l'explorateur (en plus du bouton Activer/Désactiver du détail).
+
 ## [0.4.0] — Le command center lance aussi les MCP HTTP/HTTPS
 
 ### Backend

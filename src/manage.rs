@@ -751,7 +751,25 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                         }
                     };
                     save_config(state);
+                    if !now_enabled {
+                        // OFF réel : tuer le process lancé par le command center (stdio ou HTTP)
+                        let mut children = lockv(&state.children);
+                        if let Some(h) = children.get_mut(&id) {
+                            let _ = h.child.kill();
+                            let _ = h.child.wait();
+                        }
+                        children.remove(&id);
+                        drop(children);
+                        let mut servers = lockv(&state.servers);
+                        if let Some(s) = servers.iter_mut().find(|s| s.id == id) {
+                            s.pid = None;
+                        }
+                    }
                     add_log(state, "info", &format!("[{}] {}", id, if now_enabled { "activé" } else { "désactivé" }));
+                    if now_enabled {
+                        // ON réel : démarrer/sonder immédiatement si une commande de lancement existe
+                        poll_one(state, &id);
+                    }
                     json!({"ok": true, "enabled": now_enabled})
                 }
                 "refresh" => { poll_one(state, &id); json!({"ok": true}) }

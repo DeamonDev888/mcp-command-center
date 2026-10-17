@@ -66,6 +66,11 @@ button:disabled{opacity:.35;cursor:not-allowed}
   padding:0 6px;font-size:9px;line-height:15px;min-width:20px;flex-shrink:0}
 .rowbtn:hover{color:var(--accent);border-color:var(--accent);background:var(--hover)}
 .srow.off .rowbtn{opacity:.5}
+.sw{min-width:34px;text-align:center;font:9px var(--mono);font-weight:600;border-radius:9px;padding:1px 6px;flex-shrink:0}
+.sw.on{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08)}
+.sw.on:hover{border-color:var(--bad);color:var(--bad);background:rgba(231,94,120,.06)}
+.sw.off{color:var(--t4);border-color:var(--border);text-decoration:line-through}
+.sw.off:hover{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08);text-decoration:none}
 .srow .l2{display:flex;align-items:center;gap:6px;margin-top:2px;padding-left:18px;
   font:10.5px var(--mono);color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .srow .l2 .st{font-weight:600}
@@ -289,10 +294,14 @@ function renderServers() {
       : 'stdio &middot; ' + esc(s.transport_info.program);
     const off = s.tools_disabled.length ? ` &middot; ${s.tools_disabled.length} off` : '';
     return `<div class="srow ${selectedId===s.id?'sel':''} ${s.enabled?'':'off'}" onclick="select('${esc(s.id)}')">
-      <div class="l1"><span class="dot ${s.state}"></span><span class="nm">${esc(s.label)}</span>${s.transport==='stdio'?'<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>':''}<span class="cnt">${s.tools_count}</span>${rowCtl(s)}</div>
+      <div class="l1"><span class="dot ${s.state}"></span><span class="nm">${esc(s.label)}</span>${s.transport==='stdio'?'<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>':''}<span class="cnt">${s.tools_count}</span>${rowToggle(s)}${rowCtl(s)}</div>
       <div class="l2"><span class="st ${s.state}">${s.state}</span> ${ti}${off}</div>
     </div>`;
   }).join('');
+}
+
+function rowToggle(s) {
+  return `<button class="sw ${s.enabled?'on':'off'}" title="${s.enabled?'D\u00e9sactiver ce serveur (arr\u00eate son process)':'Activer ce serveur (le d\u00e9marre si commande connue)'}" onclick="event.stopPropagation();act('toggle','${esc(s.id)}')">${s.enabled?'ON':'OFF'}</button>`;
 }
 
 function rowCtl(s) {
