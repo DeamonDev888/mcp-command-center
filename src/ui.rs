@@ -60,6 +60,12 @@ button:disabled{opacity:.35;cursor:not-allowed}
 .srow .l1{display:flex;align-items:center;gap:8px;min-width:0}
 .srow .l1 .nm{flex:1;font-size:12.5px;font-weight:500;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .srow .l1 .cnt{font:10px var(--mono);color:var(--t4)}
+.legacy{font:9px var(--mono);text-transform:uppercase;letter-spacing:.4px;color:var(--t4);
+  border:1px dashed var(--border);border-radius:4px;padding:0 5px;white-space:nowrap;flex-shrink:0}
+.rowbtn{background:none;border:1px solid var(--border);border-radius:5px;color:var(--t3);
+  padding:0 6px;font-size:9px;line-height:15px;min-width:20px;flex-shrink:0}
+.rowbtn:hover{color:var(--accent);border-color:var(--accent);background:var(--hover)}
+.srow.off .rowbtn{opacity:.5}
 .srow .l2{display:flex;align-items:center;gap:6px;margin-top:2px;padding-left:18px;
   font:10.5px var(--mono);color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .srow .l2 .st{font-weight:600}
@@ -275,10 +281,16 @@ function renderServers() {
       : 'stdio &middot; ' + esc(s.transport_info.program);
     const off = s.tools_disabled.length ? ` &middot; ${s.tools_disabled.length} off` : '';
     return `<div class="srow ${selectedId===s.id?'sel':''} ${s.enabled?'':'off'}" onclick="select('${esc(s.id)}')">
-      <div class="l1"><span class="dot ${s.state}"></span><span class="nm">${esc(s.label)}</span><span class="cnt">${s.tools_count}</span></div>
+      <div class="l1"><span class="dot ${s.state}"></span><span class="nm">${esc(s.label)}</span>${s.transport==='stdio'?'<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>':''}<span class="cnt">${s.tools_count}</span>${rowCtl(s)}</div>
       <div class="l2"><span class="st ${s.state}">${s.state}</span> ${ti}${off}</div>
     </div>`;
   }).join('');
+}
+
+function rowCtl(s) {
+  if (s.transport !== 'stdio') return '';
+  const up = s.state === 'UP';
+  return `<button class="rowbtn" title="${up?'Arr\u00eater':'D\u00e9marrer'} ce serveur" onclick="event.stopPropagation();act('${up?'kill_stdio':'start_stdio'}','${esc(s.id)}')">${up?'\u25a0':'\u25b6'}</button>`;
 }
 
 function renderPeers() {
@@ -356,6 +368,7 @@ function renderDetail() {
       <span class="dot ${s.state}" style="width:10px;height:10px"></span>
       <h1>${esc(s.label)}</h1>
       <span class="pill ${s.state}">${s.state}</span>
+      ${s.transport === 'stdio' ? '<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>' : ''}
       <span class="sub">${s.server_name ? esc(s.server_name) + ' v' + esc(s.version || '?') : ''}${s.latency_ms != null ? ' &middot; ' + s.latency_ms + ' ms' : ''}</span>
       <div class="d-actions">
         ${s.transport === 'stdio' && s.state !== 'UP' ? `<button class="primary" onclick="act('start_stdio','${esc(s.id)}')">&#9654; Start</button>` : ''}

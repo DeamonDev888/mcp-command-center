@@ -1,3 +1,13 @@
+## [0.3.1] — Start/Stop stdio + badge « désuet »
+
+### UI
+- Bouton Start/Stop directement sur chaque ligne stdio de l'explorateur (▶/■) en plus de la vue détail.
+- Badge « désuet » (legacy) sur les serveurs stdio uniquement (explorateur + détail) : pas de transport HTTP.
+
+### Corrigé
+- start_stdio ne faisait rien sur un serveur désactivé (poll_one sort sur !enabled) — il réactive désormais le serveur, reconstruit start_cmd et persiste.
+- kill_stdio laissait un pid fantôme affiché — pid mis à None et état Down immédiatement.
+
 ## [0.3.0] — Refonte frontend « explorateur »
 
 ### UI

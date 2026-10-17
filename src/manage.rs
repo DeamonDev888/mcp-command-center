@@ -677,15 +677,35 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                 "start_stdio" => {
                     {
                         let mut servers = lockv(&state.servers);
-                        if let Some(s) = servers.iter_mut().find(|s| s.id == id) { s.auto_restart = true; }
+                        match servers.iter_mut().find(|s| s.id == id) {
+                            Some(s) => {
+                                // Start explicite : réactive le serveur même désactivé
+                                // (sinon poll_one sort sur !enabled et le bouton ne fait rien)
+                                if !s.enabled {
+                                    s.enabled = true;
+                                    s.state = SState::Down;
+                                }
+                                if s.start_cmd.is_none() {
+                                    s.start_cmd = start_cmd_for(s);
+                                }
+                                s.auto_restart = true;
+                            }
+                            None => return json!({"ok": false, "error": "serveur inconnu"}),
+                        }
                     }
+                    save_config(state);
                     poll_one(state, &id);
                     json!({"ok": true})
                 }
                 "kill_stdio" => {
                     {
                         let mut servers = lockv(&state.servers);
-                        if let Some(s) = servers.iter_mut().find(|s| s.id == id) { s.auto_restart = false; }
+                        if let Some(s) = servers.iter_mut().find(|s| s.id == id) {
+                            s.auto_restart = false;
+                            // feedback immédiat : sinon le pid fantôme reste affiché
+                            s.pid = None;
+                            s.state = SState::Down;
+                        }
                     }
                     let mut children = lockv(&state.children);
                     if let Some(h) = children.get_mut(&id) {
