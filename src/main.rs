@@ -10,6 +10,16 @@ use std::thread;
 use std::time::Duration;
 use crate::types::{lockv, AppState};
 
+/// Ouvre l'URL dans le navigateur par défaut (best-effort, jamais bloquant).
+fn open_browser(url: &str) {
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn();
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(url).spawn();
+    #[cfg(target_os = "linux")]
+    let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+}
+
 fn main() {
     let config_path = manage::resolve_config_path(
         env!("CARGO_MANIFEST_DIR"),
@@ -46,8 +56,15 @@ fn main() {
         st.ui_port = ui_port;
     }
     let ui_host = if ui_bind == "0.0.0.0" { "<ip-lan>".to_string() } else { ui_bind.clone() };
-    println!("[UI] http://{}:{}  (Ctrl+C pour arrêter)", ui_host, ui_port);
+    let ui_url_host = if ui_bind == "0.0.0.0" { "127.0.0.1".to_string() } else { ui_bind.clone() };
+    let ui_url = format!("http://{}:{}", ui_url_host, ui_port);
+    println!("[UI] {}  (Ctrl+C pour arrêter)", ui_url);
     manage::add_log(&state, "info", &format!("UI prête sur http://{}:{} (bind {})", ui_host, ui_port, ui_bind));
+    // ouvre le navigateur par défaut (désactivable via MCC_NO_BROWSER=1)
+    if std::env::var("MCC_NO_BROWSER").as_deref() != Ok("1") {
+        open_browser(&ui_url);
+        manage::add_log(&state, "info", &format!("navigateur ouvert sur {}", ui_url));
+    }
 
     // poller : première passe immédiate, ensuite refresh_secs
     {

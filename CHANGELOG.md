@@ -1,3 +1,10 @@
+## [0.4.3] — L'app s'ouvre (navigateur auto au démarrage)
+
+### Corrigé (UX bloquant)
+- Double-cliquer l'exe ne montrait rien : serveur console silencieux, rien n'ouvrait la UI.
+- Au démarrage, le navigateur par défaut s'ouvre automatiquement sur http://127.0.0.1:<port> (le port réel après fallback). Désactivable avec MCC_NO_BROWSER=1.
+- L'URL ouverte pointe sur 127.0.0.1 même en bind 0.0.0.0.
+
 ## [0.4.2] — Persistance réparée sur la release distribuée
 
 ### Corrigé (bloquant)
