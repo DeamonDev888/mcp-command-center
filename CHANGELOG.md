@@ -3,6 +3,12 @@
 Tous les changements notables de ce projet sont documentés ici.
 Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [0.2.1] - 2026-10-16
+
+### Fixed
+
+- Sémantique d'états : un serveur éteint (port fermé) repasse à `DOWN` au lieu de `PORT-ONLY` — l'état `PORT-ONLY` est désormais réservé au port occupé sans MCP (zombie), comme documenté.
+
 ## [0.2.0] - 2026-10-16
 
 ### Added

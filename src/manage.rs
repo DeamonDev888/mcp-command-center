@@ -248,7 +248,8 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                     }
                 } else {
                     let was_up = srv.state == SState::Up;
-                    srv.state = SState::PortOnly;
+                    // port fermé = DOWN ; port ouvert sans MCP = PORT-ONLY (zombie)
+                    srv.state = if res.port_open { SState::PortOnly } else { SState::Down };
                     srv.last_error = res.error.clone();
                     srv.latency_ms = None;
                     if was_up {

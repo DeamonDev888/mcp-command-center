@@ -93,7 +93,7 @@ h4.sec{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:1
   <span class="badge ok">UP <b id="stUp">0</b>/<b id="stTotal">0</b></span>
   <span class="badge">tools <b id="stTools">0</b></span>
   <span class="badge">refresh <b id="stRefresh">15</b>s</span>
-  <span class="badge">v0.2.0 &mdash; LAN &amp; tools ON/OFF</span>
+  <span class="badge">v0.2.1 &mdash; LAN &amp; tools ON/OFF</span>
 </header>
 
 <div class="toolbar">
