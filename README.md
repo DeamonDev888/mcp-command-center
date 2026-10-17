@@ -24,7 +24,7 @@ start-command-center.bat
 | Détection stdio | spawn + handshake JSON-RPC ligne-par-ligne sur stdin/stdout, liste les tools, maintient le process |
 | Découverte auto | scan de plage de ports au boot (3000-3200 par défaut) + à la demande — tout port qui répond `initialize` avec un `serverInfo` est ajouté |
 | 3 états | `UP` (MCP répond), `PORT-ONLY` (port bound mais pas de MCP = zombie), `DOWN` — le piège classique du moniteur binaire |
-| Pilote stdio | Start/Stop manuels + auto-restart au boot et au crash (configuré par flag `auto_restart`) |
+| Pilote Start/Stop | lance/arrête les serveurs stdio **et** les HTTP/HTTPS avec commande de lancement (auto-restart au boot/crash par flag `auto_restart`) |
 | Persistance | `config.json` (serveurs + réglages), rechargé et re-sondé au démarrage |
 | UI web | embarquée dans le binaire : cartes par serveur, état, latence, host de bind, version, protocole, liste des tools, journal temps réel |
 
@@ -44,12 +44,28 @@ start-command-center.bat
 
 + tout ce qui est ajouté/manuellement ou découvert par scan (persisté dans `config.json`).
 
+## Couches réseau par stack
+
+Le command center (colonne Rust std) parle HTTP/1.1 **à la main** : `TcpStream` brut + parseur de
+réponses maison (Content-Length + chunked), pas de dépendance réseau. Vue comparée :
+
+| Couche | Rust std | Node (TS serveur) | Navigateur | Python |
+|---|---|---|---|---|
+| TCP brut | `TcpStream` | `node:net` | ✗ interdit | `socket` |
+| TLS | ✗ → rustls | ✅ `node:tls` | ✅ intégré | ✅ `ssl` |
+| HTTP/1.1 | à la main | ✅ `node:http` | `fetch` | ✅ `http.client` |
+| SSE | à la main | ✅ réponse chunked | ✅ `EventSource` | à la main (`http.client`) → `httpx`/`aiohttp-sse` |
+| WebSocket | `tungstenite` | package `ws` | ✅ natif | `websockets` / `websocket-client` (externes) |
+| HTTP/2 | `h2` | ✅ `node:http2` | `fetch` (négocié) | `httpx[h2]` (h2/hyper, externe) |
+| HTTP/3 / QUIC | `quinn` | ✗ core (crates externes) | WebTransport (partiel) | `aioquic` (externe) |
+| Async | Future sans exécuteur | ✅ event loop native | ✅ native | `asyncio` (stdlib) |
+
 ## API (pour scripts)
 
 ```
 GET  /api/state                 état complet + journal
 GET  /api/detail?id=<id>        détail d'un serveur (liste tools complète)
-POST /api/action                {"action":"refresh|toggle|scan|add|remove|start_stdio|kill_stdio", ...}
+POST /api/action                {"action":"refresh|toggle|scan|add|remove|start|kill|start_stdio|kill_stdio", ...}
 ```
 
 Exemples :
@@ -67,8 +83,7 @@ curl -X POST -H "Content-Type: application/json" \
 `examples/test-stdio-server.js` et `examples/test-http-server.js` : deux serveurs MCP factices
 (zéro dépendance node) pour tester stdio et découverte HTTP sans toucher aux vrais serveurs.
 
-## Limites connues (v0.1)
+## Limites connues
 
 - Découverte = probe `/mcp` sur chaque port ouvert (pas de mDNS/DNS-SD, pas de SSDP).
-- Le scan sonde séquentiellement avec timeout 150 ms/port → une plage 3000-3200 prend ~25-60 s.
 - `config.json` vit dans le dossier du projet (chemin figé à la compilation via `CARGO_MANIFEST_DIR`).
