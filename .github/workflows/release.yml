@@ -44,13 +44,13 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Tests
-        run: cargo test --release
+        run: cargo test --release -p mcp-command-center
 
       - name: Clippy (strict)
-        run: cargo clippy --release -- -D warnings
+        run: cargo clippy --release -p mcp-command-center -- -D warnings
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release -p mcp-command-center --target ${{ matrix.target }}
 
       - name: Collecter le binaire
         shell: bash
@@ -69,8 +69,37 @@ jobs:
           path: ${{ env.FILE }}
           if-no-files-found: error
 
+  desktop:
+    name: desktop (fenêtre native Tauri)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop-windows
+
+      - name: Build (Tauri / WebView2)
+        run: cargo build --release -p mcp-command-center-desktop --target x86_64-pc-windows-msvc
+
+      - name: Collecter le binaire
+        shell: bash
+        run: |
+          cp "target/x86_64-pc-windows-msvc/release/mcp-command-center-desktop.exe" "mcp-command-center-desktop-windows-x86_64.exe"
+          echo "FILE=mcp-command-center-desktop-windows-x86_64.exe" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcp-command-center-desktop-windows-x86_64
+          path: ${{ env.FILE }}
+          if-no-files-found: error
+
   release:
-    needs: build
+    needs: [build, desktop]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:

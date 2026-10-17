@@ -1,10 +1,22 @@
+[workspace]
+resolver = "2"
+members = [".", "desktop"]
+
 [package]
 name = "mcp-command-center"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2021"
 
 [dependencies]
 serde_json = "1"
+
+[[bin]]
+name = "mcp-command-center"
+path = "src/main.rs"
+
+[lib]
+name = "mcp_command_center"
+path = "src/lib.rs"
 
 [profile.release]
 opt-level = 2

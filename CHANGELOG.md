@@ -1,3 +1,17 @@
+## [0.6.0] — App NATIVE (Tauri) + CLI headless
+
+### Architecture
+- Workspace cargo : `mcp-command-center` (core headless, lib + bin) + `mcp-command-center-desktop` (Tauri 2).
+- Le core devient une LIBRAIRIE : tout le moteur (config, probes, polling, HTTP, boutique) est dans `src/lib.rs` ; `run_headless()` démarre tout et retourne l'URL, `park_forever()` bloque.
+- `mcp-command-center.exe` = CLI **100 % headless** : plus AUCUNE ouverture de navigateur/fenêtre. Sortie console : URL + endpoints. (Le mode --app Edge/Chrome est supprimé.)
+- `mcp-command-center-desktop.exe` = **vraie fenêtre native OS** : Tauri 2 + WebView2 système (déjà fourni par Windows 11), exe autonome 9 MB, `windows_subsystem = "windows"` (aucune console). Le moteur tourne dans le process, la fenêtre navigue vers l'URL locale.
+- Lanceurs : `start-command-center.bat` → fenêtre native ; `start-headless.bat` → CLI.
+
+### CI
+- Jobs core scopés sur `-p mcp-command-center` (le desktop ne compile pas sur ubuntu sans webkit2gtk).
+- Nouveau job `desktop` (windows-latest) : construit la fenêtre native et l'ajoute à la release (`mcp-command-center-desktop-windows-x86_64.exe`).
+- Prérequis MSVC : toolchain `stable-x86_64-pc-windows-msvc` + Build Tools 2022 + WebView2 Runtime (tous présents ici).
+
 ## [0.5.1] — Audit complet + formatage
 
 ### Gates
