@@ -4,7 +4,10 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn now_ts() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 pub fn lockv<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -14,37 +17,66 @@ pub fn lockv<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 #[derive(Clone, Debug)]
 pub enum Transport {
     /// host: None = localhost (sonde ::1 puis 127.0.0.1) ; Some(ip) = hôte du réseau local
-    Http { host: Option<String>, port: u16, path: String },
-    Stdio { program: String, args: Vec<String>, workdir: Option<String> },
+    Http {
+        host: Option<String>,
+        port: u16,
+        path: String,
+    },
+    Stdio {
+        program: String,
+        args: Vec<String>,
+        workdir: Option<String>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Origin { Seed, Manual, Discovered }
+pub enum Origin {
+    Seed,
+    Manual,
+    Discovered,
+}
 
 impl Origin {
     pub fn as_str(&self) -> &'static str {
-        match self { Origin::Seed => "seed", Origin::Manual => "manual", Origin::Discovered => "discovered" }
+        match self {
+            Origin::Seed => "seed",
+            Origin::Manual => "manual",
+            Origin::Discovered => "discovered",
+        }
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum SState { Down, PortOnly, Up, Disabled }
+pub enum SState {
+    Down,
+    PortOnly,
+    Up,
+    Disabled,
+}
 
 impl SState {
     pub fn as_str(&self) -> &'static str {
         match self {
-            SState::Down => "DOWN", SState::PortOnly => "PORT-ONLY", SState::Up => "UP",
+            SState::Down => "DOWN",
+            SState::PortOnly => "PORT-ONLY",
+            SState::Up => "UP",
             SState::Disabled => "DISABLED",
         }
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct ToolInfo { pub name: String, pub desc: String }
-
+pub struct ToolInfo {
+    pub name: String,
+    pub desc: String,
+}
 
 #[derive(Clone, Debug)]
-pub struct StartCmd { pub program: String, pub args: Vec<String>, pub workdir: Option<String> }
+pub struct StartCmd {
+    pub program: String,
+    pub args: Vec<String>,
+    pub workdir: Option<String>,
+}
 
 #[derive(Clone, Debug)]
 pub struct Server {
@@ -70,7 +102,11 @@ pub struct Server {
 }
 
 #[derive(Clone, Debug)]
-pub struct LogEntry { pub ts: u64, pub level: String, pub msg: String }
+pub struct LogEntry {
+    pub ts: u64,
+    pub level: String,
+    pub msg: String,
+}
 
 #[derive(Clone, Debug)]
 pub struct Settings {

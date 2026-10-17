@@ -87,3 +87,33 @@ curl -X POST -H "Content-Type: application/json" \
 
 - Découverte = probe `/mcp` sur chaque port ouvert (pas de mDNS/DNS-SD, pas de SSDP).
 - `config.json` vit dans le dossier du projet (chemin figé à la compilation via `CARGO_MANIFEST_DIR`).
+## Feuille de route (audit v0.5.1)
+
+### À construire
+| # | Item | Priorité |
+|---|---|---|
+| 1 | Auth token sur l'API (/api/* quand bind 0.0.0.0) | P0 |
+| 2 | Export/Import complet de config (partage entre machines) | P1 |
+| 3 | tools/call depuis l'UI (exécuter un tool et voir le résultat) | P1 |
+| 4 | WebSocket/SSE live (remplace le polling 5 s) | P1 |
+| 5 | persistance des serveurs découverts (opt-in) | P2 |
+| 6 | Mode service Windows (démarrage auto, pas de console) | P2 |
+| 7 | Vrai shell Electron/Tauri (alternative au mode --app) | P2 |
+| 8 | tools/call + ressources/prompts MCP (au-delà des tools) | P2 |
+| 9 | Historique des états (grafana-like) | P3 |
+| 10 | i18n EN | P3 |
+
+### À optimiser
+| # | Item | Gain |
+|---|---|---|
+| 1 | scan_ports parallélisé (actuellement ~6 s/200 ports en séquentiel 150 ms/port) | x10 |
+| 2 | Mutex globaux → granulaires (contension sous scans + polls simultanés) | réactivité |
+| 3 | Cache tool list (re-sonder seulement si ETag/hash change) | réseau |
+| 4 | Timeout handshake stdio configurable par serveur | UX |
+| 5 | Connection pooling HTTP (réutiliser les sockets du poll) | latence |
+
+### Sécurité (avant tout usage hors machine perso)
+- L'API n'a AUCUNE auth : quiconque sur le LAN peut piloter tes serveurs (bind 0.0.0.0 par défaut, requis pour les pairs). P0 avant distribution.
+- Pas de rate-limit sur /api/action (spam possible).
+-Les installs boutique exécutent npx/uvx sans sandbox.
+

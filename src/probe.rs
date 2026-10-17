@@ -1,9 +1,9 @@
+use crate::types::ToolInfo;
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::time::{Duration, Instant};
-use crate::types::ToolInfo;
 
 pub struct McpProbe {
     pub mcp_up: bool,
@@ -22,8 +22,16 @@ pub struct McpProbe {
 impl McpProbe {
     pub fn fail(err: String, port_open: bool) -> McpProbe {
         McpProbe {
-            mcp_up: false, port_open, pid: None, host: None, name: None, version: None,
-            protocol: None, tools: vec![], latency_ms: 0, error: Some(err),
+            mcp_up: false,
+            port_open,
+            pid: None,
+            host: None,
+            name: None,
+            version: None,
+            protocol: None,
+            tools: vec![],
+            latency_ms: 0,
+            error: Some(err),
         }
     }
 }
@@ -41,7 +49,9 @@ fn resolve_windows_cmd(program: &str) -> String {
     if !program.contains('.') {
         let path_var = std::env::var("PATH").unwrap_or_default();
         for dir in path_var.split(';') {
-            if dir.is_empty() { continue; }
+            if dir.is_empty() {
+                continue;
+            }
             let cand = std::path::Path::new(dir).join(format!("{}.cmd", program));
             if cand.exists() {
                 return cand.to_string_lossy().to_string();
@@ -55,29 +65,44 @@ fn resolve_windows_cmd(program: &str) -> String {
 /// JSON-RPC : le probe HTTP classique fera le handshake. stdout/stderr nullés
 /// (pas de pipe = pas de risque de blocage buffer plein).
 pub fn spawn_process(
-    program: &str, args: &[String], workdir: Option<&str>,
+    program: &str,
+    args: &[String],
+    workdir: Option<&str>,
 ) -> Result<StdioHandle, String> {
     let program = resolve_windows_cmd(program);
     let mut cmd = Command::new(&program);
-    cmd.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    cmd.args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    if let Some(wd) = workdir { cmd.current_dir(wd); }
-    let child = cmd.spawn().map_err(|e| format!("spawn {}: {}", program, e))?;
+    if let Some(wd) = workdir {
+        cmd.current_dir(wd);
+    }
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("spawn {}: {}", program, e))?;
     Ok(StdioHandle { child, stdin: None })
 }
 
 fn find_sub(hay: &[u8], needle: &[u8]) -> Option<usize> {
-    if needle.len() > hay.len() { return None; }
+    if needle.len() > hay.len() {
+        return None;
+    }
     hay.windows(needle.len()).position(|w| w == needle)
 }
 
 pub fn socket_addr(host: &str, port: u16) -> Result<SocketAddr, std::net::AddrParseError> {
     // crochets uniquement pour IPv6 ("[::1]:p") ; "127.0.0.1:p" tel quel
-    let s = if host.contains(':') { format!("[{}]:{}", host, port) } else { format!("{}:{}", host, port) };
+    let s = if host.contains(':') {
+        format!("[{}]:{}", host, port)
+    } else {
+        format!("{}:{}", host, port)
+    };
     s.parse()
 }
 
@@ -90,7 +115,12 @@ pub fn port_open(host: &str, port: u16, timeout: Duration) -> bool {
 
 /// POST JSON vers localhost (essaye ::1 puis 127.0.0.1), lit toute la réponse (gère chunked).
 /// Renvoie (host_utilisé, corps).
-pub fn http_post(port: u16, path: &str, body: &str, timeout_ms: u64) -> Result<(String, Vec<u8>), String> {
+pub fn http_post(
+    port: u16,
+    path: &str,
+    body: &str,
+    timeout_ms: u64,
+) -> Result<(String, Vec<u8>), String> {
     let mut last_err = String::new();
     for host in ["::1", "127.0.0.1"] {
         match http_post_host(host, port, path, body, timeout_ms) {
@@ -102,7 +132,13 @@ pub fn http_post(port: u16, path: &str, body: &str, timeout_ms: u64) -> Result<(
 }
 
 /// POST JSON vers un hôte précis (localhost OU hôte du réseau local).
-pub fn http_post_host(host: &str, port: u16, path: &str, body: &str, timeout_ms: u64) -> Result<Vec<u8>, String> {
+pub fn http_post_host(
+    host: &str,
+    port: u16,
+    path: &str,
+    body: &str,
+    timeout_ms: u64,
+) -> Result<Vec<u8>, String> {
     let timeout = Duration::from_millis(timeout_ms);
     let mut last_err = String::new();
     {
@@ -129,12 +165,15 @@ pub fn http_post_host(host: &str, port: u16, path: &str, body: &str, timeout_ms:
                 let mut status_ok = false;
                 loop {
                     let remain = deadline.saturating_duration_since(Instant::now());
-                    if remain.is_zero() { break; }
+                    if remain.is_zero() {
+                        break;
+                    }
                     if header_len.is_none() {
                         if let Some(p) = find_sub(&data, b"\r\n\r\n") {
                             header_len = Some(p + 4);
                             let head = String::from_utf8_lossy(&data[..p]).to_lowercase();
-                            status_ok = head.starts_with("http/1.1 2") || head.starts_with("http/1.0 2");
+                            status_ok =
+                                head.starts_with("http/1.1 2") || head.starts_with("http/1.0 2");
                         }
                     }
                     if let Some(hl) = header_len {
@@ -142,30 +181,41 @@ pub fn http_post_host(host: &str, port: u16, path: &str, body: &str, timeout_ms:
                         let body_bytes = &data[hl..];
                         let complete = if head.contains("transfer-encoding: chunked") {
                             find_sub(body_bytes, b"\r\n0\r\n").is_some()
-                        } else if let Some(cl) = head.lines()
-                            .find_map(|l| l.strip_prefix("content-length:").map(|v| v.trim().to_string())) {
+                        } else if let Some(cl) = head.lines().find_map(|l| {
+                            l.strip_prefix("content-length:")
+                                .map(|v| v.trim().to_string())
+                        }) {
                             body_bytes.len() >= cl.parse::<usize>().unwrap_or(usize::MAX)
                         } else {
                             false
                         };
-                        if complete { break; }
+                        if complete {
+                            break;
+                        }
                     }
                     stream.set_read_timeout(Some(remain)).ok();
                     match stream.read(&mut tmp) {
                         Ok(0) => break,
                         Ok(n) => data.extend_from_slice(&tmp[..n]),
                         Err(e) => {
-                            if data.is_empty() { last_err = format!("{} read: {}", host, e); }
+                            if data.is_empty() {
+                                last_err = format!("{} read: {}", host, e);
+                            }
                             break;
                         }
                     }
                 }
                 if data.is_empty() {
-                    if last_err.is_empty() { last_err = format!("{}: réponse vide", host); }
+                    if last_err.is_empty() {
+                        last_err = format!("{}: réponse vide", host);
+                    }
                     return Err(last_err);
                 }
                 if header_len.is_some() && !status_ok {
-                    return Err(format!("{}: réponse HTTP non-2xx (port occupé par un non-MCP ?)", host));
+                    return Err(format!(
+                        "{}: réponse HTTP non-2xx (port occupé par un non-MCP ?)",
+                        host
+                    ));
                 }
                 let sep = find_sub(&data, b"\r\n\r\n").unwrap_or(0);
                 let head = String::from_utf8_lossy(&data[..sep]).to_lowercase();
@@ -175,7 +225,9 @@ pub fn http_post_host(host: &str, port: u16, path: &str, body: &str, timeout_ms:
                 }
                 return Ok(body_bytes);
             }
-            Err(e) => { last_err = format!("{}: {}", host, e); }
+            Err(e) => {
+                last_err = format!("{}: {}", host, e);
+            }
         }
     }
     Err(last_err)
@@ -187,11 +239,16 @@ fn dechunk(data: &[u8]) -> Vec<u8> {
     while let Some(p) = find_sub(&data[i..], b"\r\n") {
         let line_end = i + p;
         let size_str = String::from_utf8_lossy(&data[i..line_end]);
-        let size = usize::from_str_radix(size_str.trim().split(';').next().unwrap_or("0"), 16).unwrap_or(0);
-        if size == 0 { break; }
+        let size = usize::from_str_radix(size_str.trim().split(';').next().unwrap_or("0"), 16)
+            .unwrap_or(0);
+        if size == 0 {
+            break;
+        }
         let start = line_end + 2;
         let end = start + size;
-        if end > data.len() { break; }
+        if end > data.len() {
+            break;
+        }
         out.extend_from_slice(&data[start..end]);
         i = end + 2;
     }
@@ -206,16 +263,22 @@ pub fn extract_json(body: &[u8]) -> Option<Value> {
         if let Some(rest) = t.strip_prefix("data:") {
             let rest = rest.trim();
             if let Ok(v) = serde_json::from_str::<Value>(rest) {
-                if v.get("result").is_some() || v.get("error").is_some() { return Some(v); }
+                if v.get("result").is_some() || v.get("error").is_some() {
+                    return Some(v);
+                }
             }
         }
     }
     if let Some(start) = text.find('{') {
-        if let Ok(v) = serde_json::from_str::<Value>(text[start..].trim()) { return Some(v); }
+        if let Ok(v) = serde_json::from_str::<Value>(text[start..].trim()) {
+            return Some(v);
+        }
         for line in text.lines() {
             let t = line.trim();
             if t.starts_with('{') {
-                if let Ok(v) = serde_json::from_str::<Value>(t) { return Some(v); }
+                if let Ok(v) = serde_json::from_str::<Value>(t) {
+                    return Some(v);
+                }
             }
         }
     }
@@ -223,10 +286,18 @@ pub fn extract_json(body: &[u8]) -> Option<Value> {
 }
 
 /// Un appel JSON-RPC HTTP complet (POST + parse).
-pub fn rpc_call(port: u16, path: &str, method: &str, params: Value, id: u64, timeout_ms: u64) -> Result<(Value, String), String> {
+pub fn rpc_call(
+    port: u16,
+    path: &str,
+    method: &str,
+    params: Value,
+    id: u64,
+    timeout_ms: u64,
+) -> Result<(Value, String), String> {
     let body = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string();
     let (host, bytes) = http_post(port, path, &body, timeout_ms)?;
-    let v = extract_json(&bytes).ok_or_else(|| format!("réponse non JSON ({} octets)", bytes.len()))?;
+    let v =
+        extract_json(&bytes).ok_or_else(|| format!("réponse non JSON ({} octets)", bytes.len()))?;
     if let Some(err) = v.get("error") {
         return Err(format!("rpc error: {}", err));
     }
@@ -239,7 +310,10 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
     let quick = Duration::from_millis(timeout_ms.min(1500));
     let open = port_open("::1", port, quick) || port_open("127.0.0.1", port, quick);
     if !open {
-        return McpProbe::fail("port fermé (rien n'écoute sur ::1 ni 127.0.0.1)".to_string(), false);
+        return McpProbe::fail(
+            "port fermé (rien n'écoute sur ::1 ni 127.0.0.1)".to_string(),
+            false,
+        );
     }
     let init_params = json!({
         "protocolVersion": "2024-11-05",
@@ -252,43 +326,81 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
     };
     let latency = t0.elapsed().as_millis() as u64;
     let si = res.get("serverInfo");
-    let name = si.and_then(|s| s.get("name")).and_then(|x| x.as_str()).map(String::from);
-    let version = si.and_then(|s| s.get("version")).and_then(|x| x.as_str()).map(String::from);
-    let protocol = res.get("protocolVersion").and_then(|x| x.as_str()).map(String::from);
+    let name = si
+        .and_then(|s| s.get("name"))
+        .and_then(|x| x.as_str())
+        .map(String::from);
+    let version = si
+        .and_then(|s| s.get("version"))
+        .and_then(|x| x.as_str())
+        .map(String::from);
+    let protocol = res
+        .get("protocolVersion")
+        .and_then(|x| x.as_str())
+        .map(String::from);
 
     let mut tools = Vec::new();
     if let Ok((tr, _)) = rpc_call(port, path, "tools/list", json!({}), 2, timeout_ms) {
         if let Some(arr) = tr.get("tools").and_then(|t| t.as_array()) {
             for t in arr {
                 tools.push(ToolInfo {
-                    name: t.get("name").and_then(|x| x.as_str()).unwrap_or("?").to_string(),
-                    desc: t.get("description").and_then(|x| x.as_str()).unwrap_or("").chars().take(160).collect(),
+                    name: t
+                        .get("name")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("?")
+                        .to_string(),
+                    desc: t
+                        .get("description")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .chars()
+                        .take(160)
+                        .collect(),
                 });
             }
         }
     }
     McpProbe {
-        mcp_up: true, port_open: true, pid: None, host: Some(host),
-        name, version, protocol, tools, latency_ms: latency, error: None,
+        mcp_up: true,
+        port_open: true,
+        pid: None,
+        host: Some(host),
+        name,
+        version,
+        protocol,
+        tools,
+        latency_ms: latency,
+        error: None,
     }
 }
 
 /// Probe/handshake MCP stdio (JSON délimité par nouvelles lignes sur stdin/stdout).
 /// keep_alive=true → ne tue pas le process, renvoie un StdioHandle.
 pub fn probe_stdio(
-    program: &str, args: &[String], workdir: Option<&str>, timeout_ms: u64, keep_alive: bool,
- ) -> Result<(McpProbe, Option<StdioHandle>), String> {
- let t0 = Instant::now();
- let program = resolve_windows_cmd(program);
- let mut cmd = Command::new(&program);
-    cmd.args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+    program: &str,
+    args: &[String],
+    workdir: Option<&str>,
+    timeout_ms: u64,
+    keep_alive: bool,
+) -> Result<(McpProbe, Option<StdioHandle>), String> {
+    let t0 = Instant::now();
+    let program = resolve_windows_cmd(program);
+    let mut cmd = Command::new(&program);
+    cmd.args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    if let Some(wd) = workdir { cmd.current_dir(wd); }
-    let mut child = cmd.spawn().map_err(|e| format!("spawn {}: {}", program, e))?;
+    if let Some(wd) = workdir {
+        cmd.current_dir(wd);
+    }
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("spawn {}: {}", program, e))?;
     let pid = child.id();
     let mut stdin = child.stdin.take().ok_or("stdin indisponible")?;
     let stdout = child.stdout.take().ok_or("stdout indisponible")?;
@@ -299,7 +411,11 @@ pub fn probe_stdio(
         use std::io::BufRead;
         for line in reader.lines() {
             match line {
-                Ok(l) => { if tx.send(l).is_err() { break; } }
+                Ok(l) => {
+                    if tx.send(l).is_err() {
+                        break;
+                    }
+                }
                 Err(_) => break,
             }
         }
@@ -328,13 +444,20 @@ pub fn probe_stdio(
 
     loop {
         let now = Instant::now();
-        if now >= deadline { break; }
+        if now >= deadline {
+            break;
+        }
         let wait = deadline - now;
         match rx.recv_timeout(wait) {
             Ok(line) => {
                 let t = line.trim();
-                if !t.starts_with('{') { continue; } // logs/bruits
-                let v: Value = match serde_json::from_str(t) { Ok(v) => v, Err(_) => continue };
+                if !t.starts_with('{') {
+                    continue;
+                } // logs/bruits
+                let v: Value = match serde_json::from_str(t) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
                 let id = v.get("id").and_then(|x| x.as_u64());
                 if id == Some(1) && !got_init {
                     if let Some(err) = v.get("error") {
@@ -346,18 +469,39 @@ pub fn probe_stdio(
                         name = si.get("name").and_then(|x| x.as_str()).map(String::from);
                         version = si.get("version").and_then(|x| x.as_str()).map(String::from);
                     }
-                    protocol = res.get("protocolVersion").and_then(|x| x.as_str()).map(String::from);
+                    protocol = res
+                        .get("protocolVersion")
+                        .and_then(|x| x.as_str())
+                        .map(String::from);
                     got_init = true;
-                    let _ = writeln!(stdin, "{}", json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
-                    let _ = writeln!(stdin, "{}", json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}));
+                    let _ = writeln!(
+                        stdin,
+                        "{}",
+                        json!({"jsonrpc": "2.0", "method": "notifications/initialized"})
+                    );
+                    let _ = writeln!(
+                        stdin,
+                        "{}",
+                        json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+                    );
                     let _ = stdin.flush();
                 } else if id == Some(2) {
                     if let Some(res) = v.get("result") {
                         if let Some(arr) = res.get("tools").and_then(|x| x.as_array()) {
                             for t in arr {
                                 tools.push(ToolInfo {
-                                    name: t.get("name").and_then(|x| x.as_str()).unwrap_or("?").to_string(),
-                                    desc: t.get("description").and_then(|x| x.as_str()).unwrap_or("").chars().take(160).collect(),
+                                    name: t
+                                        .get("name")
+                                        .and_then(|x| x.as_str())
+                                        .unwrap_or("?")
+                                        .to_string(),
+                                    desc: t
+                                        .get("description")
+                                        .and_then(|x| x.as_str())
+                                        .unwrap_or("")
+                                        .chars()
+                                        .take(160)
+                                        .collect(),
                                 });
                             }
                         }
@@ -373,30 +517,68 @@ pub fn probe_stdio(
     if init_err.is_some() || !got_init {
         let _ = child.kill();
         let _ = child.wait();
-        let msg = init_err.unwrap_or_else(|| format!("timeout {}: pas de réponse initialize en {} ms", program, timeout_ms));
+        let msg = init_err.unwrap_or_else(|| {
+            format!(
+                "timeout {}: pas de réponse initialize en {} ms",
+                program, timeout_ms
+            )
+        });
         return Err(msg);
     }
     if keep_alive {
-        Ok((McpProbe {
-            mcp_up: true, port_open: true, pid: Some(pid), host: None,
-            name, version, protocol, tools, latency_ms: latency, error: None,
-        }, Some(StdioHandle { child, stdin: Some(stdin) })))
+        Ok((
+            McpProbe {
+                mcp_up: true,
+                port_open: true,
+                pid: Some(pid),
+                host: None,
+                name,
+                version,
+                protocol,
+                tools,
+                latency_ms: latency,
+                error: None,
+            },
+            Some(StdioHandle {
+                child,
+                stdin: Some(stdin),
+            }),
+        ))
     } else {
         let _ = child.kill();
         let _ = child.wait();
-        Ok((McpProbe {
-            mcp_up: true, port_open: true, pid: Some(pid), host: None,
-            name, version, protocol, tools, latency_ms: latency, error: None,
-        }, None))
+        Ok((
+            McpProbe {
+                mcp_up: true,
+                port_open: true,
+                pid: Some(pid),
+                host: None,
+                name,
+                version,
+                protocol,
+                tools,
+                latency_ms: latency,
+                error: None,
+            },
+            None,
+        ))
     }
 }
 
-
 /// Un appel JSON-RPC HTTP vers un hôte précis (POST + parse).
-pub fn rpc_call_host(host: &str, port: u16, path: &str, method: &str, params: Value, id: u64, timeout_ms: u64) -> Result<Value, String> {
+pub fn rpc_call_host(
+    host: &str,
+    port: u16,
+    path: &str,
+    method: &str,
+    params: Value,
+    id: u64,
+    timeout_ms: u64,
+) -> Result<Value, String> {
     let body = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string();
     let bytes = http_post_host(host, port, path, &body, timeout_ms)?;
-    let v = extract_json(&bytes).ok_or_else(|| format!("réponse non JSON ({} octets)", bytes.len()))?;
+    let v =
+        extract_json(&bytes).ok_or_else(|| format!("réponse non JSON ({} octets)", bytes.len()))?;
     if let Some(err) = v.get("error") {
         return Err(format!("rpc error: {}", err));
     }
@@ -420,24 +602,51 @@ pub fn probe_http_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> Mc
     };
     let latency = t0.elapsed().as_millis() as u64;
     let si = res.get("serverInfo");
-    let name = si.and_then(|s| s.get("name")).and_then(|x| x.as_str()).map(String::from);
-    let version = si.and_then(|s| s.get("version")).and_then(|x| x.as_str()).map(String::from);
-    let protocol = res.get("protocolVersion").and_then(|x| x.as_str()).map(String::from);
+    let name = si
+        .and_then(|s| s.get("name"))
+        .and_then(|x| x.as_str())
+        .map(String::from);
+    let version = si
+        .and_then(|s| s.get("version"))
+        .and_then(|x| x.as_str())
+        .map(String::from);
+    let protocol = res
+        .get("protocolVersion")
+        .and_then(|x| x.as_str())
+        .map(String::from);
 
     let mut tools = Vec::new();
     if let Ok(tr) = rpc_call_host(host, port, path, "tools/list", json!({}), 2, timeout_ms) {
         if let Some(arr) = tr.get("tools").and_then(|t| t.as_array()) {
             for t in arr {
                 tools.push(ToolInfo {
-                    name: t.get("name").and_then(|x| x.as_str()).unwrap_or("?").to_string(),
-                    desc: t.get("description").and_then(|x| x.as_str()).unwrap_or("").chars().take(160).collect(),
+                    name: t
+                        .get("name")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("?")
+                        .to_string(),
+                    desc: t
+                        .get("description")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .chars()
+                        .take(160)
+                        .collect(),
                 });
             }
         }
     }
     McpProbe {
-        mcp_up: true, port_open: true, pid: None, host: Some(host.to_string()),
-        name, version, protocol, tools, latency_ms: latency, error: None,
+        mcp_up: true,
+        port_open: true,
+        pid: None,
+        host: Some(host.to_string()),
+        name,
+        version,
+        protocol,
+        tools,
+        latency_ms: latency,
+        error: None,
     }
 }
 
@@ -455,13 +664,20 @@ pub fn probe_peer(ip: &str, port: u16) -> PeerProbe {
         Ok(bytes) => {
             // /api/state répond à tout POST : valider que c'est du JSON avec "servers"
             match serde_json::from_slice::<Value>(&bytes) {
-                Ok(v) if v.get("servers").is_some() && v.get("stats").is_some() => {
-                    PeerProbe { alive: true, servers: Some(v) }
-                }
-                _ => PeerProbe { alive: false, servers: None },
+                Ok(v) if v.get("servers").is_some() && v.get("stats").is_some() => PeerProbe {
+                    alive: true,
+                    servers: Some(v),
+                },
+                _ => PeerProbe {
+                    alive: false,
+                    servers: None,
+                },
             }
         }
-        Err(_) => PeerProbe { alive: false, servers: None },
+        Err(_) => PeerProbe {
+            alive: false,
+            servers: None,
+        },
     }
 }
 
@@ -479,7 +695,11 @@ pub fn arp_hosts(prefix: &str, self_ip: &str) -> Vec<String> {
             let tok = tok.trim_matches(|c| c == '(' || c == ')');
             if looks_like_ip(tok) && tok.starts_with(prefix) && tok != self_ip {
                 // écarter réseau (x.x.x.0) et broadcast (x.x.x.255)
-                if tok.rsplit_once('.').map(|(_, last)| last == "0" || last == "255").unwrap_or(true) {
+                if tok
+                    .rsplit_once('.')
+                    .map(|(_, last)| last == "0" || last == "255")
+                    .unwrap_or(true)
+                {
                     continue;
                 }
                 ips.insert(tok.to_string());
@@ -491,9 +711,15 @@ pub fn arp_hosts(prefix: &str, self_ip: &str) -> Vec<String> {
 
 fn looks_like_ip(s: &str) -> bool {
     let parts: Vec<&str> = s.split('.').collect();
-    if parts.len() != 4 { return false; }
-    parts.iter().all(|p| !p.is_empty() && p.len() <= 3 && p.chars().all(|c| c.is_ascii_digit())
-        && p.parse::<u8>().is_ok())
+    if parts.len() != 4 {
+        return false;
+    }
+    parts.iter().all(|p| {
+        !p.is_empty()
+            && p.len() <= 3
+            && p.chars().all(|c| c.is_ascii_digit())
+            && p.parse::<u8>().is_ok()
+    })
 }
 
 #[cfg(test)]
@@ -528,7 +754,8 @@ mod tests {
 
     #[test]
     fn extract_json_depuis_sse() {
-        let body = b": keepalive\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"ok\":true}}\n\n";
+        let body =
+            b": keepalive\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"ok\":true}}\n\n";
         let v = extract_json(body).expect("SSE doit etre parse");
         assert_eq!(v["result"]["ok"], serde_json::json!(true));
     }
@@ -537,7 +764,10 @@ mod tests {
     fn extract_json_depuis_json_brut_et_texte_avant() {
         let v = extract_json(b"{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[]}}").unwrap();
         assert!(v.get("result").is_some());
-        let v2 = extract_json(b"HTTP/1.1 200 OK\r\n\r\n{\"jsonrpc\":\"2.0\",\"id\":3,\"error\":{\"code\":-1}}").unwrap();
+        let v2 = extract_json(
+            b"HTTP/1.1 200 OK\r\n\r\n{\"jsonrpc\":\"2.0\",\"id\":3,\"error\":{\"code\":-1}}",
+        )
+        .unwrap();
         assert!(v2.get("error").is_some());
     }
 
@@ -554,13 +784,24 @@ mod tests {
         thread::spawn(move || {
             let mut pending = responses.into_iter();
             for stream in listener.incoming() {
-                let mut stream = match stream { Ok(s) => s, Err(_) => return };
+                let mut stream = match stream {
+                    Ok(s) => s,
+                    Err(_) => return,
+                };
                 let mut buf = [0u8; 16384];
-                let n = match stream.read(&mut buf) { Ok(n) => n, Err(_) => continue };
+                let n = match stream.read(&mut buf) {
+                    Ok(n) => n,
+                    Err(_) => continue,
+                };
                 let req = String::from_utf8_lossy(&buf[..n]).to_string();
                 // sonde de port (TCP nu, pas de JSON-RPC) : on ferme sans consommer de réponse
-                if !req.contains("\"method\"") { continue; }
-                let payload = match pending.next() { Some(r) => r, None => return };
+                if !req.contains("\"method\"") {
+                    continue;
+                }
+                let payload = match pending.next() {
+                    Some(r) => r,
+                    None => return,
+                };
                 let body = payload.into_bytes();
                 let head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n";
                 let _ = stream.write_all(head.as_bytes());
@@ -585,7 +826,11 @@ mod tests {
         assert_eq!(p.protocol.as_deref(), Some("2024-11-05"));
         assert_eq!(p.tools.len(), 2);
         assert_eq!(p.tools[0].name, "tool_a");
-        assert_eq!(p.host.as_deref(), Some("127.0.0.1"), "fallback ::1 -> 127.0.0.1");
+        assert_eq!(
+            p.host.as_deref(),
+            Some("127.0.0.1"),
+            "fallback ::1 -> 127.0.0.1"
+        );
         assert!(p.latency_ms < 5000);
     }
 
@@ -616,7 +861,10 @@ mod tests {
         assert!(pr.alive, "un command-center doit être détecté comme pair");
         let servers = pr.servers.expect("servers doit être présent");
         assert_eq!(servers["stats"]["total"], serde_json::json!(7));
-        assert_eq!(servers["servers"][0]["server_name"], serde_json::json!("OverMind-MCP"));
+        assert_eq!(
+            servers["servers"][0]["server_name"],
+            serde_json::json!("OverMind-MCP")
+        );
     }
 
     #[test]

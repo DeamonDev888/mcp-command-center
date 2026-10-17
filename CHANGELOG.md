@@ -1,3 +1,13 @@
+## [0.5.1] — Audit complet + formatage
+
+### Gates
+- cargo fmt appliqué (tout le repo formaté, vérifié par fmt --check) + fmt --check ajouté au rituel de release.
+- Corrigé : refresh_secs non clampé (une config avec 0 = busy-loop CPU) → clamp 5..3600.
+- Nettoyé : variable batch morte dans scan_ports.
+
+### Audit — feuille de route
+Voir README (section Feuille de route) pour la liste complète construire/optimiser/sécuriser.
+
 ## [0.5.0] — Fenêtre desktop + Boutique MCP
 
 ### Desktop

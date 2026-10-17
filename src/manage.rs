@@ -1,15 +1,21 @@
+use crate::probe;
+use crate::types::{lockv, AppState, LogEntry, Origin, SState, Server, StartCmd, Transport};
 use serde_json::{json, Map, Value};
 use std::process::Command;
 use std::sync::Arc;
-use crate::types::{lockv, LogEntry, Origin, SState, Server, StartCmd, Transport, AppState};
-use crate::probe;
 
 const MAX_LOG: usize = 400;
 
 pub fn add_log(state: &AppState, level: &str, msg: &str) {
     let mut log = lockv(&state.log);
-    log.push_back(LogEntry { ts: crate::types::now_ts(), level: level.to_string(), msg: msg.to_string() });
-    while log.len() > MAX_LOG { log.pop_front(); }
+    log.push_back(LogEntry {
+        ts: crate::types::now_ts(),
+        level: level.to_string(),
+        msg: msg.to_string(),
+    });
+    while log.len() > MAX_LOG {
+        log.pop_front();
+    }
     println!("[{}] {}", level, msg);
 }
 
@@ -17,13 +23,31 @@ pub fn add_log(state: &AppState, level: &str, msg: &str) {
 
 fn default_servers() -> Vec<Server> {
     let mk = |id: &str, label: &str, port: u16, enabled: bool| Server {
-        id: id.to_string(), label: label.to_string(),
-        transport: Transport::Http { host: None, port, path: "/mcp".to_string() },
-        origin: Origin::Seed, enabled, auto_restart: true,
-        state: if enabled { SState::Down } else { SState::Disabled },
-        pid: None, bound_host: None, server_name: None,
-        version: None, protocol: None, tools: vec![], latency_ms: None,
-        last_seen_ts: None, last_error: None, start_cmd: None,
+        id: id.to_string(),
+        label: label.to_string(),
+        transport: Transport::Http {
+            host: None,
+            port,
+            path: "/mcp".to_string(),
+        },
+        origin: Origin::Seed,
+        enabled,
+        auto_restart: true,
+        state: if enabled {
+            SState::Down
+        } else {
+            SState::Disabled
+        },
+        pid: None,
+        bound_host: None,
+        server_name: None,
+        version: None,
+        protocol: None,
+        tools: vec![],
+        latency_ms: None,
+        last_seen_ts: None,
+        last_error: None,
+        start_cmd: None,
         tools_disabled: vec![],
     };
     vec![
@@ -44,7 +68,9 @@ fn default_servers() -> Vec<Server> {
 ///    du runner CI n'existe pas sur la machine cliente, sinon rien n'est persisté)
 pub fn resolve_config_path(manifest_dir: &str, override_env: Option<String>) -> String {
     if let Some(p) = override_env {
-        if !p.is_empty() { return p; }
+        if !p.is_empty() {
+            return p;
+        }
     }
     let dev_path = std::path::Path::new(manifest_dir).join("config.json");
     if dev_path.exists() {
@@ -60,13 +86,25 @@ pub fn resolve_config_path(manifest_dir: &str, override_env: Option<String>) -> 
 pub fn load_config(path: &str) -> (Vec<Server>, crate::types::Settings) {
     let defaults = default_servers();
     let settings = crate::types::Settings::default();
-    let file = match std::fs::read_to_string(path) { Ok(f) => f, Err(_) => return (defaults, settings) };
-    let v: Value = match serde_json::from_str(&file) { Ok(v) => v, Err(_) => return (defaults, settings) };
+    let file = match std::fs::read_to_string(path) {
+        Ok(f) => f,
+        Err(_) => return (defaults, settings),
+    };
+    let v: Value = match serde_json::from_str(&file) {
+        Ok(v) => v,
+        Err(_) => return (defaults, settings),
+    };
     let mut servers = defaults;
     if let Some(arr) = v.get("servers").and_then(|x| x.as_array()) {
         for s in arr {
-            let id = s.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
-            if id.is_empty() { continue; }
+            let id = s
+                .get("id")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            if id.is_empty() {
+                continue;
+            }
             if let Some(existing) = servers.iter_mut().find(|e| e.id == id) {
                 apply_json(existing, s);
             } else if let Some(mut srv) = from_json(s) {
@@ -78,9 +116,18 @@ pub fn load_config(path: &str) -> (Vec<Server>, crate::types::Settings) {
     // reconstruit start_cmd pour tout serveur stdio (config rechargée -> auto-start au boot)
     for s in servers.iter_mut() {
         if s.start_cmd.is_none() {
-            if let Transport::Stdio { program, args, workdir } = s.transport.clone() {
+            if let Transport::Stdio {
+                program,
+                args,
+                workdir,
+            } = s.transport.clone()
+            {
                 if !program.is_empty() {
-                    s.start_cmd = Some(StartCmd { program, args, workdir });
+                    s.start_cmd = Some(StartCmd {
+                        program,
+                        args,
+                        workdir,
+                    });
                 }
             }
         }
@@ -108,11 +155,21 @@ fn apply_json(srv: &mut Server, s: &Value) {
                 };
             }
         } else if t == "stdio" {
-            let args: Vec<String> = s.get("args").and_then(|x| x.as_array()).map(|a| {
-                a.iter().filter_map(|i| i.as_str().map(String::from)).collect()
-            }).unwrap_or_default();
+            let args: Vec<String> = s
+                .get("args")
+                .and_then(|x| x.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|i| i.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
             srv.transport = Transport::Stdio {
-                program: s.get("program").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                program: s
+                    .get("program")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 args,
                 workdir: s.get("workdir").and_then(|x| x.as_str()).map(String::from),
             };
@@ -124,7 +181,11 @@ fn apply_json(srv: &mut Server, s: &Value) {
             let args: Vec<String> = s
                 .get("args")
                 .and_then(|x| x.as_array())
-                .map(|a| a.iter().filter_map(|i| i.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|i| i.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
             srv.start_cmd = Some(StartCmd {
                 program: program.to_string(),
@@ -133,63 +194,135 @@ fn apply_json(srv: &mut Server, s: &Value) {
             });
         }
     }
-    if let Some(l) = s.get("label").and_then(|x| x.as_str()) { srv.label = l.to_string(); }
+    if let Some(l) = s.get("label").and_then(|x| x.as_str()) {
+        srv.label = l.to_string();
+    }
     if let Some(arr) = s.get("tools_disabled").and_then(|x| x.as_array()) {
-        srv.tools_disabled = arr.iter().filter_map(|i| i.as_str().map(String::from)).collect();
+        srv.tools_disabled = arr
+            .iter()
+            .filter_map(|i| i.as_str().map(String::from))
+            .collect();
     }
 }
 
 fn from_json(s: &Value) -> Option<Server> {
     let id = s.get("id").and_then(|x| x.as_str())?.to_string();
-    let label = s.get("label").and_then(|x| x.as_str()).unwrap_or(&id).to_string();
+    let label = s
+        .get("label")
+        .and_then(|x| x.as_str())
+        .unwrap_or(&id)
+        .to_string();
     let transport = match s.get("transport").and_then(|x| x.as_str()) {
         Some("stdio") => Transport::Stdio {
-            program: s.get("program").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-            args: s.get("args").and_then(|x| x.as_array()).map(|a| {
-                a.iter().filter_map(|i| i.as_str().map(String::from)).collect()
-            }).unwrap_or_default(),
+            program: s
+                .get("program")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+            args: s
+                .get("args")
+                .and_then(|x| x.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|i| i.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default(),
             workdir: s.get("workdir").and_then(|x| x.as_str()).map(String::from),
         },
         _ => Transport::Http {
             host: s.get("host").and_then(|x| x.as_str()).map(String::from),
             port: s.get("port").and_then(|x| x.as_u64())? as u16,
-            path: s.get("path").and_then(|x| x.as_str()).unwrap_or("/mcp").to_string(),
+            path: s
+                .get("path")
+                .and_then(|x| x.as_str())
+                .unwrap_or("/mcp")
+                .to_string(),
         },
     };
     let enabled = s.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true);
     // commande de lancement optionnelle (HTTP lancé par le command center)
     let start_cmd = {
-        let program = s.get("program").and_then(|x| x.as_str()).unwrap_or("").to_string();
-        if program.is_empty() { None } else {
+        let program = s
+            .get("program")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        if program.is_empty() {
+            None
+        } else {
             Some(StartCmd {
                 program,
-                args: s.get("args").and_then(|x| x.as_array()).map(|a| {
-                    a.iter().filter_map(|i| i.as_str().map(String::from)).collect()
-                }).unwrap_or_default(),
+                args: s
+                    .get("args")
+                    .and_then(|x| x.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|i| i.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
                 workdir: s.get("workdir").and_then(|x| x.as_str()).map(String::from),
             })
         }
     };
     Some(Server {
-        id, label, transport, origin: Origin::Manual, enabled, auto_restart: true,
-        state: if enabled { SState::Down } else { SState::Disabled },
-        pid: None, bound_host: None, server_name: None, version: None, protocol: None,
-        tools: vec![], latency_ms: None, last_seen_ts: None, last_error: None, start_cmd,
+        id,
+        label,
+        transport,
+        origin: Origin::Manual,
+        enabled,
+        auto_restart: true,
+        state: if enabled {
+            SState::Down
+        } else {
+            SState::Disabled
+        },
+        pid: None,
+        bound_host: None,
+        server_name: None,
+        version: None,
+        protocol: None,
+        tools: vec![],
+        latency_ms: None,
+        last_seen_ts: None,
+        last_error: None,
+        start_cmd,
         tools_disabled: vec![],
     })
 }
 
 fn parse_settings(v: &Value, mut st: crate::types::Settings) -> crate::types::Settings {
     if let Some(s) = v.get("settings") {
-        if let Some(x) = s.get("refresh_secs").and_then(|x| x.as_u64()) { st.refresh_secs = x; }
-        if let Some(x) = s.get("scan_from").and_then(|x| x.as_u64()) { st.scan_from = x as u16; }
-        if let Some(x) = s.get("scan_to").and_then(|x| x.as_u64()) { st.scan_to = x as u16; }
-        if let Some(x) = s.get("ui_port").and_then(|x| x.as_u64()) { st.ui_port = x as u16; }
-        if let Some(x) = s.get("ui_bind").and_then(|x| x.as_str()) { st.ui_bind = x.to_string(); }
-        if let Some(x) = s.get("network_enabled").and_then(|x| x.as_bool()) { st.network_enabled = x; }
+        if let Some(x) = s.get("refresh_secs").and_then(|x| x.as_u64()) {
+            // clamp : 0 = busy-loop CPU, trop long = état périmé à l'écran
+            st.refresh_secs = x.clamp(5, 3600);
+        }
+        if let Some(x) = s.get("scan_from").and_then(|x| x.as_u64()) {
+            st.scan_from = x as u16;
+        }
+        if let Some(x) = s.get("scan_to").and_then(|x| x.as_u64()) {
+            st.scan_to = x as u16;
+        }
+        if let Some(x) = s.get("ui_port").and_then(|x| x.as_u64()) {
+            st.ui_port = x as u16;
+        }
+        if let Some(x) = s.get("ui_bind").and_then(|x| x.as_str()) {
+            st.ui_bind = x.to_string();
+        }
+        if let Some(x) = s.get("network_enabled").and_then(|x| x.as_bool()) {
+            st.network_enabled = x;
+        }
         if let Some(arr) = s.get("network_ports").and_then(|x| x.as_array()) {
-            let ports: Vec<u16> = arr.iter().filter_map(|x| x.as_u64()).filter(|p| *p >= 1 && *p <= 65535).map(|p| p as u16).collect();
-            if !ports.is_empty() { st.network_ports = ports; }
+            let ports: Vec<u16> = arr
+                .iter()
+                .filter_map(|x| x.as_u64())
+                .filter(|p| *p >= 1 && *p <= 65535)
+                .map(|p| p as u16)
+                .collect();
+            if !ports.is_empty() {
+                st.network_ports = ports;
+            }
         }
     }
     st
@@ -202,7 +335,9 @@ pub fn save_config(state: &AppState) {
     let mut arr = Vec::new();
     for s in &servers {
         // les serveurs découverts (scan local/réseau) ne sont PAS persistés : redécouverts au boot
-        if s.origin == Origin::Discovered { continue; }
+        if s.origin == Origin::Discovered {
+            continue;
+        }
         let mut o = Map::new();
         o.insert("id".into(), json!(s.id));
         o.insert("label".into(), json!(s.label));
@@ -213,21 +348,31 @@ pub fn save_config(state: &AppState) {
         match &s.transport {
             Transport::Http { host, port, path } => {
                 o.insert("transport".into(), json!("http"));
-                if let Some(h) = host { o.insert("host".into(), json!(h)); }
+                if let Some(h) = host {
+                    o.insert("host".into(), json!(h));
+                }
                 o.insert("port".into(), json!(port));
                 o.insert("path".into(), json!(path));
                 // commande de lancement (Start/Stop par le command center)
                 if let Some(c) = &s.start_cmd {
                     o.insert("program".into(), json!(c.program));
                     o.insert("args".into(), json!(c.args));
-                    if let Some(w) = &c.workdir { o.insert("workdir".into(), json!(w)); }
+                    if let Some(w) = &c.workdir {
+                        o.insert("workdir".into(), json!(w));
+                    }
                 }
             }
-            Transport::Stdio { program, args, workdir } => {
+            Transport::Stdio {
+                program,
+                args,
+                workdir,
+            } => {
                 o.insert("transport".into(), json!("stdio"));
                 o.insert("program".into(), json!(program));
                 o.insert("args".into(), json!(args));
-                if let Some(w) = workdir { o.insert("workdir".into(), json!(w)); }
+                if let Some(w) = workdir {
+                    o.insert("workdir".into(), json!(w));
+                }
             }
         }
         arr.push(Value::Object(o));
@@ -264,42 +409,171 @@ pub struct StoreItem {
 }
 
 pub const STORE: &[StoreItem] = &[
-    StoreItem { id: "filesystem", name: "Filesystem", desc: "Lecture/écriture de fichiers dans un dossier autorisé", cat: "Fichiers", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-filesystem", "C:/Users/Deamon"] },
-    StoreItem { id: "gdrive", name: "Google Drive", desc: "Recherche et lecture des fichiers Google Drive", cat: "Fichiers", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-gdrive"] },
-    StoreItem { id: "git", name: "Git", desc: "Lecture et manipulation de dépôts git (status, diff, log, commit)", cat: "Dev", kind: "python", program: "uvx", args: &["mcp-server-git"] },
-    StoreItem { id: "github", name: "GitHub", desc: "API GitHub : repos, issues, PR (GITHUB_TOKEN requis en env)", cat: "Dev", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-github"] },
-    StoreItem { id: "memory", name: "Memory", desc: "Graph de connaissances persistant (mémoire longue)", cat: "Utilitaires", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-memory"] },
-    StoreItem { id: "seqthink", name: "Sequential Thinking", desc: "Raisonnement structuré étape par étape", cat: "Utilitaires", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-sequential-thinking"] },
-    StoreItem { id: "everything", name: "Everything", desc: "Serveur de démo/test qui expose tous les comportements MCP", cat: "Utilitaires", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-everything"] },
-    StoreItem { id: "time", name: "Time", desc: "Heure et conversions de fuseaux horaires", cat: "Utilitaires", kind: "python", program: "uvx", args: &["mcp-server-time"] },
-    StoreItem { id: "fetch", name: "Fetch", desc: "Récupération de pages web et conversion en markdown", cat: "Web", kind: "python", program: "uvx", args: &["mcp-server-fetch"] },
-    StoreItem { id: "puppeteer", name: "Puppeteer", desc: "Automatisation de navigateur : screenshots, clics, scraping", cat: "Web", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-puppeteer"] },
-    StoreItem { id: "brave", name: "Brave Search", desc: "Recherche web Brave (BRAVE_API_KEY requis en env)", cat: "Web", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-brave-search"] },
-    StoreItem { id: "postgres", name: "PostgreSQL", desc: "Accès lecture seule à une base PostgreSQL (URL en args)", cat: "Données", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-postgres"] },
-    StoreItem { id: "sqlite", name: "SQLite", desc: "Requêtes et analyse d'une base SQLite locale", cat: "Données", kind: "python", program: "uvx", args: &["mcp-server-sqlite", "--db-path", "test.db"] },
-    StoreItem { id: "slack", name: "Slack", desc: "Lecture/écriture de canaux Slack (tokens requis en env)", cat: "Données", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-slack"] },
+    StoreItem {
+        id: "filesystem",
+        name: "Filesystem",
+        desc: "Lecture/écriture de fichiers dans un dossier autorisé",
+        cat: "Fichiers",
+        kind: "npm",
+        program: "npx",
+        args: &[
+            "-y",
+            "@modelcontextprotocol/server-filesystem",
+            "C:/Users/Deamon",
+        ],
+    },
+    StoreItem {
+        id: "gdrive",
+        name: "Google Drive",
+        desc: "Recherche et lecture des fichiers Google Drive",
+        cat: "Fichiers",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "@modelcontextprotocol/server-gdrive"],
+    },
+    StoreItem {
+        id: "git",
+        name: "Git",
+        desc: "Lecture et manipulation de dépôts git (status, diff, log, commit)",
+        cat: "Dev",
+        kind: "python",
+        program: "uvx",
+        args: &["mcp-server-git"],
+    },
+    StoreItem {
+        id: "github",
+        name: "GitHub",
+        desc: "API GitHub : repos, issues, PR (GITHUB_TOKEN requis en env)",
+        cat: "Dev",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "@modelcontextprotocol/server-github"],
+    },
+    StoreItem {
+        id: "memory",
+        name: "Memory",
+        desc: "Graph de connaissances persistant (mémoire longue)",
+        cat: "Utilitaires",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "@modelcontextprotocol/server-memory"],
+    },
+    StoreItem {
+        id: "seqthink",
+        name: "Sequential Thinking",
+        desc: "Raisonnement structuré étape par étape",
+        cat: "Utilitaires",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "@modelcontextprotocol/server-sequential-thinking"],
+    },
+    StoreItem {
+        id: "everything",
+        name: "Everything",
+        desc: "Serveur de démo/test qui expose tous les comportements MCP",
+        cat: "Utilitaires",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "@modelcontextprotocol/server-everything"],
+    },
+    StoreItem {
+        id: "time",
+        name: "Time",
+        desc: "Heure et conversions de fuseaux horaires",
+        cat: "Utilitaires",
+        kind: "python",
+        program: "uvx",
+        args: &["mcp-server-time"],
+    },
+    StoreItem {
+        id: "fetch",
+        name: "Fetch",
+        desc: "Récupération de pages web et conversion en markdown",
+        cat: "Web",
+        kind: "python",
+        program: "uvx",
+        args: &["mcp-server-fetch"],
+    },
+    StoreItem {
+        id: "puppeteer",
+        name: "Puppeteer",
+        desc: "Automatisation de navigateur : screenshots, clics, scraping",
+        cat: "Web",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "@modelcontextprotocol/server-puppeteer"],
+    },
+    StoreItem {
+        id: "brave",
+        name: "Brave Search",
+        desc: "Recherche web Brave (BRAVE_API_KEY requis en env)",
+        cat: "Web",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "@modelcontextprotocol/server-brave-search"],
+    },
+    StoreItem {
+        id: "postgres",
+        name: "PostgreSQL",
+        desc: "Accès lecture seule à une base PostgreSQL (URL en args)",
+        cat: "Données",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "@modelcontextprotocol/server-postgres"],
+    },
+    StoreItem {
+        id: "sqlite",
+        name: "SQLite",
+        desc: "Requêtes et analyse d'une base SQLite locale",
+        cat: "Données",
+        kind: "python",
+        program: "uvx",
+        args: &["mcp-server-sqlite", "--db-path", "test.db"],
+    },
+    StoreItem {
+        id: "slack",
+        name: "Slack",
+        desc: "Lecture/écriture de canaux Slack (tokens requis en env)",
+        cat: "Données",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "@modelcontextprotocol/server-slack"],
+    },
 ];
 
 pub fn store_json() -> Value {
-    json!(STORE.iter().map(|s| json!({
-        "id": s.id, "name": s.name, "desc": s.desc,
-        "cat": s.cat, "kind": s.kind,
-        "program": s.program, "args": s.args,
-    })).collect::<Vec<_>>())
+    json!(STORE
+        .iter()
+        .map(|s| json!({
+            "id": s.id, "name": s.name, "desc": s.desc,
+            "cat": s.cat, "kind": s.kind,
+            "program": s.program, "args": s.args,
+        }))
+        .collect::<Vec<_>>())
 }
 
 /// Porté de mcp-import.ts : "@modelcontextprotocol/server-filesystem" → "filesystem".
 fn cleanup_name(base: &str) -> String {
     let mut b = base.to_string();
-    if let Some(slash) = b.rfind('/') { b = b[slash + 1..].to_string(); }
+    if let Some(slash) = b.rfind('/') {
+        b = b[slash + 1..].to_string();
+    }
     b = regex_like_strip(&b, &["cjs", "js", "mjs", "py", "ts"]);
     for p in ["mcp-server-", "server-", "mcp-"] {
-        if b.starts_with(p) { b = b[p.len()..].to_string(); }
+        if b.starts_with(p) {
+            b = b[p.len()..].to_string();
+        }
     }
     for s in ["-mcp-server", "-mcp", "-server"] {
-        if b.ends_with(s) { b = b[..b.len() - s.len()].to_string(); }
+        if b.ends_with(s) {
+            b = b[..b.len() - s.len()].to_string();
+        }
     }
-    if b.is_empty() { base.to_string() } else { b }
+    if b.is_empty() {
+        base.to_string()
+    } else {
+        b
+    }
 }
 
 fn regex_like_strip(name: &str, exts: &[&str]) -> String {
@@ -316,7 +590,8 @@ fn regex_like_strip(name: &str, exts: &[&str]) -> String {
 pub fn parse_servers_doc(raw: &str) -> Result<Vec<(String, Value)>, String> {
     let parsed: Value = serde_json::from_str(raw).map_err(|e| format!("JSON invalide: {}", e))?;
     let obj = parsed.as_object().ok_or("attendu un objet JSON")?;
-    let map = obj.get("mcpServers")
+    let map = obj
+        .get("mcpServers")
         .or_else(|| obj.get("mcp_servers"))
         .and_then(|w| w.as_object())
         .unwrap_or(obj); // map brute
@@ -326,31 +601,70 @@ pub fn parse_servers_doc(raw: &str) -> Result<Vec<(String, Value)>, String> {
 fn entry_to_server(id: String, name: &str, entry: &Value) -> Option<Server> {
     let command = entry.get("command").and_then(|x| x.as_str());
     let url = entry.get("url").and_then(|x| x.as_str());
-    let args: Vec<String> = entry.get("args").and_then(|x| x.as_array())
-        .map(|a| a.iter().filter_map(|i| i.as_str().map(String::from)).collect())
+    let args: Vec<String> = entry
+        .get("args")
+        .and_then(|x| x.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|i| i.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
     if let Some(cmd) = command {
         let workdir = entry.get("cwd").and_then(|x| x.as_str()).map(String::from);
         return Some(Server {
-            start_cmd: Some(StartCmd { program: cmd.to_string(), args: args.clone(), workdir: workdir.clone() }),
-            id, label: name.to_string(),
-            transport: Transport::Stdio { program: cmd.to_string(), args, workdir },
-            origin: Origin::Manual, enabled: true, state: SState::Down,
-            pid: None, bound_host: None, server_name: None, version: None,
-            protocol: None, tools: vec![], latency_ms: None,
-            last_seen_ts: None, last_error: None, auto_restart: true,
+            start_cmd: Some(StartCmd {
+                program: cmd.to_string(),
+                args: args.clone(),
+                workdir: workdir.clone(),
+            }),
+            id,
+            label: name.to_string(),
+            transport: Transport::Stdio {
+                program: cmd.to_string(),
+                args,
+                workdir,
+            },
+            origin: Origin::Manual,
+            enabled: true,
+            state: SState::Down,
+            pid: None,
+            bound_host: None,
+            server_name: None,
+            version: None,
+            protocol: None,
+            tools: vec![],
+            latency_ms: None,
+            last_seen_ts: None,
+            last_error: None,
+            auto_restart: true,
             tools_disabled: vec![],
         });
     }
     if let Some(u) = url {
         let (host, port, path) = parse_url_parts(u)?;
         return Some(Server {
-            start_cmd: None, id, label: name.to_string(),
-            transport: Transport::Http { host: Some(host), port, path },
-            origin: Origin::Manual, enabled: true, state: SState::Down,
-            pid: None, bound_host: None, server_name: None, version: None,
-            protocol: None, tools: vec![], latency_ms: None,
-            last_seen_ts: None, last_error: None, auto_restart: true,
+            start_cmd: None,
+            id,
+            label: name.to_string(),
+            transport: Transport::Http {
+                host: Some(host),
+                port,
+                path,
+            },
+            origin: Origin::Manual,
+            enabled: true,
+            state: SState::Down,
+            pid: None,
+            bound_host: None,
+            server_name: None,
+            version: None,
+            protocol: None,
+            tools: vec![],
+            latency_ms: None,
+            last_seen_ts: None,
+            last_error: None,
+            auto_restart: true,
             tools_disabled: vec![],
         });
     }
@@ -358,14 +672,19 @@ fn entry_to_server(id: String, name: &str, entry: &Value) -> Option<Server> {
 }
 
 fn parse_url_parts(u: &str) -> Option<(String, u16, String)> {
-    let rest = u.strip_prefix("https://").or_else(|| u.strip_prefix("http://"))?;
+    let rest = u
+        .strip_prefix("https://")
+        .or_else(|| u.strip_prefix("http://"))?;
     let (hostport, path) = match rest.find('/') {
         Some(i) => (&rest[..i], rest[i..].to_string()),
         None => (rest, "/mcp".to_string()),
     };
     let (host, port) = match hostport.rsplit_once(':') {
         Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) => (h.to_string(), p.parse().ok()?),
-        _ => (hostport.to_string(), if u.starts_with("https") { 443 } else { 80 }),
+        _ => (
+            hostport.to_string(),
+            if u.starts_with("https") { 443 } else { 80 },
+        ),
     };
     Some((host, port, path))
 }
@@ -374,7 +693,9 @@ fn parse_url_parts(u: &str) -> Option<(String, u16, String)> {
 /// npx/uvx/docker, ligne `claude mcp add`, ou simple URL → serveurs ajoutés.
 pub fn import_mcp_text(state: &Arc<AppState>, raw: &str) -> Value {
     let text = raw.trim();
-    if text.is_empty() { return json!({"ok": false, "error": "texte vide"}); }
+    if text.is_empty() {
+        return json!({"ok": false, "error": "texte vide"});
+    }
 
     // 1. JSON (mcp.json)
     if text.starts_with('{') {
@@ -384,16 +705,24 @@ pub fn import_mcp_text(state: &Arc<AppState>, raw: &str) -> Value {
                 for (name, entry) in entries {
                     let id = format!("store-{}", name);
                     let mut servers = lockv(&state.servers);
-                    if servers.iter().any(|s| s.id == id) { continue; }
+                    if servers.iter().any(|s| s.id == id) {
+                        continue;
+                    }
                     if let Some(srv) = entry_to_server(id, &name, &entry) {
                         let label = srv.label.clone();
                         servers.push(srv);
                         drop(servers);
-                        add_log(state, "info", &format!("[boutique] import JSON : {}", label));
+                        add_log(
+                            state,
+                            "info",
+                            &format!("[boutique] import JSON : {}", label),
+                        );
                         added += 1;
                     }
                 }
-                if added > 0 { save_config(state); }
+                if added > 0 {
+                    save_config(state);
+                }
                 return json!({"ok": true, "added": added, "source": "json"});
             }
             Ok(_) => { /* json vide → continuer sur les autres pistes */ }
@@ -418,12 +747,27 @@ pub fn import_mcp_text(state: &Arc<AppState>, raw: &str) -> Value {
             let mut servers = lockv(&state.servers);
             if !servers.iter().any(|s| s.id == id) {
                 servers.push(Server {
-                    start_cmd: None, id: id.clone(), label: name.clone(),
-                    transport: Transport::Http { host: Some(host), port, path },
-                    origin: Origin::Manual, enabled: true, state: SState::Down,
-                    pid: None, bound_host: None, server_name: None, version: None,
-                    protocol: None, tools: vec![], latency_ms: None,
-                    last_seen_ts: None, last_error: None, auto_restart: true,
+                    start_cmd: None,
+                    id: id.clone(),
+                    label: name.clone(),
+                    transport: Transport::Http {
+                        host: Some(host),
+                        port,
+                        path,
+                    },
+                    origin: Origin::Manual,
+                    enabled: true,
+                    state: SState::Down,
+                    pid: None,
+                    bound_host: None,
+                    server_name: None,
+                    version: None,
+                    protocol: None,
+                    tools: vec![],
+                    latency_ms: None,
+                    last_seen_ts: None,
+                    last_error: None,
+                    auto_restart: true,
                     tools_disabled: vec![],
                 });
                 drop(servers);
@@ -439,8 +783,17 @@ pub fn import_mcp_text(state: &Arc<AppState>, raw: &str) -> Value {
     if let Some(first) = toks.first() {
         if ["npx", "uvx", "docker", "node", "python", "python3"].contains(first) {
             // premier token qui n'est pas une option (-y, --yes…) = le package
-            let spec = toks.iter().skip(1).find(|t| !t.starts_with('-')).copied().unwrap_or("");
-            let name = if spec.is_empty() { "serveur-importe".to_string() } else { cleanup_name(spec) };
+            let spec = toks
+                .iter()
+                .skip(1)
+                .find(|t| !t.starts_with('-'))
+                .copied()
+                .unwrap_or("");
+            let name = if spec.is_empty() {
+                "serveur-importe".to_string()
+            } else {
+                cleanup_name(spec)
+            };
             let name = format!("{}-{}", name, now_compact());
             let program = first.to_string();
             let args: Vec<String> = toks[1..].iter().map(|s| s.to_string()).collect();
@@ -458,18 +811,40 @@ fn push_imported(state: &Arc<AppState>, name: String, program: String, args: Vec
         return json!({"ok": true, "added": 0, "note": "déjà présent"});
     }
     servers.push(Server {
-        start_cmd: Some(StartCmd { program: program.clone(), args: args.clone(), workdir: None }),
-        id: id.clone(), label: name.clone(),
-        transport: Transport::Stdio { program, args, workdir: None },
-        origin: Origin::Manual, enabled: true, state: SState::Down,
-        pid: None, bound_host: None, server_name: None, version: None,
-        protocol: None, tools: vec![], latency_ms: None,
-        last_seen_ts: None, last_error: None, auto_restart: true,
+        start_cmd: Some(StartCmd {
+            program: program.clone(),
+            args: args.clone(),
+            workdir: None,
+        }),
+        id: id.clone(),
+        label: name.clone(),
+        transport: Transport::Stdio {
+            program,
+            args,
+            workdir: None,
+        },
+        origin: Origin::Manual,
+        enabled: true,
+        state: SState::Down,
+        pid: None,
+        bound_host: None,
+        server_name: None,
+        version: None,
+        protocol: None,
+        tools: vec![],
+        latency_ms: None,
+        last_seen_ts: None,
+        last_error: None,
+        auto_restart: true,
         tools_disabled: vec![],
     });
     drop(servers);
     save_config(state);
-    add_log(state, "info", &format!("[boutique] import commande : {}", name));
+    add_log(
+        state,
+        "info",
+        &format!("[boutique] import commande : {}", name),
+    );
     json!({"ok": true, "added": 1, "source": "commande"})
 }
 
@@ -481,14 +856,17 @@ fn name_from_url(host: &str) -> String {
     while it.len() > 1 && ["api", "mcp", "www"].contains(&it[0]) {
         it.remove(0);
     }
-    it.first().map(|s| s.to_string()).unwrap_or_else(|| "server".to_string())
+    it.first()
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "server".to_string())
 }
-
-
 
 /// Nombre de tools actifs (tools_disabled écartés).
 pub fn tools_actifs(s: &Server) -> usize {
-    s.tools.iter().filter(|t| !s.tools_disabled.contains(&t.name)).count()
+    s.tools
+        .iter()
+        .filter(|t| !s.tools_disabled.contains(&t.name))
+        .count()
 }
 
 pub fn poll_all(state: &Arc<AppState>) {
@@ -507,7 +885,9 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
             None => return,
         }
     };
-    if !enabled { return; }
+    if !enabled {
+        return;
+    }
     match transport {
         Transport::Http { host, port, path } => {
             let mut res = match &host {
@@ -534,10 +914,14 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                 if can_auto && !child_alive {
                     let cmd = {
                         let servers = lockv(&state.servers);
-                        servers.iter().find(|s| s.id == id).and_then(|s| s.start_cmd.clone())
+                        servers
+                            .iter()
+                            .find(|s| s.id == id)
+                            .and_then(|s| s.start_cmd.clone())
                     };
                     if let Some(cmd) = cmd {
-                        match probe::spawn_process(&cmd.program, &cmd.args, cmd.workdir.as_deref()) {
+                        match probe::spawn_process(&cmd.program, &cmd.args, cmd.workdir.as_deref())
+                        {
                             Ok(h) => {
                                 let pid = h.child.id();
                                 lockv(&state.children).insert(id.to_string(), h);
@@ -547,14 +931,22 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                                         srv.pid = Some(pid);
                                     }
                                 }
-                                add_log(state, "info", &format!(
-                                    "[{}] http démarré (pid {}) — re-sonde", id, pid));
+                                add_log(
+                                    state,
+                                    "info",
+                                    &format!("[{}] http démarré (pid {}) — re-sonde", id, pid),
+                                );
                                 let mut res2 = probe::probe_http(port, &path, 5000);
-                                if res2.mcp_up && res2.pid.is_none() { res2.pid = Some(pid); }
+                                if res2.mcp_up && res2.pid.is_none() {
+                                    res2.pid = Some(pid);
+                                }
                                 res = res2;
                             }
-                            Err(e) => add_log(state, "warn", &format!(
-                                "[{}] démarrage HTTP KO : {}", id, e)),
+                            Err(e) => add_log(
+                                state,
+                                "warn",
+                                &format!("[{}] démarrage HTTP KO : {}", id, e),
+                            ),
                         }
                     }
                 }
@@ -572,24 +964,46 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                     srv.latency_ms = Some(res.latency_ms);
                     srv.last_seen_ts = Some(crate::types::now_ts());
                     srv.last_error = None;
-                    if res.pid.is_some() { srv.pid = res.pid; }
+                    if res.pid.is_some() {
+                        srv.pid = res.pid;
+                    }
                     if changed {
-                        add_log(state, "info", &format!(
-                            "[{}] UP : {} v{} — {} tools ({} ms)", srv.label,
-                            res.name.as_deref().unwrap_or("?"),
-                            res.version.as_deref().unwrap_or("?"),
-                            tools_actifs(srv), res.latency_ms));
+                        add_log(
+                            state,
+                            "info",
+                            &format!(
+                                "[{}] UP : {} v{} — {} tools ({} ms)",
+                                srv.label,
+                                res.name.as_deref().unwrap_or("?"),
+                                res.version.as_deref().unwrap_or("?"),
+                                tools_actifs(srv),
+                                res.latency_ms
+                            ),
+                        );
                     }
                 } else {
                     let was_up = srv.state == SState::Up;
                     // port fermé = DOWN ; port ouvert sans MCP = PORT-ONLY (zombie)
-                    srv.state = if res.port_open { SState::PortOnly } else { SState::Down };
+                    srv.state = if res.port_open {
+                        SState::PortOnly
+                    } else {
+                        SState::Down
+                    };
                     srv.last_error = res.error.clone();
                     srv.latency_ms = None;
-                    if !res.port_open && host.is_none() { srv.pid = None; }
+                    if !res.port_open && host.is_none() {
+                        srv.pid = None;
+                    }
                     if was_up {
-                        add_log(state, "warn", &format!("[{}] PORT-ONLY : {}",
-                            srv.label, res.error.as_deref().unwrap_or("?")));
+                        add_log(
+                            state,
+                            "warn",
+                            &format!(
+                                "[{}] PORT-ONLY : {}",
+                                srv.label,
+                                res.error.as_deref().unwrap_or("?")
+                            ),
+                        );
                     }
                 }
             }
@@ -607,7 +1021,9 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                         }
                     }
                 }
-                for cid in still { children.remove(&cid); }
+                for cid in still {
+                    children.remove(&cid);
+                }
                 children.contains_key(id)
             };
             let (enabled, has_cmd) = {
@@ -627,10 +1043,19 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                 // (re)démarrage auto avec handshake complet
                 let cmd = {
                     let mut servers = lockv(&state.servers);
-                    servers.iter_mut().find(|s| s.id == id).and_then(|s| s.start_cmd.clone())
+                    servers
+                        .iter_mut()
+                        .find(|s| s.id == id)
+                        .and_then(|s| s.start_cmd.clone())
                 };
                 if let Some(cmd) = cmd {
-                    match probe::probe_stdio(&cmd.program, &cmd.args, cmd.workdir.as_deref(), 15000, true) {
+                    match probe::probe_stdio(
+                        &cmd.program,
+                        &cmd.args,
+                        cmd.workdir.as_deref(),
+                        15000,
+                        true,
+                    ) {
                         Ok((p, handle)) => {
                             if let Some(h) = handle {
                                 lockv(&state.children).insert(id.to_string(), h);
@@ -648,9 +1073,17 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                                 srv.last_error = None;
                             }
                             drop(servers);
-                            add_log(state, "info", &format!("[{}] stdio démarré (pid {}) : {} — {} tools",
-                                id, p.pid.map(|x| x.to_string()).unwrap_or_else(|| "?".into()),
-                                p.name.as_deref().unwrap_or("?"), p.tools.len()));
+                            add_log(
+                                state,
+                                "info",
+                                &format!(
+                                    "[{}] stdio démarré (pid {}) : {} — {} tools",
+                                    id,
+                                    p.pid.map(|x| x.to_string()).unwrap_or_else(|| "?".into()),
+                                    p.name.as_deref().unwrap_or("?"),
+                                    p.tools.len()
+                                ),
+                            );
                         }
                         Err(e) => {
                             let mut servers = lockv(&state.servers);
@@ -680,11 +1113,17 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
 pub fn scan_ports(state: &Arc<AppState>, range: Option<(u16, u16)>) {
     let (from, to) = match range {
         Some(r) => r,
-        None => { let s = lockv(&state.settings); (s.scan_from, s.scan_to) }
+        None => {
+            let s = lockv(&state.settings);
+            (s.scan_from, s.scan_to)
+        }
     };
-    add_log(state, "info", &format!("scan {}..{} sur [::1]/127.0.0.1…", from, to));
+    add_log(
+        state,
+        "info",
+        &format!("scan {}..{} sur [::1]/127.0.0.1…", from, to),
+    );
     let mut found = 0u32;
-    let mut batch: Vec<u16> = Vec::new();
     let mut open: Vec<(u16, String)> = Vec::new();
     for port in from..=to {
         if probe::port_open("::1", port, std::time::Duration::from_millis(150)) {
@@ -692,44 +1131,70 @@ pub fn scan_ports(state: &Arc<AppState>, range: Option<(u16, u16)>) {
         } else if probe::port_open("127.0.0.1", port, std::time::Duration::from_millis(150)) {
             open.push((port, "127.0.0.1".into()));
         }
-        batch.push(port);
-        if batch.len() >= 64 {
-            open.sort();
-            open.dedup();
-            batch.clear();
-        }
     }
     open.sort();
     open.dedup();
-    let known: Vec<u16> = lockv(&state.servers).iter().filter_map(|s| match &s.transport {
-        Transport::Http { host, port, .. } if host.is_none() => Some(*port),
-        _ => None,
-    }).collect();
+    let known: Vec<u16> = lockv(&state.servers)
+        .iter()
+        .filter_map(|s| match &s.transport {
+            Transport::Http { host, port, .. } if host.is_none() => Some(*port),
+            _ => None,
+        })
+        .collect();
     for (port, host) in open {
-        if known.contains(&port) { continue; }
+        if known.contains(&port) {
+            continue;
+        }
         let p = probe::probe_http(port, "/mcp", 4000);
         if p.mcp_up {
-                found += 1;
-                let id = format!("disc-{}", port);
-                let label = p.name.clone().unwrap_or_else(|| format!("port-{}", port));
-                let mut servers = lockv(&state.servers);
-                if !servers.iter().any(|s| s.id == id) {
-                    servers.push(Server {
-                        id: id.clone(), label, transport: Transport::Http { host: Some(host.clone()), port, path: "/mcp".into() },
-                        origin: Origin::Discovered, enabled: true, state: SState::Up, auto_restart: true,
-                        pid: p.pid, bound_host: Some(host),
-                        server_name: p.name.clone(), version: p.version.clone(),
-                        protocol: p.protocol.clone(), tools: p.tools, latency_ms: Some(p.latency_ms),
-                        last_seen_ts: Some(crate::types::now_ts()), last_error: None, start_cmd: None,
-                        tools_disabled: vec![],
-                    });
-                    drop(servers);
-                    add_log(state, "info", &format!("[scan] serveur MCP découvert sur port {} : {} v{}",
-                        port, p.name.as_deref().unwrap_or("?"), p.version.as_deref().unwrap_or("?")));
-                }
+            found += 1;
+            let id = format!("disc-{}", port);
+            let label = p.name.clone().unwrap_or_else(|| format!("port-{}", port));
+            let mut servers = lockv(&state.servers);
+            if !servers.iter().any(|s| s.id == id) {
+                servers.push(Server {
+                    id: id.clone(),
+                    label,
+                    transport: Transport::Http {
+                        host: Some(host.clone()),
+                        port,
+                        path: "/mcp".into(),
+                    },
+                    origin: Origin::Discovered,
+                    enabled: true,
+                    state: SState::Up,
+                    auto_restart: true,
+                    pid: p.pid,
+                    bound_host: Some(host),
+                    server_name: p.name.clone(),
+                    version: p.version.clone(),
+                    protocol: p.protocol.clone(),
+                    tools: p.tools,
+                    latency_ms: Some(p.latency_ms),
+                    last_seen_ts: Some(crate::types::now_ts()),
+                    last_error: None,
+                    start_cmd: None,
+                    tools_disabled: vec![],
+                });
+                drop(servers);
+                add_log(
+                    state,
+                    "info",
+                    &format!(
+                        "[scan] serveur MCP découvert sur port {} : {} v{}",
+                        port,
+                        p.name.as_deref().unwrap_or("?"),
+                        p.version.as_deref().unwrap_or("?")
+                    ),
+                );
             }
+        }
     }
-    add_log(state, "info", &format!("scan terminé : {} nouveaux serveurs MCP", found));
+    add_log(
+        state,
+        "info",
+        &format!("scan terminé : {} nouveaux serveurs MCP", found),
+    );
 }
 
 // ---------- scan réseau local (MCP distants) ----------
@@ -738,7 +1203,10 @@ pub fn scan_ports(state: &Arc<AppState>, range: Option<(u16, u16)>) {
 pub fn scan_network(state: &Arc<AppState>, range: Option<(u16, u16)>) {
     let (from, to) = match range {
         Some(r) => r,
-        None => { let s = lockv(&state.settings); (s.scan_from, s.scan_to) }
+        None => {
+            let s = lockv(&state.settings);
+            (s.scan_from, s.scan_to)
+        }
     };
     let prefixes = network_prefixes();
     if prefixes.is_empty() {
@@ -747,12 +1215,26 @@ pub fn scan_network(state: &Arc<AppState>, range: Option<(u16, u16)>) {
     }
     let total_found = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
     for (prefix, self_ip) in &prefixes {
-        add_log(state, "info", &format!("scan réseau {}.1-254 (self={}) ports {}..{} (parallèle)", prefix, self_ip, from, to));
+        add_log(
+            state,
+            "info",
+            &format!(
+                "scan réseau {}.1-254 (self={}) ports {}..{} (parallèle)",
+                prefix, self_ip, from, to
+            ),
+        );
         let (found, _tested) = scan_network_range(state, prefix, self_ip, from, to);
         total_found.fetch_add(found, std::sync::atomic::Ordering::Relaxed);
     }
     let found = total_found.load(std::sync::atomic::Ordering::Relaxed);
-    add_log(state, "info", &format!("scan réseau terminé : {} nouveau(x) serveur(s) MCP distant(s)", found));
+    add_log(
+        state,
+        "info",
+        &format!(
+            "scan réseau terminé : {} nouveau(x) serveur(s) MCP distant(s)",
+            found
+        ),
+    );
 }
 
 /// Toutes les IPv4 locales (toutes interfaces), dédupliquées.
@@ -770,12 +1252,19 @@ pub fn local_ips() -> Vec<String> {
         // ne prendre que les lignes "IPv4" (exclut masques et lignes "Passerelle par défaut"/"Default Gateway")
         // — le marqueur "ipv4" existe en FR ("Adresse IPv4") comme en EN ("IPv4 Address")
         for line in text.lines() {
-            if !line.to_lowercase().contains("ipv4") { continue; }
+            if !line.to_lowercase().contains("ipv4") {
+                continue;
+            }
             for tok in line.split_whitespace() {
                 let tok = tok.trim_end_matches(',').trim_start_matches('.');
                 let parts: Vec<&str> = tok.split('.').collect();
                 let est_ip = parts.len() == 4
-                    && parts.iter().all(|p| !p.is_empty() && p.len() <= 3 && p.chars().all(|c| c.is_ascii_digit()) && p.parse::<u8>().is_ok());
+                    && parts.iter().all(|p| {
+                        !p.is_empty()
+                            && p.len() <= 3
+                            && p.chars().all(|c| c.is_ascii_digit())
+                            && p.parse::<u8>().is_ok()
+                    });
                 if est_ip {
                     ips.insert(tok.to_string());
                 }
@@ -808,12 +1297,21 @@ pub fn network_prefixes() -> Vec<(String, String)> {
 
 /// Parallélisé : 254 hôtes × plage de ports. Retourne (nouveauserveurs, hôtes testés).
 #[allow(unused_must_use)]
-pub fn scan_network_range(state: &Arc<AppState>, prefix: &str, self_ip: &str, from: u16, to: u16) -> (u32, u32) {
+pub fn scan_network_range(
+    state: &Arc<AppState>,
+    prefix: &str,
+    self_ip: &str,
+    from: u16,
+    to: u16,
+) -> (u32, u32) {
     let ports: Vec<u16> = (from..=to).collect();
-    let known_hosts_ports: Vec<(Option<String>, u16)> = lockv(&state.servers).iter().filter_map(|s| match &s.transport {
-        Transport::Http { host, port, .. } => Some((host.clone(), *port)),
-        _ => None,
-    }).collect();
+    let known_hosts_ports: Vec<(Option<String>, u16)> = lockv(&state.servers)
+        .iter()
+        .filter_map(|s| match &s.transport {
+            Transport::Http { host, port, .. } => Some((host.clone(), *port)),
+            _ => None,
+        })
+        .collect();
 
     use std::sync::atomic::{AtomicU32, Ordering};
     let found = std::sync::Arc::new(AtomicU32::new(0));
@@ -821,7 +1319,9 @@ pub fn scan_network_range(state: &Arc<AppState>, prefix: &str, self_ip: &str, fr
     let mut handles = Vec::new();
     for last in 1u16..=254 {
         let ip = format!("{}.{}", prefix, last);
-        if ip == self_ip { continue; } // ne pas se scanner soi-même (scan loopback déjà couvert)
+        if ip == self_ip {
+            continue;
+        } // ne pas se scanner soi-même (scan loopback déjà couvert)
         let ports = ports.clone();
         let known = known_hosts_ports.clone();
         let state = state.clone();
@@ -830,45 +1330,85 @@ pub fn scan_network_range(state: &Arc<AppState>, prefix: &str, self_ip: &str, fr
         handles.push(std::thread::spawn(move || {
             let mut hit = false;
             for port in &ports {
-                if !probe::port_open(&ip, *port, std::time::Duration::from_millis(400)) { continue; }
+                if !probe::port_open(&ip, *port, std::time::Duration::from_millis(400)) {
+                    continue;
+                }
                 hit = true;
-                if known.iter().any(|(h, p)| h.as_deref() == Some(ip.as_str()) && p == port) { continue; }
+                if known
+                    .iter()
+                    .any(|(h, p)| h.as_deref() == Some(ip.as_str()) && p == port)
+                {
+                    continue;
+                }
                 let p = probe::probe_http_host(&ip, *port, "/mcp", 3000);
                 if p.mcp_up {
                     found.fetch_add(1, Ordering::Relaxed);
                     let label = p.name.clone().unwrap_or_else(|| format!("{}:{}", ip, port));
                     let mut servers = lockv(&state.servers);
-                    if !servers.iter().any(|s| matches!(&s.transport,
-                        Transport::Http { host: Some(h), port: sp, .. } if h == &ip && sp == port))
-                    {
+                    if !servers.iter().any(|s| {
+                        matches!(&s.transport,
+                        Transport::Http { host: Some(h), port: sp, .. } if h == &ip && sp == port)
+                    }) {
                         servers.push(Server {
-                            id: format!("net-{}.{}", ip, port), label,
-                            transport: Transport::Http { host: Some(ip.clone()), port: *port, path: "/mcp".into() },
-                            origin: Origin::Discovered, enabled: true, state: SState::Up, auto_restart: true,
-                            pid: None, bound_host: Some(ip.clone()),
-                            server_name: p.name.clone(), version: p.version.clone(),
-                            protocol: p.protocol.clone(), tools: p.tools, latency_ms: Some(p.latency_ms),
-                            last_seen_ts: Some(crate::types::now_ts()), last_error: None,
-                            start_cmd: None, tools_disabled: vec![],
+                            id: format!("net-{}.{}", ip, port),
+                            label,
+                            transport: Transport::Http {
+                                host: Some(ip.clone()),
+                                port: *port,
+                                path: "/mcp".into(),
+                            },
+                            origin: Origin::Discovered,
+                            enabled: true,
+                            state: SState::Up,
+                            auto_restart: true,
+                            pid: None,
+                            bound_host: Some(ip.clone()),
+                            server_name: p.name.clone(),
+                            version: p.version.clone(),
+                            protocol: p.protocol.clone(),
+                            tools: p.tools,
+                            latency_ms: Some(p.latency_ms),
+                            last_seen_ts: Some(crate::types::now_ts()),
+                            last_error: None,
+                            start_cmd: None,
+                            tools_disabled: vec![],
                         });
                         drop(servers);
-                        add_log(&state, "info", &format!("[réseau] serveur MCP distant découvert : {}:{} — {} v{}",
-                            ip, port, p.name.as_deref().unwrap_or("?"), p.version.as_deref().unwrap_or("?")));
+                        add_log(
+                            &state,
+                            "info",
+                            &format!(
+                                "[réseau] serveur MCP distant découvert : {}:{} — {} v{}",
+                                ip,
+                                port,
+                                p.name.as_deref().unwrap_or("?"),
+                                p.version.as_deref().unwrap_or("?")
+                            ),
+                        );
                     }
                 }
             }
-            if hit { tested.fetch_add(1, Ordering::Relaxed); }
+            if hit {
+                tested.fetch_add(1, Ordering::Relaxed);
+            }
         }));
     }
-    for h in handles { let _ = h.join(); }
-    (found.load(Ordering::Relaxed), tested.load(Ordering::Relaxed))
+    for h in handles {
+        let _ = h.join();
+    }
+    (
+        found.load(Ordering::Relaxed),
+        tested.load(Ordering::Relaxed),
+    )
 }
 
 // ---------- découverte des pairs command-center ----------
 
 #[allow(unused_must_use)]
 pub fn discover_peers(state: &Arc<AppState>) {
-    if !lockv(&state.settings).network_enabled { return; }
+    if !lockv(&state.settings).network_enabled {
+        return;
+    }
     let ports = lockv(&state.settings).network_ports.clone();
     let own_port = lockv(&state.settings).ui_port;
     let prefixes = network_prefixes();
@@ -876,12 +1416,22 @@ pub fn discover_peers(state: &Arc<AppState>) {
     let mut hosts: Vec<String> = vec!["127.0.0.1".to_string()]; // autres instances locales
     for (prefix, self_ip) in &prefixes {
         for h in probe::arp_hosts(prefix, self_ip) {
-            if !hosts.contains(&h) { hosts.push(h); }
+            if !hosts.contains(&h) {
+                hosts.push(h);
+            }
         }
     }
     // une cible qui est une de NOS ips sur NOTRE port UI = nous-mêmes -> skip
     hosts.retain(|h| !(my_ips.contains(h)));
-    add_log(state, "info", &format!("pairs : sondage {} cibles (ARP + loopback) sur ports UI {:?}", hosts.len(), ports));
+    add_log(
+        state,
+        "info",
+        &format!(
+            "pairs : sondage {} cibles (ARP + loopback) sur ports UI {:?}",
+            hosts.len(),
+            ports
+        ),
+    );
 
     use std::sync::atomic::{AtomicU32, Ordering};
     let new_peers = std::sync::Arc::new(AtomicU32::new(0));
@@ -892,31 +1442,59 @@ pub fn discover_peers(state: &Arc<AppState>) {
         let new_peers = new_peers.clone();
         handles.push(std::thread::spawn(move || {
             for port in &ports {
-                if *port == own_port { continue; } // ne jamais se sonder soi-même sur notre port
+                if *port == own_port {
+                    continue;
+                } // ne jamais se sonder soi-même sur notre port
                 let pr = probe::probe_peer(&ip, *port);
                 if pr.alive {
                     if let Some(servers) = pr.servers {
-                        let count = servers.get("stats").and_then(|s| s.get("total")).and_then(|x| x.as_u64()).unwrap_or(0);
+                        let count = servers
+                            .get("stats")
+                            .and_then(|s| s.get("total"))
+                            .and_then(|x| x.as_u64())
+                            .unwrap_or(0);
                         let mut peers = lockv(&state.peers);
                         let is_new = !peers.contains_key(&ip);
-                        peers.insert(ip.clone(), crate::types::Peer {
-                            ip: ip.clone(), ui_port: *port,
-                            last_seen: crate::types::now_ts(), servers,
-                        });
+                        peers.insert(
+                            ip.clone(),
+                            crate::types::Peer {
+                                ip: ip.clone(),
+                                ui_port: *port,
+                                last_seen: crate::types::now_ts(),
+                                servers,
+                            },
+                        );
                         drop(peers);
-                        if is_new { new_peers.fetch_add(1, Ordering::Relaxed); }
-                        add_log(&state, "info", &format!("[pairs] command-center détecté sur {}:{} ({} serveurs)",
-                            ip, port, count));
+                        if is_new {
+                            new_peers.fetch_add(1, Ordering::Relaxed);
+                        }
+                        add_log(
+                            &state,
+                            "info",
+                            &format!(
+                                "[pairs] command-center détecté sur {}:{} ({} serveurs)",
+                                ip, port, count
+                            ),
+                        );
                         break;
                     }
                 }
             }
         }));
     }
-    for h in handles { let _ = h.join(); }
+    for h in handles {
+        let _ = h.join();
+    }
     let total = lockv(&state.peers).len();
     let nouveaux = new_peers.load(Ordering::Relaxed);
-    add_log(state, "info", &format!("pairs : {} peer(s) connu(s) ({} nouveau(x))", total, nouveaux));
+    add_log(
+        state,
+        "info",
+        &format!(
+            "pairs : {} peer(s) connu(s) ({} nouveau(x))",
+            total, nouveaux
+        ),
+    );
 }
 
 /// Importe depuis un pair tous les serveurs HTTP qu'on n'a pas encore (host:ip).
@@ -933,41 +1511,86 @@ pub fn import_peer(state: &Arc<AppState>, ip: &str) -> Value {
     let mut added = 0usize;
     if let Some(arr) = snapshot.get("servers").and_then(|x| x.as_array()) {
         for s in arr {
-            if s.get("transport").and_then(|x| x.as_str()) != Some("http") { continue; }
-            if s.get("enabled") != Some(&json!(true)) { continue; }
+            if s.get("transport").and_then(|x| x.as_str()) != Some("http") {
+                continue;
+            }
+            if s.get("enabled") != Some(&json!(true)) {
+                continue;
+            }
             let (host, port, path, name, version) = (
-                s.get("transport_info").and_then(|t| t.get("host")).and_then(|x| x.as_str()).map(String::from),
-                s.get("transport_info").and_then(|t| t.get("port")).and_then(|x| x.as_u64()).unwrap_or(0) as u16,
-                s.get("transport_info").and_then(|t| t.get("path")).and_then(|x| x.as_str()).unwrap_or("/mcp").to_string(),
-                s.get("server_name").and_then(|x| x.as_str()).map(String::from),
+                s.get("transport_info")
+                    .and_then(|t| t.get("host"))
+                    .and_then(|x| x.as_str())
+                    .map(String::from),
+                s.get("transport_info")
+                    .and_then(|t| t.get("port"))
+                    .and_then(|x| x.as_u64())
+                    .unwrap_or(0) as u16,
+                s.get("transport_info")
+                    .and_then(|t| t.get("path"))
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("/mcp")
+                    .to_string(),
+                s.get("server_name")
+                    .and_then(|x| x.as_str())
+                    .map(String::from),
                 s.get("version").and_then(|x| x.as_str()).map(String::from),
             );
             // host: null (localhost du pair) -> réécrire vers l'IP du pair si ce n'est pas notre machine
             let host = match host {
                 Some(h) => h,
                 None if ip == "127.0.0.1" => continue, // même machine : localhost reste localhost
-                None => ip.to_string(),                 // pair distant : pointer son IP
+                None => ip.to_string(),                // pair distant : pointer son IP
             };
             let mut servers = lockv(&state.servers);
-            let already = servers.iter().any(|srv| matches!(&srv.transport,
-                Transport::Http { host: Some(h), port: p, .. } if h == &host && p == &port));
-            if already { continue; }
+            let already = servers.iter().any(|srv| {
+                matches!(&srv.transport,
+                Transport::Http { host: Some(h), port: p, .. } if h == &host && p == &port)
+            });
+            if already {
+                continue;
+            }
             let id = format!("net-{}.{}", host, port);
-            if servers.iter().any(|s| s.id == id) { continue; }
+            if servers.iter().any(|s| s.id == id) {
+                continue;
+            }
             servers.push(Server {
-                id, label: name.clone().unwrap_or_else(|| format!("{}:{}", host, port)),
-                transport: Transport::Http { host: Some(host.clone()), port, path },
-                origin: Origin::Discovered, enabled: true, state: SState::Down, auto_restart: true,
-                pid: None, bound_host: None, server_name: name, version,
-                protocol: None, tools: vec![], latency_ms: None,
-                last_seen_ts: None, last_error: None, start_cmd: None, tools_disabled: vec![],
+                id,
+                label: name.clone().unwrap_or_else(|| format!("{}:{}", host, port)),
+                transport: Transport::Http {
+                    host: Some(host.clone()),
+                    port,
+                    path,
+                },
+                origin: Origin::Discovered,
+                enabled: true,
+                state: SState::Down,
+                auto_restart: true,
+                pid: None,
+                bound_host: None,
+                server_name: name,
+                version,
+                protocol: None,
+                tools: vec![],
+                latency_ms: None,
+                last_seen_ts: None,
+                last_error: None,
+                start_cmd: None,
+                tools_disabled: vec![],
             });
             added += 1;
         }
     }
     drop(snapshot);
     save_config(state);
-    add_log(state, "info", &format!("[pairs] import depuis {} (UI {}) : {} serveur(s) ajouté(s)", ip, ui_port, added));
+    add_log(
+        state,
+        "info",
+        &format!(
+            "[pairs] import depuis {} (UI {}) : {} serveur(s) ajouté(s)",
+            ip, ui_port, added
+        ),
+    );
     json!({"ok": true, "added": added})
 }
 
@@ -979,12 +1602,19 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
         Ok(v) => v,
         Err(e) => return json!({"ok": false, "error": format!("body invalide: {}", e)}),
     };
-    let action = req.get("action").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let action = req
+        .get("action")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
     let id = req.get("id").and_then(|x| x.as_str()).map(String::from);
 
     match action.as_str() {
         "toggle" | "refresh" | "kill_stdio" | "start_stdio" | "start" | "kill" => {
-            let id = match id { Some(i) => i, None => return json!({"ok": false, "error": "id manquant"}) };
+            let id = match id {
+                Some(i) => i,
+                None => return json!({"ok": false, "error": "id manquant"}),
+            };
             match action.as_str() {
                 "toggle" => {
                     let now_enabled = {
@@ -992,7 +1622,11 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                         match servers.iter_mut().find(|s| s.id == id) {
                             Some(s) => {
                                 s.enabled = !s.enabled;
-                                s.state = if s.enabled { SState::Down } else { SState::Disabled };
+                                s.state = if s.enabled {
+                                    SState::Down
+                                } else {
+                                    SState::Disabled
+                                };
                                 if s.enabled {
                                     s.start_cmd = start_cmd_for(s);
                                     s.auto_restart = true;
@@ -1019,14 +1653,29 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                             s.pid = None;
                         }
                     }
-                    add_log(state, "info", &format!("[{}] {}", id, if now_enabled { "activé" } else { "désactivé" }));
+                    add_log(
+                        state,
+                        "info",
+                        &format!(
+                            "[{}] {}",
+                            id,
+                            if now_enabled {
+                                "activé"
+                            } else {
+                                "désactivé"
+                            }
+                        ),
+                    );
                     if now_enabled {
                         // ON réel : démarrer/sonder immédiatement si une commande de lancement existe
                         poll_one(state, &id);
                     }
                     json!({"ok": true, "enabled": now_enabled})
                 }
-                "refresh" => { poll_one(state, &id); json!({"ok": true}) }
+                "refresh" => {
+                    poll_one(state, &id);
+                    json!({"ok": true})
+                }
                 "start_stdio" | "start" => {
                     {
                         let mut servers = lockv(&state.servers);
@@ -1075,27 +1724,57 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
             }
         }
         "add" => {
-            let transport = req.get("transport").and_then(|x| x.as_str()).unwrap_or("http");
+            let transport = req
+                .get("transport")
+                .and_then(|x| x.as_str())
+                .unwrap_or("http");
             let srv = if transport == "stdio" {
                 let program = req.get("program").and_then(|x| x.as_str()).unwrap_or("");
-                if program.is_empty() { return json!({"ok": false, "error": "program manquant"}); }
-                let sargs: Vec<String> = req.get("args").and_then(|x| x.as_array()).map(|a| {
-                    a.iter().filter_map(|i| i.as_str().map(String::from)).collect()
-                }).unwrap_or_default();
-                let sworkdir = req.get("workdir").and_then(|x| x.as_str()).map(String::from);
+                if program.is_empty() {
+                    return json!({"ok": false, "error": "program manquant"});
+                }
+                let sargs: Vec<String> = req
+                    .get("args")
+                    .and_then(|x| x.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|i| i.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let sworkdir = req
+                    .get("workdir")
+                    .and_then(|x| x.as_str())
+                    .map(String::from);
                 Server {
                     id: format!("manual-stdio-{}", now_compact()),
-                    label: req.get("label").and_then(|x| x.as_str()).unwrap_or(program).to_string(),
+                    label: req
+                        .get("label")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or(program)
+                        .to_string(),
                     transport: Transport::Stdio {
                         program: program.to_string(),
                         args: sargs.clone(),
                         workdir: sworkdir.clone(),
                     },
-                    origin: Origin::Manual, enabled: true, state: SState::Down,
-                    pid: None, bound_host: None, server_name: None, version: None,
-                    protocol: None, tools: vec![], latency_ms: None,
-                    last_seen_ts: None, last_error: None,
-                    start_cmd: Some(StartCmd { program: program.to_string(), args: sargs, workdir: sworkdir }),
+                    origin: Origin::Manual,
+                    enabled: true,
+                    state: SState::Down,
+                    pid: None,
+                    bound_host: None,
+                    server_name: None,
+                    version: None,
+                    protocol: None,
+                    tools: vec![],
+                    latency_ms: None,
+                    last_seen_ts: None,
+                    last_error: None,
+                    start_cmd: Some(StartCmd {
+                        program: program.to_string(),
+                        args: sargs,
+                        workdir: sworkdir,
+                    }),
                     auto_restart: true,
                     tools_disabled: vec![],
                 }
@@ -1106,29 +1785,62 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                 };
                 // commande de lancement optionnelle → le command center peut Start/Stop ce HTTP
                 let sstart = {
-                    let program = req.get("program").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                    if program.is_empty() { None } else {
+                    let program = req
+                        .get("program")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if program.is_empty() {
+                        None
+                    } else {
                         Some(StartCmd {
                             program,
-                            args: req.get("args").and_then(|x| x.as_array()).map(|a| {
-                                a.iter().filter_map(|i| i.as_str().map(String::from)).collect()
-                            }).unwrap_or_default(),
-                            workdir: req.get("workdir").and_then(|x| x.as_str()).map(String::from),
+                            args: req
+                                .get("args")
+                                .and_then(|x| x.as_array())
+                                .map(|a| {
+                                    a.iter()
+                                        .filter_map(|i| i.as_str().map(String::from))
+                                        .collect()
+                                })
+                                .unwrap_or_default(),
+                            workdir: req
+                                .get("workdir")
+                                .and_then(|x| x.as_str())
+                                .map(String::from),
                         })
                     }
                 };
                 Server {
                     id: format!("manual-http-{}", now_compact()),
-                    label: req.get("label").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                    label: req
+                        .get("label")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                     transport: Transport::Http {
                         host: req.get("host").and_then(|x| x.as_str()).map(String::from),
                         port,
-                        path: req.get("path").and_then(|x| x.as_str()).unwrap_or("/mcp").to_string(),
+                        path: req
+                            .get("path")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("/mcp")
+                            .to_string(),
                     },
-                    origin: Origin::Manual, enabled: true, state: SState::Down,
-                    pid: None, bound_host: None, server_name: None, version: None,
-                    protocol: None, tools: vec![], latency_ms: None,
-                    last_seen_ts: None, last_error: None, start_cmd: sstart, auto_restart: true,
+                    origin: Origin::Manual,
+                    enabled: true,
+                    state: SState::Down,
+                    pid: None,
+                    bound_host: None,
+                    server_name: None,
+                    version: None,
+                    protocol: None,
+                    tools: vec![],
+                    latency_ms: None,
+                    last_seen_ts: None,
+                    last_error: None,
+                    start_cmd: sstart,
+                    auto_restart: true,
                     tools_disabled: vec![],
                 }
             };
@@ -1136,11 +1848,18 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
             let sid = srv.id.clone();
             lockv(&state.servers).push(srv);
             save_config(state);
-            add_log(state, "info", &format!("[+] serveur ajouté : {} ({})", label, sid));
+            add_log(
+                state,
+                "info",
+                &format!("[+] serveur ajouté : {} ({})", label, sid),
+            );
             json!({"ok": true, "id": sid})
         }
         "remove" => {
-            let id = match id { Some(i) => i, None => return json!({"ok": false, "error": "id manquant"}) };
+            let id = match id {
+                Some(i) => i,
+                None => return json!({"ok": false, "error": "id manquant"}),
+            };
             let mut children = lockv(&state.children);
             if let Some(h) = children.get_mut(&id) {
                 let _ = h.child.kill();
@@ -1155,30 +1874,57 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                 before != servers.len()
             };
             save_config(state);
-            add_log(state, "info", &format!("[-] serveur supprimé : {} ({})", id, if removed { "ok" } else { "introuvable" }));
+            add_log(
+                state,
+                "info",
+                &format!(
+                    "[-] serveur supprimé : {} ({})",
+                    id,
+                    if removed { "ok" } else { "introuvable" }
+                ),
+            );
             json!({"ok": removed})
         }
         "scan" => {
-            let range = match (req.get("from").and_then(|x| x.as_u64()), req.get("to").and_then(|x| x.as_u64())) {
-                (Some(a), Some(b)) if (1..=65535).contains(&a) && (1..=65535).contains(&b) && a <= b => Some((a as u16, b as u16)),
+            let range = match (
+                req.get("from").and_then(|x| x.as_u64()),
+                req.get("to").and_then(|x| x.as_u64()),
+            ) {
+                (Some(a), Some(b))
+                    if (1..=65535).contains(&a) && (1..=65535).contains(&b) && a <= b =>
+                {
+                    Some((a as u16, b as u16))
+                }
                 _ => None,
             };
             scan_ports(state, range);
             json!({"ok": true})
         }
         "scan_network" => {
-            let range = match (req.get("from").and_then(|x| x.as_u64()), req.get("to").and_then(|x| x.as_u64())) {
-                (Some(a), Some(b)) if (1..=65535).contains(&a) && (1..=65535).contains(&b) && a <= b => Some((a as u16, b as u16)),
+            let range = match (
+                req.get("from").and_then(|x| x.as_u64()),
+                req.get("to").and_then(|x| x.as_u64()),
+            ) {
+                (Some(a), Some(b))
+                    if (1..=65535).contains(&a) && (1..=65535).contains(&b) && a <= b =>
+                {
+                    Some((a as u16, b as u16))
+                }
                 _ => None,
             };
             let st = state.clone();
             std::thread::spawn(move || scan_network(&st, range));
             json!({"ok": true, "started": true, "note": "scan asynchrone — voir le journal pour les détections"})
         }
-        "discover_peers" => { discover_peers(state); json!({"ok": true}) }
+        "discover_peers" => {
+            discover_peers(state);
+            json!({"ok": true})
+        }
         "import_peer" => {
             let ip = req.get("ip").and_then(|x| x.as_str()).unwrap_or("");
-            if ip.is_empty() { return json!({"ok": false, "error": "ip manquante"}); }
+            if ip.is_empty() {
+                return json!({"ok": false, "error": "ip manquante"});
+            }
             import_peer(state, ip)
         }
         "toggle_tool" => {
@@ -1206,8 +1952,21 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                 }
             };
             save_config(state);
-            add_log(state, "info", &format!("[{}] tool '{}' {} ({} actifs)", sid, tool,
-                if now_disabled { "DÉSACTIVÉ" } else { "réactivé" }, count));
+            add_log(
+                state,
+                "info",
+                &format!(
+                    "[{}] tool '{}' {} ({} actifs)",
+                    sid,
+                    tool,
+                    if now_disabled {
+                        "DÉSACTIVÉ"
+                    } else {
+                        "réactivé"
+                    },
+                    count
+                ),
+            );
             json!({"ok": true, "disabled": now_disabled, "tools_actifs": count})
         }
         "install_store" => {
@@ -1224,15 +1983,23 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                                 id: id.clone(),
                                 label: it.name.to_string(),
                                 transport: Transport::Stdio {
-                                    program: it.program.to_string(), args, workdir: None,
+                                    program: it.program.to_string(),
+                                    args,
+                                    workdir: None,
                                 },
                                 origin: Origin::Manual,
                                 enabled: true,
                                 state: SState::Down,
                                 auto_restart: true,
-                                pid: None, bound_host: None, server_name: None, version: None,
-                                protocol: None, tools: vec![], latency_ms: None,
-                                last_seen_ts: None, last_error: None,
+                                pid: None,
+                                bound_host: None,
+                                server_name: None,
+                                version: None,
+                                protocol: None,
+                                tools: vec![],
+                                latency_ms: None,
+                                last_seen_ts: None,
+                                last_error: None,
                                 start_cmd: Some(StartCmd {
                                     program: it.program.to_string(),
                                     args: it.args.iter().map(|a| a.to_string()).collect(),
@@ -1243,14 +2010,19 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                         }
                         already
                     };
-                    if already { return json!({"ok": true, "added": 0, "note": "déjà installé"}); }
+                    if already {
+                        return json!({"ok": true, "added": 0, "note": "déjà installé"});
+                    }
                     save_config(state);
                     add_log(state, "info", &format!("[boutique] installé : {}", it.name));
                     poll_one(state, &id);
                     let st = {
                         let servers = lockv(&state.servers);
-                        servers.iter().find(|s| s.id == id)
-                            .map(|s| s.state.as_str().to_string()).unwrap_or_default()
+                        servers
+                            .iter()
+                            .find(|s| s.id == id)
+                            .map(|s| s.state.as_str().to_string())
+                            .unwrap_or_default()
                     };
                     json!({"ok": true, "added": 1, "id": id, "state": st})
                 }
@@ -1266,14 +2038,22 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
 }
 
 fn now_compact() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64 % 100_000_000).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64 % 100_000_000)
+        .unwrap_or(0)
 }
 
 pub fn start_cmd_for(srv: &Server) -> Option<StartCmd> {
     match &srv.transport {
-        Transport::Stdio { program, args, workdir } => Some(StartCmd {
-            program: program.clone(), args: args.clone(), workdir: workdir.clone(),
+        Transport::Stdio {
+            program,
+            args,
+            workdir,
+        } => Some(StartCmd {
+            program: program.clone(),
+            args: args.clone(),
+            workdir: workdir.clone(),
         }),
         Transport::Http { .. } => srv.start_cmd.clone(),
     }
@@ -1283,10 +2063,19 @@ pub fn start_cmd_for(srv: &Server) -> Option<StartCmd> {
 
 fn server_json(s: &Server) -> Value {
     let (ttype, extra) = match &s.transport {
-        Transport::Http { host, port, path } => ("http", json!({"host": host, "port": port, "path": path})),
-        Transport::Stdio { program, args, workdir } => ("stdio", json!({
-            "program": program, "args": args, "workdir": workdir,
-        })),
+        Transport::Http { host, port, path } => {
+            ("http", json!({"host": host, "port": port, "path": path}))
+        }
+        Transport::Stdio {
+            program,
+            args,
+            workdir,
+        } => (
+            "stdio",
+            json!({
+                "program": program, "args": args, "workdir": workdir,
+            }),
+        ),
     };
     let origin = s.origin.as_str();
     json!({
@@ -1311,9 +2100,16 @@ pub fn state_json(state: &Arc<AppState>) -> Value {
     let up = servers.iter().filter(|s| s.state == SState::Up).count();
     let total = servers.len();
     let tools: usize = servers.iter().map(tools_actifs).sum();
-    let logarr: Vec<Value> = log.iter().rev().take(80).map(|e| json!({
-        "ts": e.ts, "level": e.level, "msg": e.msg
-    })).collect();
+    let logarr: Vec<Value> = log
+        .iter()
+        .rev()
+        .take(80)
+        .map(|e| {
+            json!({
+                "ts": e.ts, "level": e.level, "msg": e.msg
+            })
+        })
+        .collect();
     json!({
         "servers": list, "log": logarr,
         "stats": {"up": up, "total": total, "tools": tools},
@@ -1333,18 +2129,26 @@ pub fn detail_json(state: &Arc<AppState>, id: &str) -> Value {
     let servers = lockv(&state.servers);
     match servers.iter().find(|s| s.id == id) {
         Some(s) => {
-            let mut o = match server_json(s) { Value::Object(o) => o, _ => Map::new() };
-            let tools: Vec<Value> = s.tools.iter().map(|t| json!({
-                "name": t.name, "desc": t.desc,
-                "disabled": s.tools_disabled.contains(&t.name),
-            })).collect();
+            let mut o = match server_json(s) {
+                Value::Object(o) => o,
+                _ => Map::new(),
+            };
+            let tools: Vec<Value> = s
+                .tools
+                .iter()
+                .map(|t| {
+                    json!({
+                        "name": t.name, "desc": t.desc,
+                        "disabled": s.tools_disabled.contains(&t.name),
+                    })
+                })
+                .collect();
             o.insert("tools_list".into(), json!(tools));
             Value::Object(o)
         }
         None => json!({"ok": false, "error": "serveur inconnu"}),
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1390,7 +2194,11 @@ mod tests {
         assert_eq!(m.origin, Origin::Manual);
         assert!(!m.enabled);
         match &m.transport {
-            Transport::Http { host, port, path } => { assert!(host.is_none()); assert_eq!(*port, 4567); assert_eq!(path, "/x"); }
+            Transport::Http { host, port, path } => {
+                assert!(host.is_none());
+                assert_eq!(*port, 4567);
+                assert_eq!(path, "/x");
+            }
             _ => panic!("transport http attendu"),
         }
     }
@@ -1401,9 +2209,15 @@ mod tests {
         let cfg = "{\"servers\":[{\"id\":\"man-s\",\"label\":\"S\",\"transport\":\"stdio\",\"program\":\"node\",\"args\":[\"a.js\",\"--p\",\"1\"],\"workdir\":\"C:/w\",\"enabled\":true}]}";
         let (servers, _) = load_config(&tmp_config("cfg_stdio.json", Some(cfg)));
         let s = servers.iter().find(|s| s.id == "man-s").unwrap();
-        let cmd = s.start_cmd.as_ref().expect("start_cmd doit etre reconstruit au load");
+        let cmd = s
+            .start_cmd
+            .as_ref()
+            .expect("start_cmd doit etre reconstruit au load");
         assert_eq!(cmd.program, "node");
-        assert_eq!(cmd.args, vec!["a.js".to_string(), "--p".to_string(), "1".to_string()]);
+        assert_eq!(
+            cmd.args,
+            vec!["a.js".to_string(), "--p".to_string(), "1".to_string()]
+        );
         assert_eq!(cmd.workdir.as_deref(), Some("C:/w"));
         assert!(s.auto_restart);
     }
@@ -1422,21 +2236,46 @@ mod tests {
         {
             let mut servers = lockv(&state.servers);
             servers.push(Server {
-                id: "rt1".into(), label: "RT".into(),
-                transport: Transport::Stdio { program: "prog".into(), args: vec!["-x".into()], workdir: Some("W".into()) },
-                origin: Origin::Manual, enabled: true, auto_restart: true, state: SState::Up,
-                pid: Some(42), bound_host: None, server_name: Some("n".into()), version: Some("1".into()),
-                protocol: None, tools: vec![], latency_ms: Some(3),
-                last_seen_ts: Some(1), last_error: None,
-                start_cmd: Some(StartCmd { program: "prog".into(), args: vec!["-x".into()], workdir: Some("W".into()) }),
+                id: "rt1".into(),
+                label: "RT".into(),
+                transport: Transport::Stdio {
+                    program: "prog".into(),
+                    args: vec!["-x".into()],
+                    workdir: Some("W".into()),
+                },
+                origin: Origin::Manual,
+                enabled: true,
+                auto_restart: true,
+                state: SState::Up,
+                pid: Some(42),
+                bound_host: None,
+                server_name: Some("n".into()),
+                version: Some("1".into()),
+                protocol: None,
+                tools: vec![],
+                latency_ms: Some(3),
+                last_seen_ts: Some(1),
+                last_error: None,
+                start_cmd: Some(StartCmd {
+                    program: "prog".into(),
+                    args: vec!["-x".into()],
+                    workdir: Some("W".into()),
+                }),
                 tools_disabled: vec![],
             });
         }
         save_config(&state);
         let (servers, _) = load_config(&path);
-        let s = servers.iter().find(|s| s.id == "rt1").expect("doit etre persiste");
+        let s = servers
+            .iter()
+            .find(|s| s.id == "rt1")
+            .expect("doit etre persiste");
         match &s.transport {
-            Transport::Stdio { program, args, workdir } => {
+            Transport::Stdio {
+                program,
+                args,
+                workdir,
+            } => {
                 assert_eq!(program, "prog");
                 assert_eq!(args, &vec!["-x".to_string()]);
                 assert_eq!(workdir.as_deref(), Some("W"));
@@ -1458,18 +2297,39 @@ mod tests {
     #[test]
     fn toggle_tool_desactive_et_reactive() {
         let state = AppState {
-            servers: Mutex::new(vec![
-                Server { id: "s".into(), label: "S".into(),
-                    transport: Transport::Http { host: None, port: 1, path: "/mcp".into() },
-                    origin: Origin::Seed, enabled: true, auto_restart: true, state: SState::Up,
-                    pid: None, bound_host: None, server_name: None, version: None, protocol: None,
-                    tools: vec![
-                        crate::types::ToolInfo { name: "a".into(), desc: String::new() },
-                        crate::types::ToolInfo { name: "b".into(), desc: String::new() },
-                    ],
-                    latency_ms: None, last_seen_ts: None, last_error: None, start_cmd: None,
-                    tools_disabled: vec![] },
-            ]),
+            servers: Mutex::new(vec![Server {
+                id: "s".into(),
+                label: "S".into(),
+                transport: Transport::Http {
+                    host: None,
+                    port: 1,
+                    path: "/mcp".into(),
+                },
+                origin: Origin::Seed,
+                enabled: true,
+                auto_restart: true,
+                state: SState::Up,
+                pid: None,
+                bound_host: None,
+                server_name: None,
+                version: None,
+                protocol: None,
+                tools: vec![
+                    crate::types::ToolInfo {
+                        name: "a".into(),
+                        desc: String::new(),
+                    },
+                    crate::types::ToolInfo {
+                        name: "b".into(),
+                        desc: String::new(),
+                    },
+                ],
+                latency_ms: None,
+                last_seen_ts: None,
+                last_error: None,
+                start_cmd: None,
+                tools_disabled: vec![],
+            }]),
             log: Mutex::new(VecDeque::new()),
             settings: Mutex::new(Settings::default()),
             children: Mutex::new(std::collections::HashMap::new()),
@@ -1477,7 +2337,10 @@ mod tests {
             config_path: String::new(),
         };
         let arc = Arc::new(state);
-        let body = serde_json::to_string(&serde_json::json!({"action": "toggle_tool", "id": "s", "tool": "a"})).unwrap();
+        let body = serde_json::to_string(
+            &serde_json::json!({"action": "toggle_tool", "id": "s", "tool": "a"}),
+        )
+        .unwrap();
         let j = handle_action(&arc, &body);
         assert_eq!(j["ok"], json!(true));
         assert_eq!(j["disabled"], json!(true));
@@ -1490,19 +2353,43 @@ mod tests {
     #[test]
     fn tools_actifs_exclut_les_desactives() {
         let state = AppState {
-            servers: Mutex::new(vec![
-                Server { id: "x".into(), label: "X".into(),
-                    transport: Transport::Http { host: None, port: 9, path: "/mcp".into() },
-                    origin: Origin::Seed, enabled: true, auto_restart: true, state: SState::Up,
-                    pid: None, bound_host: None, server_name: None, version: None, protocol: None,
-                    tools: vec![
-                        crate::types::ToolInfo { name: "a".into(), desc: String::new() },
-                        crate::types::ToolInfo { name: "b".into(), desc: String::new() },
-                        crate::types::ToolInfo { name: "c".into(), desc: String::new() },
-                    ],
-                    latency_ms: None, last_seen_ts: None, last_error: None, start_cmd: None,
-                    tools_disabled: vec!["a".into(), "c".into()] },
-            ]),
+            servers: Mutex::new(vec![Server {
+                id: "x".into(),
+                label: "X".into(),
+                transport: Transport::Http {
+                    host: None,
+                    port: 9,
+                    path: "/mcp".into(),
+                },
+                origin: Origin::Seed,
+                enabled: true,
+                auto_restart: true,
+                state: SState::Up,
+                pid: None,
+                bound_host: None,
+                server_name: None,
+                version: None,
+                protocol: None,
+                tools: vec![
+                    crate::types::ToolInfo {
+                        name: "a".into(),
+                        desc: String::new(),
+                    },
+                    crate::types::ToolInfo {
+                        name: "b".into(),
+                        desc: String::new(),
+                    },
+                    crate::types::ToolInfo {
+                        name: "c".into(),
+                        desc: String::new(),
+                    },
+                ],
+                latency_ms: None,
+                last_seen_ts: None,
+                last_error: None,
+                start_cmd: None,
+                tools_disabled: vec!["a".into(), "c".into()],
+            }]),
             log: Mutex::new(VecDeque::new()),
             settings: Mutex::new(Settings::default()),
             children: Mutex::new(std::collections::HashMap::new()),
@@ -1517,17 +2404,57 @@ mod tests {
     fn state_json_compte_bon_les_stats() {
         let state = AppState {
             servers: Mutex::new(vec![
-                Server { id: "a".into(), label: "A".into(), transport: Transport::Http { host: None, port: 1, path: "/mcp".into() },
-                    origin: Origin::Seed, enabled: true, auto_restart: true, state: SState::Up,
-                    pid: None, bound_host: None, server_name: None, version: None, protocol: None,
-                    tools: vec![crate::types::ToolInfo { name: "t".into(), desc: String::new() }],
-                    latency_ms: None, last_seen_ts: None, last_error: None, start_cmd: None,
-                    tools_disabled: vec![] },
-                Server { id: "b".into(), label: "B".into(), transport: Transport::Http { host: None, port: 2, path: "/mcp".into() },
-                    origin: Origin::Seed, enabled: false, auto_restart: true, state: SState::Disabled,
-                    pid: None, bound_host: None, server_name: None, version: None, protocol: None,
-                    tools: vec![], latency_ms: None, last_seen_ts: None, last_error: None, start_cmd: None,
-                    tools_disabled: vec![] },
+                Server {
+                    id: "a".into(),
+                    label: "A".into(),
+                    transport: Transport::Http {
+                        host: None,
+                        port: 1,
+                        path: "/mcp".into(),
+                    },
+                    origin: Origin::Seed,
+                    enabled: true,
+                    auto_restart: true,
+                    state: SState::Up,
+                    pid: None,
+                    bound_host: None,
+                    server_name: None,
+                    version: None,
+                    protocol: None,
+                    tools: vec![crate::types::ToolInfo {
+                        name: "t".into(),
+                        desc: String::new(),
+                    }],
+                    latency_ms: None,
+                    last_seen_ts: None,
+                    last_error: None,
+                    start_cmd: None,
+                    tools_disabled: vec![],
+                },
+                Server {
+                    id: "b".into(),
+                    label: "B".into(),
+                    transport: Transport::Http {
+                        host: None,
+                        port: 2,
+                        path: "/mcp".into(),
+                    },
+                    origin: Origin::Seed,
+                    enabled: false,
+                    auto_restart: true,
+                    state: SState::Disabled,
+                    pid: None,
+                    bound_host: None,
+                    server_name: None,
+                    version: None,
+                    protocol: None,
+                    tools: vec![],
+                    latency_ms: None,
+                    last_seen_ts: None,
+                    last_error: None,
+                    start_cmd: None,
+                    tools_disabled: vec![],
+                },
             ]),
             log: Mutex::new(VecDeque::new()),
             settings: Mutex::new(Settings::default()),
@@ -1559,7 +2486,10 @@ mod tests {
 
     #[test]
     fn cleanup_name_hermes() {
-        assert_eq!(cleanup_name("@modelcontextprotocol/server-filesystem"), "filesystem");
+        assert_eq!(
+            cleanup_name("@modelcontextprotocol/server-filesystem"),
+            "filesystem"
+        );
         assert_eq!(cleanup_name("mcp-server-git"), "git");
         assert_eq!(cleanup_name("mcp-server-time"), "time");
     }
@@ -1587,12 +2517,17 @@ mod tests {
         let j2 = import_mcp_text(&state, "claude mcp add monserveur npx -y pkg");
         assert_eq!(j2["ok"], json!(true));
         // commande npx brute
-        let j3 = import_mcp_text(&state, "npx -y @modelcontextprotocol/server-filesystem /tmp");
+        let j3 = import_mcp_text(
+            &state,
+            "npx -y @modelcontextprotocol/server-filesystem /tmp",
+        );
         assert_eq!(j3["ok"], json!(true));
         let servers = lockv(&state.servers);
         assert!(servers.iter().any(|s| s.id == "store-linear"));
         assert!(servers.iter().any(|s| s.label.starts_with("monserveur")));
-        assert!(servers.iter().any(|s| s.id.starts_with("store-filesystem-")));
+        assert!(servers
+            .iter()
+            .any(|s| s.id.starts_with("store-filesystem-")));
     }
 
     #[test]
@@ -1623,9 +2558,16 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let _ = std::fs::remove_file(dir.join("config.json"));
         let p = resolve_config_path(&dir.to_string_lossy(), None);
-        assert!(p.ends_with("config.json"), "doit finir par config.json, got {}", p);
-        assert!(!p.starts_with(&dir.to_string_lossy().to_string()),
-            "ne doit PAS pointer vers le manifest (machine cliente), got {}", p);
+        assert!(
+            p.ends_with("config.json"),
+            "doit finir par config.json, got {}",
+            p
+        );
+        assert!(
+            !p.starts_with(&dir.to_string_lossy().to_string()),
+            "ne doit PAS pointer vers le manifest (machine cliente), got {}",
+            p
+        );
     }
 
     #[test]
@@ -1634,9 +2576,15 @@ mod tests {
         let path = tmp_config("cfg_http_cmd.json", Some(cfg));
         let (servers, _) = load_config(&path);
         let s = servers.iter().find(|s| s.id == "h1").unwrap();
-        let cmd = s.start_cmd.as_ref().expect("start_cmd http doit être chargé du json");
+        let cmd = s
+            .start_cmd
+            .as_ref()
+            .expect("start_cmd http doit être chargé du json");
         assert_eq!(cmd.program, "node");
-        assert_eq!(cmd.args, vec!["srv.js".to_string(), "--p".to_string(), "3210".to_string()]);
+        assert_eq!(
+            cmd.args,
+            vec!["srv.js".to_string(), "--p".to_string(), "3210".to_string()]
+        );
         assert_eq!(cmd.workdir.as_deref(), Some("C:/s"));
         // round-trip save/reload
         let state = AppState {
@@ -1650,8 +2598,14 @@ mod tests {
         save_config(&state);
         let (servers2, _) = load_config(&path);
         let s2 = servers2.iter().find(|s| s.id == "h1").unwrap();
-        let cmd2 = s2.start_cmd.as_ref().expect("start_cmd http doit survivre au round-trip");
+        let cmd2 = s2
+            .start_cmd
+            .as_ref()
+            .expect("start_cmd http doit survivre au round-trip");
         assert_eq!(cmd2.program, "node");
-        assert_eq!(cmd2.args, vec!["srv.js".to_string(), "--p".to_string(), "3210".to_string()]);
+        assert_eq!(
+            cmd2.args,
+            vec!["srv.js".to_string(), "--p".to_string(), "3210".to_string()]
+        );
     }
 }

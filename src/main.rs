@@ -3,12 +3,12 @@ mod probe;
 mod types;
 mod ui;
 
+use crate::types::{lockv, AppState};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use crate::types::{lockv, AppState};
 
 /// Ouvre l'URL dans une FENÊTRE desktop dédiée (mode --app, comme un shell Electron
 /// sans la payload) : Edge/Chrome --app donnent une vraie fenêtre sans barres du
@@ -31,12 +31,18 @@ fn open_browser(url: &str) {
                 return;
             }
         }
-        let _ = std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn();
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .spawn();
     }
     #[cfg(target_os = "macos")]
     {
         for b in ["Google Chrome", "Microsoft Edge", "Chromium"] {
-            if std::process::Command::new("open").args(["-a", b, "--args", "--app", url]).spawn().is_ok() {
+            if std::process::Command::new("open")
+                .args(["-a", b, "--args", "--app", url])
+                .spawn()
+                .is_ok()
+            {
                 return;
             }
         }
@@ -44,8 +50,17 @@ fn open_browser(url: &str) {
     }
     #[cfg(target_os = "linux")]
     {
-        for b in ["google-chrome", "chromium", "chromium-browser", "microsoft-edge"] {
-            if std::process::Command::new(b).args(["--app", url]).spawn().is_ok() {
+        for b in [
+            "google-chrome",
+            "chromium",
+            "chromium-browser",
+            "microsoft-edge",
+        ] {
+            if std::process::Command::new(b)
+                .args(["--app", url])
+                .spawn()
+                .is_ok()
+            {
                 return;
             }
         }
@@ -54,10 +69,8 @@ fn open_browser(url: &str) {
 }
 
 fn main() {
-    let config_path = manage::resolve_config_path(
-        env!("CARGO_MANIFEST_DIR"),
-        std::env::var("MCC_CONFIG").ok(),
-    );
+    let config_path =
+        manage::resolve_config_path(env!("CARGO_MANIFEST_DIR"), std::env::var("MCC_CONFIG").ok());
     let (servers, settings) = manage::load_config(&config_path);
     let state = Arc::new(AppState {
         servers: Mutex::new(servers),
@@ -67,7 +80,11 @@ fn main() {
         peers: Mutex::new(std::collections::HashMap::new()),
         config_path,
     });
-    manage::add_log(&state, "info", &format!("mcp-command-center v{} démarré", env!("CARGO_PKG_VERSION")));
+    manage::add_log(
+        &state,
+        "info",
+        &format!("mcp-command-center v{} démarré", env!("CARGO_PKG_VERSION")),
+    );
 
     let mut ui_port = settings.ui_port;
     let ui_bind = settings.ui_bind.clone();
@@ -75,10 +92,18 @@ fn main() {
         match TcpListener::bind((ui_bind.as_str(), ui_port)) {
             Ok(l) => break l,
             Err(_) => {
-                manage::add_log(&state, "warn", &format!("port {} occupé, essai {}", ui_port, ui_port + 1));
+                manage::add_log(
+                    &state,
+                    "warn",
+                    &format!("port {} occupé, essai {}", ui_port, ui_port + 1),
+                );
                 ui_port += 1;
                 if ui_port > settings.ui_port + 9 {
-                    eprintln!("[fatal] aucun port UI libre ({}..{})", settings.ui_port, settings.ui_port + 9);
+                    eprintln!(
+                        "[fatal] aucun port UI libre ({}..{})",
+                        settings.ui_port,
+                        settings.ui_port + 9
+                    );
                     std::process::exit(1);
                 }
             }
@@ -88,11 +113,26 @@ fn main() {
         let mut st = lockv(&state.settings);
         st.ui_port = ui_port;
     }
-    let ui_host = if ui_bind == "0.0.0.0" { "<ip-lan>".to_string() } else { ui_bind.clone() };
-    let ui_url_host = if ui_bind == "0.0.0.0" { "127.0.0.1".to_string() } else { ui_bind.clone() };
+    let ui_host = if ui_bind == "0.0.0.0" {
+        "<ip-lan>".to_string()
+    } else {
+        ui_bind.clone()
+    };
+    let ui_url_host = if ui_bind == "0.0.0.0" {
+        "127.0.0.1".to_string()
+    } else {
+        ui_bind.clone()
+    };
     let ui_url = format!("http://{}:{}", ui_url_host, ui_port);
     println!("[UI] {}  (Ctrl+C pour arrêter)", ui_url);
-    manage::add_log(&state, "info", &format!("UI prête sur http://{}:{} (bind {})", ui_host, ui_port, ui_bind));
+    manage::add_log(
+        &state,
+        "info",
+        &format!(
+            "UI prête sur http://{}:{} (bind {})",
+            ui_host, ui_port, ui_bind
+        ),
+    );
     // ouvre le navigateur par défaut (désactivable via MCC_NO_BROWSER=1)
     if std::env::var("MCC_NO_BROWSER").as_deref() != Ok("1") {
         open_browser(&ui_url);
@@ -145,7 +185,9 @@ fn main() {
 }
 
 fn find_sub(hay: &[u8], needle: &[u8]) -> Option<usize> {
-    if needle.len() > hay.len() { return None; }
+    if needle.len() > hay.len() {
+        return None;
+    }
     hay.windows(needle.len()).position(|w| w == needle)
 }
 
@@ -159,13 +201,21 @@ fn handle_conn(mut stream: TcpStream, state: Arc<AppState>) {
             Ok(0) => break,
             Ok(n) => {
                 buf.extend_from_slice(&tmp[..n]);
-                if let Some(p) = find_sub(&buf, b"\r\n\r\n") { head_end = Some(p); break; }
-                if buf.len() > 1_048_576 { break; }
+                if let Some(p) = find_sub(&buf, b"\r\n\r\n") {
+                    head_end = Some(p);
+                    break;
+                }
+                if buf.len() > 1_048_576 {
+                    break;
+                }
             }
             Err(_) => break,
         }
     }
-    let head_end = match head_end { Some(p) => p, None => return };
+    let head_end = match head_end {
+        Some(p) => p,
+        None => return,
+    };
     let head = String::from_utf8_lossy(&buf[..head_end]).to_string();
     let mut lines = head.split("\r\n");
     let req_line = lines.next().unwrap_or("");
@@ -190,7 +240,13 @@ fn handle_conn(mut stream: TcpStream, state: Arc<AppState>) {
     body.truncate(content_length);
 
     let (status, ctype, payload) = route(&state, &method, &path, &body);
-    let reason = if status == 200 { "OK" } else if status == 404 { "Not Found" } else { "Bad Request" };
+    let reason = if status == 200 {
+        "OK"
+    } else if status == 404 {
+        "Not Found"
+    } else {
+        "Bad Request"
+    };
     let resp = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
         status, reason, ctype, payload.len()
@@ -200,9 +256,18 @@ fn handle_conn(mut stream: TcpStream, state: Arc<AppState>) {
     let _ = stream.flush();
 }
 
-fn route(state: &Arc<AppState>, method: &str, path: &str, body: &[u8]) -> (u16, &'static str, Vec<u8>) {
+fn route(
+    state: &Arc<AppState>,
+    method: &str,
+    path: &str,
+    body: &[u8],
+) -> (u16, &'static str, Vec<u8>) {
     if method == "GET" && (path == "/" || path.starts_with("/?")) {
-        return (200, "text/html; charset=utf-8", ui::INDEX_HTML.as_bytes().to_vec());
+        return (
+            200,
+            "text/html; charset=utf-8",
+            ui::INDEX_HTML.as_bytes().to_vec(),
+        );
     }
     if (method == "GET" || method == "POST") && path == "/api/state" {
         let j = manage::state_json(state);
@@ -222,7 +287,11 @@ fn route(state: &Arc<AppState>, method: &str, path: &str, body: &[u8]) -> (u16, 
         let j = manage::handle_action(state, &text);
         return (200, "application/json", j.to_string().into_bytes());
     }
-    (404, "application/json", br#"{"ok":false,"error":"not found"}"#.to_vec())
+    (
+        404,
+        "application/json",
+        br#"{"ok":false,"error":"not found"}"#.to_vec(),
+    )
 }
 
 fn urldecode(s: &str) -> String {
@@ -234,17 +303,28 @@ fn urldecode(s: &str) -> String {
             b'%' if i + 2 < bytes.len() => {
                 let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or("");
                 match u8::from_str_radix(hex, 16) {
-                    Ok(b) => { out.push(b); i += 3; }
-                    Err(_) => { out.push(bytes[i]); i += 1; }
+                    Ok(b) => {
+                        out.push(b);
+                        i += 3;
+                    }
+                    Err(_) => {
+                        out.push(bytes[i]);
+                        i += 1;
+                    }
                 }
             }
-            b'+' => { out.push(b' '); i += 1; }
-            b => { out.push(b); i += 1; }
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b => {
+                out.push(b);
+                i += 1;
+            }
         }
     }
     String::from_utf8_lossy(&out).to_string()
 }
-
 
 #[cfg(test)]
 mod tests {
