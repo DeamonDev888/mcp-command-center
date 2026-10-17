@@ -5,161 +5,251 @@ pub const INDEX_HTML: &str = r#"<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MCP Command Center</title>
 <style>
+/* ===== Thème Hermes Desktop (skin "nous", mode sombre) =====
+   Chrome #0d0d0e · Sidebar #0a0a0b · Card #161618 · Accent Nous #4a84fe
+   Textes 94/74/54/36% · hover accent 4% · actif accent 8% · bordure 12% */
 :root{
-  --bg:#0d1117;--card:#161b22;--card2:#1c2330;--border:#2d3748;
-  --fg:#e6edf3;--dim:#8b949e;--accent:#58a6ff;--ok:#3fb950;--warn:#d29922;--bad:#f85149;
-  --mono:ui-monospace,'Cascadia Code',Consolas,monospace;
+  --chrome:#0d0d0e;--sidebar:#0a0a0b;--card:#161618;--elevated:#1c1c1f;
+  --accent:#4a84fe;
+  --t1:rgba(255,255,255,.94);--t2:rgba(255,255,255,.74);--t3:rgba(255,255,255,.54);--t4:rgba(255,255,255,.36);
+  --border:rgba(255,255,255,.12);--border-soft:rgba(255,255,255,.07);
+  --hover:rgba(74,132,254,.04);--active:rgba(74,132,254,.08);--active2:rgba(74,132,254,.14);
+  --ok:#55a583;--bad:#e75e78;--warn:#c08532;--orange:#db704b;--cyan:#6f9ba6;--purple:#9e94d5;
+  --mono:'JetBrains Mono',ui-monospace,'Cascadia Code',Consolas,monospace;
+  --sans:-apple-system,'Segoe UI',system-ui,sans-serif;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,'Segoe UI',system-ui,sans-serif;padding:20px}
-header{display:flex;align-items:center;gap:14px;margin-bottom:18px;flex-wrap:wrap}
-header h1{font-size:20px;letter-spacing:.5px}
-header h1 span{color:var(--accent)}
-.badge{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:3px 12px;font-size:12px;color:var(--dim)}
-.badge b{color:var(--fg)}
-.badge.ok b{color:var(--ok)}
-button{background:var(--card);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:6px 14px;cursor:pointer;font-size:13px;transition:.15s}
-button:hover{border-color:var(--accent);color:var(--accent)}
-button.primary{background:#1f6feb22;border-color:#1f6feb;color:#79b8ff}
-button.danger:hover{border-color:var(--bad);color:var(--bad)}
-button:disabled{opacity:.4;cursor:not-allowed}
-.toolbar{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
-.spacer{flex:1}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;cursor:pointer;transition:.15s}
-.card:hover{border-color:#4a5a72;transform:translateY(-1px)}
-.card.disabled{opacity:.45}
-.card-top{display:flex;align-items:center;gap:10px;margin-bottom:8px}
-.dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
-.dot.UP{background:var(--ok);box-shadow:0 0 8px var(--ok)}
-.dot.PORT-ONLY{background:var(--warn);box-shadow:0 0 8px var(--warn)}
-.dot.DOWN{background:#4a5568}
-.dot.DISABLED{background:#30363d;border:1px solid var(--border)}
+html,body{height:100%}
+body{background:var(--chrome);color:var(--t1);font:13px/1.5 var(--sans);display:flex;flex-direction:column;overflow:hidden}
+
+/* ===== Titlebar ===== */
+#titlebar{height:42px;flex-shrink:0;display:flex;align-items:center;gap:10px;padding:0 12px 0 16px;
+  background:var(--sidebar);border-bottom:1px solid var(--border);user-select:none}
+#titlebar .logo{font-weight:600;font-size:13px;letter-spacing:.2px;white-space:nowrap}
+#titlebar .logo em{color:var(--accent);font-style:normal}
+.tb-badge{font:11px var(--mono);color:var(--t3);background:var(--hover);border:1px solid var(--border-soft);
+  border-radius:6px;padding:2px 8px;white-space:nowrap}
+.tb-badge b{color:var(--t1);font-weight:600}
+.tb-badge.ok b{color:var(--ok)}
+.tb-spacer{flex:1}
+.tb-actions{display:flex;gap:6px}
+
+/* ===== Boutons (style Hermes : discret, accent au survol) ===== */
+button{background:transparent;color:var(--t2);border:1px solid var(--border);border-radius:7px;
+  padding:4px 11px;cursor:pointer;font:12px var(--sans);transition:background .12s,border-color .12s,color .12s;white-space:nowrap}
+button:hover{background:var(--hover);border-color:var(--accent);color:var(--accent)}
+button.primary{background:var(--active);border-color:var(--active2);color:var(--accent);font-weight:500}
+button.primary:hover{background:var(--active2)}
+button.danger:hover{border-color:var(--bad);color:var(--bad);background:rgba(231,94,120,.06)}
+button:disabled{opacity:.35;cursor:not-allowed}
+
+/* ===== Layout principal : explorateur + éditeur ===== */
+#main{flex:1;display:flex;min-height:0}
+
+/* --- Explorateur (gauche) --- */
+#explorer{width:280px;flex-shrink:0;background:var(--sidebar);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden}
+.sec-label{font:10px var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.9px;
+  color:var(--t4);padding:14px 16px 6px;user-select:none}
+.srow{padding:7px 10px 7px 14px;margin:1px 8px;border-radius:8px;cursor:pointer;position:relative;
+  border:1px solid transparent;transition:background .1s}
+.srow:hover{background:var(--hover)}
+.srow.sel{background:var(--active);border-color:var(--active2)}
+.srow.sel::before{content:'';position:absolute;left:0;top:7px;bottom:7px;width:2px;border-radius:2px;background:var(--accent)}
+.srow.off{opacity:.45}
+.srow .l1{display:flex;align-items:center;gap:8px;min-width:0}
+.srow .l1 .nm{flex:1;font-size:12.5px;font-weight:500;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.srow .l1 .cnt{font:10px var(--mono);color:var(--t4)}
+.srow .l2{display:flex;align-items:center;gap:6px;margin-top:2px;padding-left:18px;
+  font:10.5px var(--mono);color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.srow .l2 .st{font-weight:600}
+.srow .l2 .st.UP{color:var(--ok)}.srow .l2 .st.PORT-ONLY{color:var(--orange)}
+.srow .l2 .st.DOWN{color:var(--t4)}.srow .l2 .st.DISABLED{color:var(--t4)}
+.srow .l2 .st.PROBING,.srow .l2 .st.STARTING{color:var(--accent)}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dot.UP{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+.dot.PORT-ONLY{background:var(--orange);box-shadow:0 0 6px var(--orange)}
+.dot.DOWN{background:#3d3d40}
+.dot.DISABLED{background:transparent;border:1px solid var(--border)}
 .dot.PROBING,.dot.STARTING{background:var(--accent);animation:pulse 1s infinite}
-@keyframes pulse{50%{opacity:.3}}
-.card-top h3{font-size:15px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.state{font:11px var(--mono);padding:2px 8px;border-radius:4px;background:var(--card2);border:1px solid var(--border)}
-.state.UP{color:var(--ok);border-color:#2ea04366}
-.state.PORT-ONLY{color:var(--warn);border-color:#d2992266}
-.meta{font:12px var(--mono);color:var(--dim);display:flex;flex-wrap:wrap;gap:4px 14px}
-.meta .v{color:var(--fg)}
-.tag{display:inline-block;font:10px var(--mono);padding:1px 7px;border-radius:3px;background:var(--card2);border:1px solid var(--border);color:var(--dim)}
-.tag.http{color:#bc8cff;border-color:#bc8cff44}
-.tag.stdio{color:#39c5cf;border-color:#39c5cf44}
-.tag.disc{color:var(--warn);border-color:#d2992244}
-.err{color:var(--bad);font:11px var(--mono);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.actions{display:flex;gap:6px;margin-top:10px}
-.actions button{padding:4px 10px;font-size:12px}
-dialog{background:var(--card);color:var(--fg);border:1px solid var(--border);border-radius:14px;padding:0;width:min(720px,92vw);max-height:85vh}
-dialog::backdrop{background:#000a}
-.d-head{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--border)}
-.d-head h2{font-size:17px;flex:1}
-.d-head .close{background:none;border:none;font-size:20px;color:var(--dim);cursor:pointer}
-.d-body{padding:16px 20px;overflow-y:auto;max-height:calc(85vh - 70px)}
-.kv{display:grid;grid-template-columns:150px 1fr;gap:6px 12px;font-size:13px;margin-bottom:16px}
-.kv .k{color:var(--dim)}
-.kv .v{font:12px var(--mono);word-break:break-all}
-.tools h4{margin-bottom:8px;color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:1px}
-.tool{display:flex;gap:10px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:var(--card2)}
-.tool code{color:#79b8ff;font:12px var(--mono);flex-shrink:0}
-.tool span{font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.logbox{background:#0a0d12;border:1px solid var(--border);border-radius:10px;padding:12px;font:11px var(--mono);max-height:200px;overflow-y:auto;margin-top:16px}
-.logline{padding:1px 0;color:var(--dim)}
-.logline .t{color:#6272a4}
+@keyframes pulse{50%{opacity:.25}}
+.peer-row{padding:6px 10px 6px 14px;margin:1px 8px;border-radius:8px}
+.peer-row .l1{display:flex;align-items:center;gap:8px}
+.peer-row .l1 .nm{flex:1;font:12px var(--mono);color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.peer-row .l2{font:10.5px var(--mono);color:var(--t3);padding-left:20px;margin-top:1px}
+.peer-row button{margin-top:5px;margin-left:20px;padding:2px 9px;font-size:11px}
+#addWrap{margin-top:auto;padding:10px 8px 12px;border-top:1px solid var(--border-soft)}
+#addWrap button{width:100%;display:flex;gap:6px;align-items:center;justify-content:center;padding:7px}
+.empty-sec{font:11px var(--sans);color:var(--t4);padding:4px 16px 10px;font-style:italic}
+
+/* --- Zone détail (droite) --- */
+#content{flex:1;min-width:0;overflow-y:auto;padding:22px 26px}
+.crumb{font:11px var(--mono);color:var(--t4);margin-bottom:10px}
+.crumb b{color:var(--t3);font-weight:400}
+.d-head{display:flex;align-items:center;gap:12px;margin-bottom:4px;flex-wrap:wrap}
+.d-head h1{font-size:19px;font-weight:600;letter-spacing:.2px}
+.d-head .sub{font:12px var(--mono);color:var(--t3)}
+.d-actions{display:flex;gap:7px;margin-left:auto;flex-wrap:wrap}
+.pill{font:10.5px var(--mono);font-weight:600;padding:3px 10px;border-radius:20px;border:1px solid}
+.pill.UP{color:var(--ok);border-color:rgba(85,165,131,.4);background:rgba(85,165,131,.08)}
+.pill.PORT-ONLY{color:var(--orange);border-color:rgba(219,112,75,.4);background:rgba(219,112,75,.08)}
+.pill.DOWN{color:var(--t3);border-color:var(--border);background:var(--hover)}
+.pill.DISABLED{color:var(--t4);border-color:var(--border);background:transparent;border-style:dashed}
+.pill.PROBING,.pill.STARTING{color:var(--accent);border-color:var(--active2);background:var(--active)}
+.d-err{color:var(--bad);font:11.5px var(--mono);background:rgba(231,94,120,.06);border:1px solid rgba(231,94,120,.25);
+  border-radius:8px;padding:8px 12px;margin:12px 0 0;word-break:break-word}
+h4.sec{font:10px var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.9px;color:var(--t4);
+  margin:24px 0 10px;display:flex;align-items:center;gap:10px}
+h4.sec::after{content:'';flex:1;height:1px;background:var(--border-soft)}
+.kv{display:grid;grid-template-columns:170px 1fr;gap:7px 14px;font-size:12.5px}
+.kv .k{color:var(--t4)}
+.kv .v{font:12px var(--mono);color:var(--t2);word-break:break-all}
+
+/* Tools (inspiration Antigravity : lignes nettes, toggle à droite) */
+.tool{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border-soft);
+  border-radius:9px;padding:9px 12px;margin-bottom:6px;transition:border-color .1s,background .1s}
+.tool:hover{border-color:var(--border);background:var(--elevated)}
+.tool.off{opacity:.55}
+.tool code{color:var(--accent);font:12px var(--mono);flex-shrink:0}
+.tool .desc{flex:1;font-size:12px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tgl{min-width:52px;text-align:center;font:10.5px var(--mono);font-weight:600;border-radius:20px;padding:3px 12px}
+.tgl.on{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08)}
+.tgl.on:hover{border-color:var(--bad);color:var(--bad);background:rgba(231,94,120,.06)}
+.tgl.off{color:var(--t4);border-color:var(--border);text-decoration:line-through}
+.tgl.off:hover{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08);text-decoration:none}
+
+/* Vue d'ensemble */
+.welcome{max-width:560px;margin:60px auto 0;text-align:center}
+.welcome .big{font-size:15px;color:var(--t2);margin-bottom:6px}
+.welcome .hint{font-size:12.5px;color:var(--t4);margin-bottom:22px}
+.welcome .qa{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:6px}
+.tile{background:var(--card);border:1px solid var(--border-soft);border-radius:10px;padding:12px 14px}
+.tile .n{font:22px var(--mono);font-weight:600;color:var(--t1)}
+.tile .n.ok{color:var(--ok)}
+.tile .lbl{font-size:11px;color:var(--t4);margin-top:2px}
+
+/* --- Journal (bas, style console IDE) --- */
+#logpanel{flex-shrink:0;height:170px;background:var(--sidebar);border-top:1px solid var(--border);
+  display:flex;flex-direction:column}
+#logpanel.min{height:32px}
+#loghead{height:32px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 14px;cursor:pointer;user-select:none}
+#loghead .lbl{font:10px var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.9px;color:var(--t4)}
+#loghead .arrow{color:var(--t4);font-size:10px;transition:transform .15s}
+#logpanel.min #loghead .arrow{transform:rotate(-90deg)}
+#logbody{flex:1;overflow-y:auto;padding:2px 14px 10px;font:11px var(--mono)}
+#logpanel.min #logbody{display:none}
+.logline{padding:1px 0;color:var(--t3);white-space:pre-wrap}
+.logline .t{color:var(--t4)}
 .logline.warn{color:var(--warn)}
 .logline.error{color:var(--bad)}
-.empty{color:var(--dim);text-align:center;padding:40px;border:1px dashed var(--border);border-radius:12px}
-.peers{margin-top:14px}
-.peers h3{font-size:13px;color:var(--accent);margin-bottom:8px}
-.peer{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:6px;flex-wrap:wrap}
-.peer b{color:var(--fg)}
-.peer .pv{color:var(--dim);font:12px var(--mono)}
-.toolbtn{padding:1px 8px !important;font-size:11px !important;border-radius:4px !important}
-.toolbtn.off{opacity:.45;text-decoration:line-through;border-color:var(--bad)}
-form{display:grid;gap:10px;margin-top:8px}
-form label{font-size:12px;color:var(--dim);display:block;margin-bottom:3px}
-input{width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--fg);font:13px var(--mono)}
-input:focus{outline:none;border-color:var(--accent)}
+
+/* --- Formulaire d'ajout (modal) --- */
+dialog{background:var(--card);color:var(--t1);border:1px solid var(--border);border-radius:14px;padding:0;
+  width:min(680px,92vw);max-height:85vh;box-shadow:0 18px 50px rgba(0,0,0,.5)}
+dialog::backdrop{background:rgba(0,0,0,.6)}
+.dlg-head{display:flex;align-items:center;gap:10px;padding:15px 20px;border-bottom:1px solid var(--border-soft)}
+.dlg-head h2{font-size:15px;font-weight:600;flex:1}
+.dlg-head .close{background:none;border:none;font-size:18px;color:var(--t4);cursor:pointer;padding:2px 6px}
+.dlg-head .close:hover{color:var(--t1);background:transparent;border:none}
+.dlg-body{padding:16px 20px 20px}
+form{display:grid;gap:12px}
+form label{font-size:11px;color:var(--t4);display:block;margin-bottom:4px}
+input,select{width:100%;background:var(--chrome);border:1px solid var(--border);border-radius:8px;
+  padding:7px 10px;color:var(--t1);font:12.5px var(--mono)}
+input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--active)}
 .row{display:flex;gap:10px}
 .row>div{flex:1}
-#addFormWrap{margin-top:16px;background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:16px;display:none}
-#addFormWrap.open{display:block}
-h4.sec{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:18px 0 8px}
 </style>
 </head>
 <body>
-<header>
-  <h1>&#9679; MCP <span>Command Center</span></h1>
-  <span class="badge ok">UP <b id="stUp">0</b>/<b id="stTotal">0</b></span>
-  <span class="badge">tools <b id="stTools">0</b></span>
-  <span class="badge">refresh <b id="stRefresh">15</b>s</span>
-  <span class="badge">v0.2.1 &mdash; LAN &amp; tools ON/OFF</span>
-</header>
 
-<div class="toolbar">
-  <button class="primary" onclick="doScan()">&#128269; Scan ports</button>
-  <button onclick="doScanNet()">&#127760; Scan r&eacute;seau</button>
-  <button onclick="doPeers()">&#129309; D&eacute;tecter pairs</button>
-  <button onclick="toggleAdd()">+ Ajouter serveur</button>
-  <button onclick="refreshAll()">&#8635; Tout rafra&icirc;chir</button>
-  <span class="spacer"></span>
-  <span class="badge" id="lastScan">d&eacute;tection auto : HTTP streamable, stdio JSON-RPC</span>
+<div id="titlebar">
+  <span class="logo"><em>&#9679;</em> MCP <em>Command Center</em></span>
+  <span class="tb-badge ok">UP <b id="stUp">0</b>/<b id="stTotal">0</b></span>
+  <span class="tb-badge">tools <b id="stTools">0</b></span>
+  <span class="tb-badge">refresh <b id="stRefresh">15</b>s</span>
+  <span class="tb-spacer"></span>
+  <div class="tb-actions">
+    <button class="primary" onclick="doScan()">&#128269; Scan ports</button>
+    <button onclick="doScanNet()">&#127760; Scan r&eacute;seau</button>
+    <button onclick="doPeers()">&#129309; Pairs</button>
+    <button onclick="refreshAll()">&#8635;</button>
+  </div>
 </div>
 
-<div id="addFormWrap">
-  <form onsubmit="return addServer(event)">
-    <div class="row">
-      <div><label>Transport</label>
-        <select id="fTransport" onchange="transportChanged()" style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:8px;color:var(--fg)">
-          <option value="http">HTTP (streamable)</option>
-          <option value="stdio">STDIO (process)</option>
-        </select></div>
-      <div><label>Nom affich&eacute;</label><input id="fLabel" placeholder="mon-serveur"></div>
-    </div>
-    <div id="httpFields">
-      <div class="row">
-        <div><label>Port</label><input id="fPort" type="number" placeholder="3099"></div>
-        <div><label>Chemin MCP</label><input id="fPath" value="/mcp"></div>
-      </div>
-    </div>
-    <div id="stdioFields" style="display:none">
-      <div class="row">
-        <div><label>Programme</label><input id="fProgram" placeholder="node"></div>
-        <div><label>Workdir (option)</label><input id="fWorkdir" placeholder="C:\chemin\serveur"></div>
-      </div>
-      <div><label>Args (s&eacute;par&eacute;s par espace)</label><input id="fArgs" placeholder="dist/index.js --port 3000"></div>
-    </div>
-    <div style="display:flex;gap:8px;justify-content:flex-end">
-      <button type="button" onclick="toggleAdd()">Annuler</button>
-      <button type="submit" class="primary">Ajouter &amp; sonder</button>
-    </div>
-  </form>
+<div id="main">
+  <aside id="explorer">
+    <div class="sec-label">Serveurs MCP</div>
+    <div id="srvList"></div>
+    <div class="sec-label">Command centers (pairs)</div>
+    <div id="peerList"></div>
+    <div id="addWrap"><button onclick="toggleAdd()">+ Ajouter un serveur</button></div>
+  </aside>
+  <section id="content"></section>
 </div>
 
-<div id="grid" class="grid"></div>
-
-<div id="peersBox" class="peers"></div>
+<div id="logpanel">
+  <div id="loghead" onclick="document.getElementById('logpanel').classList.toggle('min')">
+    <span class="arrow">&#9662;</span><span class="lbl">Journal</span>
+    <span class="tb-badge" style="margin-left:auto">auto-d&eacute;tection : HTTP streamable &middot; stdio JSON-RPC</span>
+  </div>
+  <div id="logbody"></div>
+</div>
 
 <dialog id="dlg">
-  <div class="d-head">
-    <h2 id="dlgTitle">D&eacute;tail</h2>
+  <div class="dlg-head">
+    <h2>Ajouter un serveur MCP</h2>
     <button class="close" onclick="dlg.close()">&times;</button>
   </div>
-  <div class="d-body" id="dlgBody"></div>
+  <div class="dlg-body">
+    <form onsubmit="return addServer(event)">
+      <div class="row">
+        <div><label>Transport</label>
+          <select id="fTransport" onchange="transportChanged()">
+            <option value="http">HTTP (streamable)</option>
+            <option value="stdio">STDIO (process)</option>
+          </select></div>
+        <div><label>Nom affich&eacute;</label><input id="fLabel" placeholder="mon-serveur"></div>
+      </div>
+      <div id="httpFields">
+        <div class="row">
+          <div><label>Port</label><input id="fPort" type="number" placeholder="3099"></div>
+          <div><label>Chemin MCP</label><input id="fPath" value="/mcp"></div>
+        </div>
+      </div>
+      <div id="stdioFields" style="display:none">
+        <div class="row">
+          <div><label>Programme</label><input id="fProgram" placeholder="node"></div>
+          <div><label>Workdir (option)</label><input id="fWorkdir" placeholder="C:\chemin\serveur"></div>
+        </div>
+        <div style="margin-top:12px"><label>Args (s&eacute;par&eacute;s par espace)</label><input id="fArgs" placeholder="dist/index.js --port 3000"></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
+        <button type="button" onclick="dlg.close()">Annuler</button>
+        <button type="submit" class="primary">Ajouter &amp; sonder</button>
+      </div>
+    </form>
+  </div>
 </dialog>
-
-<div class="logbox" id="logbox"></div>
 
 <script>
 let state = null;
+let selectedId = null;
+let detailCache = null;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 async function load() {
   try {
     const r = await fetch('/api/state');
     state = await r.json();
+    if (selectedId && !state.servers.find(s => s.id === selectedId)) { selectedId = null; detailCache = null; }
     render();
-  } catch(e) { /* UI serveur redemarre */ }
+    if (selectedId) {
+      const r2 = await fetch('/api/detail?id=' + encodeURIComponent(selectedId));
+      if (r2.ok) { detailCache = await r2.json(); renderDetail(); }
+    }
+  } catch(e) { /* serveur redémarre */ }
 }
 
 function render() {
@@ -169,56 +259,123 @@ function render() {
   document.getElementById('stTotal').textContent = s.total;
   document.getElementById('stTools').textContent = s.tools;
   document.getElementById('stRefresh').textContent = state.settings.refresh_secs;
-  const g = document.getElementById('grid');
-  if (!state.servers.length) { g.innerHTML = '<div class="empty">Aucun serveur. Lance un scan ou ajoute-en un.</div>'; }
-  else g.innerHTML = state.servers.map(card).join('');
+  renderServers();
   renderPeers();
-  const lb = document.getElementById('logbox');
+  renderLog();
+  if (!selectedId) renderOverview();
+}
+
+/* ===== Explorateur ===== */
+function renderServers() {
+  const box = document.getElementById('srvList');
+  if (!state.servers.length) { box.innerHTML = '<div class="empty-sec">aucun serveur — lance un scan</div>'; return; }
+  box.innerHTML = state.servers.map(s => {
+    const ti = s.transport === 'http'
+      ? (s.transport_info.host ? `${esc(s.transport_info.host)}:` : '') + s.transport_info.port
+      : 'stdio &middot; ' + esc(s.transport_info.program);
+    const off = s.tools_disabled.length ? ` &middot; ${s.tools_disabled.length} off` : '';
+    return `<div class="srow ${selectedId===s.id?'sel':''} ${s.enabled?'':'off'}" onclick="select('${esc(s.id)}')">
+      <div class="l1"><span class="dot ${s.state}"></span><span class="nm">${esc(s.label)}</span><span class="cnt">${s.tools_count}</span></div>
+      <div class="l2"><span class="st ${s.state}">${s.state}</span> ${ti}${off}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderPeers() {
+  const box = document.getElementById('peerList');
+  if (!state.peers || !state.peers.length) { box.innerHTML = '<div class="empty-sec">aucun pair d&eacute;tect&eacute;</div>'; return; }
+  box.innerHTML = state.peers.map(p => {
+    const st = p.stats || {};
+    return `<div class="peer-row">
+      <div class="l1"><span class="dot UP"></span><span class="nm">${esc(p.ip)}</span></div>
+      <div class="l2">UI :${p.ui_port} &mdash; ${st.up ?? '?'} UP / ${st.total ?? '?'} serveurs</div>
+      <button onclick="importPeer('${esc(p.ip)}')">Importer ses serveurs</button>
+    </div>`;
+  }).join('');
+}
+
+function renderLog() {
+  const lb = document.getElementById('logbody');
   lb.innerHTML = state.log.map(l => {
     const d = new Date(l.ts * 1000).toLocaleTimeString('fr-FR');
-    return `<div class="logline ${l.level}"><span class="t">${d}</span> ${esc(l.msg)}</div>`;
+    return `<div class="logline ${l.level}"><span class="t">${d}</span>  ${esc(l.msg)}</div>`;
   }).join('');
   lb.scrollTop = lb.scrollHeight;
 }
 
-function card(s) {
-  const ti = s.transport === 'http' ? `port ${s.transport_info.port}` : `stdio: ${esc(s.transport_info.program)}`;
-  const name = s.server_name ? `${esc(s.server_name)} <span style="color:var(--dim)">v${esc(s.version || '?')}</span>` : '<span style="color:var(--dim)">&mdash;</span>';
-  const originTag = s.origin === 'discovered' ? '<span class="tag disc">d&eacute;couvert</span>' :
-                    s.origin === 'manual' ? '<span class="tag">manuel</span>' : '<span class="tag">seed</span>';
-  return `<div class="card ${s.enabled ? '' : 'disabled'}" onclick="detail('${esc(s.id)}')">
-    <div class="card-top">
-      <span class="dot ${s.state}"></span>
-      <h3>${esc(s.label)}</h3>
-      <span class="state ${s.state}">${s.state}</span>
+/* ===== Zone de détail ===== */
+function renderOverview() {
+  const s = state.stats;
+  document.getElementById('content').innerHTML = `
+    <div class="tiles">
+      <div class="tile"><div class="n ok">${s.up}</div><div class="lbl">serveurs UP</div></div>
+      <div class="tile"><div class="n">${s.total}</div><div class="lbl">serveurs suivis</div></div>
+      <div class="tile"><div class="n">${s.tools}</div><div class="lbl">tools actifs</div></div>
+      <div class="tile"><div class="n">${state.settings.refresh_secs}s</div><div class="lbl">rafra&icirc;chissement</div></div>
     </div>
-    <div class="meta">
-      <span class="tag ${s.transport}">${s.transport}</span>
-      <span>${ti}</span>
-      ${s.latency_ms != null ? `<span>${s.latency_ms} ms</span>` : ''}
-      ${s.transport_info.host ? `<span title="serveur distant">&#127760; ${esc(s.transport_info.host)}:${s.transport_info.port}</span>` : ''}
-      ${!s.transport_info.host && s.bound_host ? `<span>[${esc(s.bound_host)}]</span>` : ''}
-      ${s.tools_disabled.length ? `<span style="color:var(--bad)">${s.tools_disabled.length} tool(s) OFF</span>` : ''}
-    </div>
-    <div class="meta" style="margin-top:6px">
-      ${name}
-      <span class="v">${s.tools_count} tools</span>
-      ${originTag}
-    </div>
-    ${s.last_error ? `<div class="err" title="${esc(s.last_error)}">&#9888; ${esc(s.last_error)}</div>` : ''}
-    <div class="actions" onclick="event.stopPropagation()">
-      ${s.transport === 'stdio' && s.state !== 'UP'
-        ? `<button onclick="act('start_stdio','${esc(s.id)}')">Start</button>` : ''}
-      ${s.transport === 'stdio' && s.state === 'UP'
-        ? `<button class="danger" onclick="act('kill_stdio','${esc(s.id)}')">Stop</button>` : ''}
-      <button onclick="detail('${esc(s.id)}')">Tools</button>
-      <button onclick="act('refresh','${esc(s.id)}')">Sonder</button>
-      <button onclick="act('toggle','${esc(s.id)}')">${s.enabled ? 'D&eacute;sactiver' : 'Activer'}</button>
-      <button class="danger" onclick="act('remove','${esc(s.id)}')">Retirer</button>
-    </div>
-  </div>`;
+    <div class="welcome">
+      <div class="big">S&eacute;lectionne un serveur dans l'explorateur</div>
+      <div class="hint">Pour voir ses tools, ses infos et les basculer ON/OFF un par un.</div>
+      <div class="qa">
+        <button onclick="doScan()">&#128269; Scanner les ports locaux</button>
+        <button onclick="doScanNet()">&#127760; Scanner le r&eacute;seau</button>
+        <button onclick="doPeers()">&#129309; D&eacute;tecter les pairs</button>
+      </div>
+    </div>`;
 }
 
+function renderDetail() {
+  const s = detailCache;
+  if (!s || s.id !== selectedId) return;
+  const ti = s.transport === 'http'
+    ? `HTTP ${s.transport_info.host ? esc(s.transport_info.host)+':' : ''}${s.transport_info.port}${esc(s.transport_info.path)}`
+    : `stdio &middot; ${esc(s.transport_info.program)} ${(s.transport_info.args||[]).join(' ')}`;
+  const kv = [
+    ['id', s.id], ['transport', ti],
+    ['origine', s.origin], ['pid', s.pid ?? '-'],
+    ['bind', s.bound_host ?? '-'], ['serveur MCP', s.server_name ?? '-'],
+    ['version', s.version ?? '-'], ['protocole', s.protocol ?? '-'],
+    ['latence', s.latency_ms != null ? s.latency_ms + ' ms' : '-'],
+    ['dernier vu', s.last_seen ? new Date(s.last_seen * 1000).toLocaleString('fr-FR') : '-'],
+    ['erreur', s.last_error ?? '-'],
+  ].map(([k, v]) => `<div class="k">${k}</div><div class="v">${esc(v)}</div>`).join('');
+  const tools = (s.tools_list || []).map(t =>
+    `<div class="tool ${t.disabled?'off':''}">
+       <code>${esc(t.name)}</code>
+       <span class="desc" title="${esc(t.desc)}">${esc(t.desc) || '&mdash;'}</span>
+       <button class="tgl ${t.disabled?'off':'on'}" title="${t.disabled?'R&eacute;activer ce tool':'D&eacute;sactiver ce tool'}"
+               onclick="toggleTool('${esc(s.id)}','${esc(t.name).replace(/'/g, "\\'")}')">
+         ${t.disabled ? 'OFF' : 'ON'}
+       </button>
+     </div>`).join('');
+  const nOn = (s.tools_list || []).filter(t => !t.disabled).length;
+  const nTot = (s.tools_list || []).length;
+  document.getElementById('content').innerHTML = `
+    <div class="crumb">serveurs / <b>${esc(s.label)}</b></div>
+    <div class="d-head">
+      <span class="dot ${s.state}" style="width:10px;height:10px"></span>
+      <h1>${esc(s.label)}</h1>
+      <span class="pill ${s.state}">${s.state}</span>
+      <span class="sub">${s.server_name ? esc(s.server_name) + ' v' + esc(s.version || '?') : ''}${s.latency_ms != null ? ' &middot; ' + s.latency_ms + ' ms' : ''}</span>
+      <div class="d-actions">
+        ${s.transport === 'stdio' && s.state !== 'UP' ? `<button class="primary" onclick="act('start_stdio','${esc(s.id)}')">&#9654; Start</button>` : ''}
+        ${s.transport === 'stdio' && s.state === 'UP' ? `<button class="danger" onclick="act('kill_stdio','${esc(s.id)}')">&#9632; Stop</button>` : ''}
+        <button onclick="act('refresh','${esc(s.id)}')">Sonder</button>
+        <button onclick="act('toggle','${esc(s.id)}')">${s.enabled ? 'D&eacute;sactiver' : 'Activer'}</button>
+        <button class="danger" onclick="removeSrv('${esc(s.id)}')">Retirer</button>
+      </div>
+    </div>
+    ${s.last_error ? `<div class="d-err">&#9888; ${esc(s.last_error)}</div>` : ''}
+    <h4 class="sec">Informations</h4>
+    <div class="kv">${kv}</div>
+    <h4 class="sec">Tools &mdash; ${nOn} actif(s) / ${nTot}${nTot - nOn ? ` (${nTot - nOn} OFF)` : ''}</h4>
+    ${tools || '<div style="color:var(--t4);font-size:12px">aucun tool list&eacute;</div>'}`;
+}
+
+function select(id) { selectedId = id; detailCache = null; render(); load(); }
+function removeSrv(id) { selectedId = null; detailCache = null; act('remove', id); }
+
+/* ===== Actions ===== */
 async function act(action, id) {
   await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action, id})});
@@ -245,7 +402,6 @@ async function doScanNet() {
   if (from === null) return;
   const to = prompt('jusqu\u2019\u00e0 :', state.settings.scan_to ?? 3200);
   if (to === null) return;
-  alert('Scan r\u00e9seau lanc\u00e9 (254 h\u00f4tes, 1-2 min). Le journal affichera les d\u00e9tections.');
   await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action: 'scan_network', from: +from, to: +to})});
   await load();
@@ -266,26 +422,12 @@ async function importPeer(ip) {
 async function toggleTool(id, name) {
   await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action: 'toggle_tool', id, tool: name})});
+  const r = await fetch('/api/detail?id=' + encodeURIComponent(id));
+  if (r.ok) { detailCache = await r.json(); renderDetail(); }
   await load();
-  detail(id);
 }
 
-function renderPeers() {
-  const box = document.getElementById('peersBox');
-  if (!state.peers || !state.peers.length) { box.innerHTML = ''; return; }
-  const rows = state.peers.map(p => {
-    const st = p.stats || {};
-    return `<div class="peer">
-      <b>&#129309; ${esc(p.ip)}</b>
-      <span class="pv">UI :${p.ui_port}</span>
-      <span class="pv">${st.up ?? '?'} UP / ${st.total ?? '?'} serveurs</span>
-      <button onclick="importPeer('${esc(p.ip)}')">Importer ses serveurs</button>
-    </div>`;
-  }).join('');
-  box.innerHTML = `<h3>Command centers d&eacute;tect&eacute;s sur le r&eacute;seau</h3>${rows}`;
-}
-
-function toggleAdd() { document.getElementById('addFormWrap').classList.toggle('open'); }
+function toggleAdd() { document.getElementById('dlg').showModal(); }
 function transportChanged() {
   const stdio = document.getElementById('fTransport').value === 'stdio';
   document.getElementById('httpFields').style.display = stdio ? 'none' : '';
@@ -303,36 +445,8 @@ async function addServer(ev) {
   const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
   const j = await r.json();
   if (!j.ok) alert(j.error || 'erreur');
-  else { toggleAdd(); await act('refresh', j.id); }
+  else { document.getElementById('dlg').close(); selectedId = j.id; await act('refresh', j.id); }
   return false;
-}
-
-async function detail(id) {
-  const r = await fetch('/api/detail?id=' + encodeURIComponent(id));
-  const s = await r.json();
-  document.getElementById('dlgTitle').textContent = s.label || id;
-  const kv = [
-    ['id', s.id], ['transport', s.transport === 'http' ? `HTTP ${s.transport_info.port}${s.transport_info.path}` : `stdio ${s.transport_info.program} ${(s.transport_info.args||[]).join(' ')}`],
-    ['origine', s.origin], ['état', s.state], ['pid', s.pid ?? '-'],
-    ['bind', s.bound_host ?? '-'], ['serveur MCP', s.server_name ?? '-'],
-    ['version', s.version ?? '-'], ['protocole', s.protocol ?? '-'],
-    ['latence', s.latency_ms != null ? s.latency_ms + ' ms' : '-'],
-    ['dernier vu', s.last_seen ? new Date(s.last_seen * 1000).toLocaleString('fr-FR') : '-'],
-    ['erreur', s.last_error ?? '-'],
-  ].map(([k, v]) => `<div class="k">${k}</div><div class="v">${esc(v)}</div>`).join('');
-  const tools = (s.tools_list || []).map(t =>
-    `<div class="tool">
-       <button class="toolbtn ${t.disabled ? 'off' : ''}" title="${t.disabled ? 'r\u00e9activer' : 'd\u00e9sactiver'} ce tool"
-               onclick="toggleTool('${esc(s.id)}','${esc(t.name).replace(/'/g, "\\'")}')">
-         ${t.disabled ? 'OFF' : 'ON'}
-       </button>
-       <code>${esc(t.name)}</code>
-       <span title="${esc(t.desc)}">${esc(t.desc)}</span>
-     </div>`).join('');
-  const nOn = (s.tools_list || []).filter(t => !t.disabled).length;
-  document.getElementById('dlgBody').innerHTML =
-    `<div class="kv">${kv}</div><div class="tools"><h4>Tools — ${nOn} actifs / ${(s.tools_list || []).length} (${(s.tools_list || []).length - nOn} OFF)</h4>${tools || '<span style="color:var(--dim)">aucun</span>'}</div>`;
-  dlg.showModal();
 }
 
 load();

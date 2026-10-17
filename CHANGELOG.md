@@ -1,3 +1,12 @@
+## [0.3.0] — Refonte frontend « explorateur »
+
+### UI
+- Refonte complete : layout IDE (Antigravity) — explorateur a gauche (liste des serveurs MCP + pairs command-center), zone de detail a droite, journal style console en bas (repliable), titlebar avec badges stats et actions.
+- Theme repris de l'app Hermes Desktop (skin nous, mode sombre) : chrome #0d0d0e, sidebar #0a0a0b, cards #161618, accent Nous #4a84fe, textes 94/74/54/36%, hover accent 4%.
+- Vue detail : infos completes + liste de chaque tool (nom + description) avec toggle ON/OFF individuel, actions Start/Stop/Sonder/Activer/Retirer.
+- Vue d'ensemble avec tuiles de stats quand rien n'est selectionne.
+- Formulaire d'ajout en modal.
+
 # Changelog
 
 Tous les changements notables de ce projet sont documentés ici.

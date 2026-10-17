@@ -1,5 +1,9 @@
 # MCP Command Center
 
+<p align="center">
+  <img src="assets/banner.jpg" alt="MCP Command Center" width="100%" />
+</p>
+
 Command center en **Rust natif** (zéro dépendance réseau — std + serde_json uniquement) pour détecter,
 superviser et piloter les serveurs **MCP** : HTTP streamable, stdio, et découverte automatique par scan.
 
