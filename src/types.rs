@@ -91,6 +91,8 @@ pub struct Server {
     pub server_name: Option<String>,
     pub version: Option<String>,
     pub protocol: Option<String>,
+    /// Transport SSE détecté au probe (Content-Type: text/event-stream)
+    pub sse: bool,
     pub tools: Vec<ToolInfo>,
     pub latency_ms: Option<u64>,
     pub last_seen_ts: Option<u64>,

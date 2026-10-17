@@ -14,6 +14,8 @@ pub struct McpProbe {
     pub name: Option<String>,
     pub version: Option<String>,
     pub protocol: Option<String>,
+    /// Transport SSE détecté (Content-Type: text/event-stream sur la réponse initialize)
+    pub sse: bool,
     pub tools: Vec<ToolInfo>,
     pub latency_ms: u64,
     pub error: Option<String>,
@@ -29,6 +31,7 @@ impl McpProbe {
             name: None,
             version: None,
             protocol: None,
+            sse: false,
             tools: vec![],
             latency_ms: 0,
             error: Some(err),
@@ -61,6 +64,33 @@ fn resolve_windows_cmd(program: &str) -> String {
     program.to_string()
 }
 
+/// Tue le process qui ÉCOUTE réellement sur un port local (méthode du launcher
+/// MCP MONITOR v7.3) : `child.kill()` ne tue que le lanceur, pas le serveur
+/// détaché qu'il a spawné. netstat -ano → PIDs LISTENING → taskkill /F /PID.
+#[cfg(windows)]
+pub fn kill_port(port: u16) {
+    if let Ok(out) = Command::new("netstat").args(["-ano"]).output() {
+        let text = String::from_utf8_lossy(&out.stdout);
+        let needle = format!(":{}", port);
+        for line in text.lines() {
+            if line.contains("LISTENING") && line.contains(&needle) {
+                if let Some(pid) = line.split_whitespace().last() {
+                    if !pid.is_empty() && pid.chars().all(|c| c.is_ascii_digit()) {
+                        let _ = Command::new("taskkill")
+                            .args(["/F", "/PID", pid])
+                            .stdout(Stdio::null())
+                            .stderr(Stdio::null())
+                            .status();
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub fn kill_port(_port: u16) {}
+
 /// Spawn un process serveur (HTTP/HTTPS lancé par le command center) sans handshake
 /// JSON-RPC : le probe HTTP classique fera le handshake. stdout/stderr nullés
 /// (pas de pipe = pas de risque de blocage buffer plein).
@@ -78,7 +108,9 @@ pub fn spawn_process(
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        // CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS :
+        // l'enfant survit au shell/lanceur et à un Ctrl+C dans la console de l'app.
+        cmd.creation_flags(0x0800_0000 | 0x0000_0200 | 0x0000_0008);
     }
     if let Some(wd) = workdir {
         cmd.current_dir(wd);
@@ -114,17 +146,17 @@ pub fn port_open(host: &str, port: u16, timeout: Duration) -> bool {
 }
 
 /// POST JSON vers localhost (essaye ::1 puis 127.0.0.1), lit toute la réponse (gère chunked).
-/// Renvoie (host_utilisé, corps).
+/// Renvoie (host_utilisé, corps, transport SSE détecté).
 pub fn http_post(
     port: u16,
     path: &str,
     body: &str,
     timeout_ms: u64,
-) -> Result<(String, Vec<u8>), String> {
+) -> Result<(String, Vec<u8>, bool), String> {
     let mut last_err = String::new();
     for host in ["::1", "127.0.0.1"] {
         match http_post_host(host, port, path, body, timeout_ms) {
-            Ok(b) => return Ok((host.to_string(), b)),
+            Ok((b, ct)) => return Ok((host.to_string(), b, ct.contains("text/event-stream"))),
             Err(e) => last_err = e,
         }
     }
@@ -138,7 +170,7 @@ pub fn http_post_host(
     path: &str,
     body: &str,
     timeout_ms: u64,
-) -> Result<Vec<u8>, String> {
+) -> Result<(Vec<u8>, String), String> {
     let timeout = Duration::from_millis(timeout_ms);
     let mut last_err = String::new();
     {
@@ -219,11 +251,16 @@ pub fn http_post_host(
                 }
                 let sep = find_sub(&data, b"\r\n\r\n").unwrap_or(0);
                 let head = String::from_utf8_lossy(&data[..sep]).to_lowercase();
+                let content_type = head
+                    .lines()
+                    .find_map(|l| l.strip_prefix("content-type:"))
+                    .map(|v| v.trim().to_string())
+                    .unwrap_or_default();
                 let mut body_bytes = data[sep + 4..].to_vec();
                 if head.contains("transfer-encoding: chunked") {
                     body_bytes = dechunk(&body_bytes);
                 }
-                return Ok(body_bytes);
+                return Ok((body_bytes, content_type));
             }
             Err(e) => {
                 last_err = format!("{}: {}", host, e);
@@ -293,15 +330,15 @@ pub fn rpc_call(
     params: Value,
     id: u64,
     timeout_ms: u64,
-) -> Result<(Value, String), String> {
+) -> Result<(Value, String, bool), String> {
     let body = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string();
-    let (host, bytes) = http_post(port, path, &body, timeout_ms)?;
+    let (host, bytes, sse) = http_post(port, path, &body, timeout_ms)?;
     let v =
         extract_json(&bytes).ok_or_else(|| format!("réponse non JSON ({} octets)", bytes.len()))?;
     if let Some(err) = v.get("error") {
         return Err(format!("rpc error: {}", err));
     }
-    Ok((v.get("result").cloned().unwrap_or(Value::Null), host))
+    Ok((v.get("result").cloned().unwrap_or(Value::Null), host, sse))
 }
 
 /// Probe MCP streamable-HTTP complète : initialize + tools/list.
@@ -320,7 +357,7 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
         "capabilities": {},
         "clientInfo": {"name": "mcp-command-center", "version": env!("CARGO_PKG_VERSION")}
     });
-    let (res, host) = match rpc_call(port, path, "initialize", init_params, 1, timeout_ms) {
+    let (res, host, sse) = match rpc_call(port, path, "initialize", init_params, 1, timeout_ms) {
         Ok(x) => x,
         Err(e) => return McpProbe::fail(e, true),
     };
@@ -340,7 +377,7 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
         .map(String::from);
 
     let mut tools = Vec::new();
-    if let Ok((tr, _)) = rpc_call(port, path, "tools/list", json!({}), 2, timeout_ms) {
+    if let Ok((tr, _, _)) = rpc_call(port, path, "tools/list", json!({}), 2, timeout_ms) {
         if let Some(arr) = tr.get("tools").and_then(|t| t.as_array()) {
             for t in arr {
                 tools.push(ToolInfo {
@@ -368,6 +405,7 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
         name,
         version,
         protocol,
+        sse,
         tools,
         latency_ms: latency,
         error: None,
@@ -535,6 +573,7 @@ pub fn probe_stdio(
                 name,
                 version,
                 protocol,
+                sse: false,
                 tools,
                 latency_ms: latency,
                 error: None,
@@ -556,6 +595,7 @@ pub fn probe_stdio(
                 name,
                 version,
                 protocol,
+                sse: false,
                 tools,
                 latency_ms: latency,
                 error: None,
@@ -574,15 +614,16 @@ pub fn rpc_call_host(
     params: Value,
     id: u64,
     timeout_ms: u64,
-) -> Result<Value, String> {
+) -> Result<(Value, bool), String> {
     let body = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string();
-    let bytes = http_post_host(host, port, path, &body, timeout_ms)?;
+    let (bytes, content_type) = http_post_host(host, port, path, &body, timeout_ms)?;
+    let sse = content_type.contains("text/event-stream");
     let v =
         extract_json(&bytes).ok_or_else(|| format!("réponse non JSON ({} octets)", bytes.len()))?;
     if let Some(err) = v.get("error") {
         return Err(format!("rpc error: {}", err));
     }
-    Ok(v.get("result").cloned().unwrap_or(Value::Null))
+    Ok((v.get("result").cloned().unwrap_or(Value::Null), sse))
 }
 
 /// Probe MCP streamable-HTTP sur un hôte précis : initialize + tools/list.
@@ -596,7 +637,8 @@ pub fn probe_http_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> Mc
         "capabilities": {},
         "clientInfo": {"name": "mcp-command-center", "version": env!("CARGO_PKG_VERSION")}
     });
-    let res = match rpc_call_host(host, port, path, "initialize", init_params, 1, timeout_ms) {
+    let (res, sse) = match rpc_call_host(host, port, path, "initialize", init_params, 1, timeout_ms)
+    {
         Ok(x) => x,
         Err(e) => return McpProbe::fail(e, true),
     };
@@ -616,7 +658,7 @@ pub fn probe_http_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> Mc
         .map(String::from);
 
     let mut tools = Vec::new();
-    if let Ok(tr) = rpc_call_host(host, port, path, "tools/list", json!({}), 2, timeout_ms) {
+    if let Ok((tr, _)) = rpc_call_host(host, port, path, "tools/list", json!({}), 2, timeout_ms) {
         if let Some(arr) = tr.get("tools").and_then(|t| t.as_array()) {
             for t in arr {
                 tools.push(ToolInfo {
@@ -644,6 +686,7 @@ pub fn probe_http_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> Mc
         name,
         version,
         protocol,
+        sse,
         tools,
         latency_ms: latency,
         error: None,
@@ -659,7 +702,7 @@ pub struct PeerProbe {
 
 /// Sonde /api/state d'un command-center distant (cache de pairs).
 pub fn probe_peer(ip: &str, port: u16) -> PeerProbe {
-    let body = http_post_host(ip, port, "/api/state", "", 1200);
+    let body = http_post_host(ip, port, "/api/state", "", 1200).map(|(b, _)| b);
     match body {
         Ok(bytes) => {
             // /api/state répond à tout POST : valider que c'est du JSON avec "servers"

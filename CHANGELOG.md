@@ -1,3 +1,15 @@
+## [0.6.1] — Badges du type de MCP (STDIO / HTTP / SSE / HTTPS)
+
+### UI
+- Chaque serveur affiche son type de transport avant le badge « désuet » : STDIO (cyan), HTTP (violet), SSE (vert, détecté au probe), HTTPS (port 443), suffixe ·LAN pour les serveurs distants.
+- Même badge dans la vue détail à côté du pill d'état.
+
+### Backend
+- Détection SSE : Content-Type `text/event-stream` capturé sur la réponse initialize → champ `sse` (McpProbe/Server) exposé dans /api/state.
+- Fixture `examples/test-sse-server.js` (serveur MCP SSE zéro dépendance) pour tester.
+
+Preuve réelle : Overmind, discord, postgres, X, NEWS détectés SSE ; demo-http (JSON chunked) HTTP ; stdio → STDIO.
+
 ## [0.6.0] — App NATIVE (Tauri) + CLI headless
 
 ### Architecture

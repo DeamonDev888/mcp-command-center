@@ -22,42 +22,77 @@ pub fn add_log(state: &AppState, level: &str, msg: &str) {
 // ---------- config ----------
 
 fn default_servers() -> Vec<Server> {
-    let mk = |id: &str, label: &str, port: u16, enabled: bool| Server {
-        id: id.to_string(),
-        label: label.to_string(),
-        transport: Transport::Http {
-            host: None,
-            port,
-            path: "/mcp".to_string(),
-        },
-        origin: Origin::Seed,
-        enabled,
-        auto_restart: true,
-        state: if enabled {
-            SState::Down
+    // Commandes de lancement réelles (launcher MCP MONITOR v7.3) : chaque serveur
+    // est démarré via `node <workdir>/bin/launch.cjs` depuis son workdir.
+    // Ces seeds embarquent les commandes pour que l'app puisse lancer/arrêter
+    // les serveurs même sans config.json (exe distribué, premier démarrage).
+    const BASE: &str = "C:/Users/Deamon/Desktop/Backup/Serveur MCP";
+    let mk = |id: &str, label: &str, port: u16, enabled: bool, workdir: &str| {
+        let wd = if workdir.starts_with("C:/") {
+            workdir.to_string()
         } else {
-            SState::Disabled
-        },
-        pid: None,
-        bound_host: None,
-        server_name: None,
-        version: None,
-        protocol: None,
-        tools: vec![],
-        latency_ms: None,
-        last_seen_ts: None,
-        last_error: None,
-        start_cmd: None,
-        tools_disabled: vec![],
+            format!("{}/{}", BASE, workdir)
+        };
+        Server {
+            id: id.to_string(),
+            label: label.to_string(),
+            transport: Transport::Http {
+                host: None,
+                port,
+                path: "/mcp".to_string(),
+            },
+            origin: Origin::Seed,
+            enabled,
+            auto_restart: true,
+            state: if enabled {
+                SState::Down
+            } else {
+                SState::Disabled
+            },
+            pid: None,
+            bound_host: None,
+            server_name: None,
+            version: None,
+            protocol: None,
+            sse: false,
+            tools: vec![],
+            latency_ms: None,
+            last_seen_ts: None,
+            last_error: None,
+            start_cmd: Some(StartCmd {
+                program: "node".to_string(),
+                args: vec![format!("{}/bin/launch.cjs", wd)],
+                workdir: Some(wd.clone()),
+            }),
+            tools_disabled: vec![],
+        }
     };
     vec![
-        mk("seed-overmind", "Overmind", 3099, true),
-        mk("seed-discord", "serveur_discord", 3141, true),
-        mk("seed-postgresql", "serveur_PostGreSQL", 5433, true),
-        mk("seed-debats", "debats", 3100, false),
-        mk("seed-x", "X", 3142, true),
-        mk("seed-news-btc", "NEWS_BTC", 3143, false),
-        mk("seed-news", "NEWS", 3144, false),
+        mk("seed-overmind", "Overmind", 3099, true, "Workflow"),
+        mk(
+            "seed-discord",
+            "serveur_discord",
+            3141,
+            true,
+            "serveur_discord",
+        ),
+        mk(
+            "seed-postgresql",
+            "serveur_PostGreSQL",
+            5433,
+            true,
+            "serveur_PostGreSQL",
+        ),
+        mk(
+            "seed-debats",
+            "debats",
+            3100,
+            false,
+            "C:/SierraChart/ACS_Source/BTCacsil/debats-mcp-server",
+        ),
+        mk("seed-x", "X", 3142, true, "X"),
+        mk("seed-news-btc", "NEWS_BTC", 3143, false, "NEWS_BTC"),
+        mk("seed-news", "NEWS", 3144, false, "NEWS"),
     ]
 }
 
@@ -283,6 +318,7 @@ fn from_json(s: &Value) -> Option<Server> {
         server_name: None,
         version: None,
         protocol: None,
+        sse: false,
         tools: vec![],
         latency_ms: None,
         last_seen_ts: None,
@@ -633,6 +669,7 @@ fn entry_to_server(id: String, name: &str, entry: &Value) -> Option<Server> {
             server_name: None,
             version: None,
             protocol: None,
+            sse: false,
             tools: vec![],
             latency_ms: None,
             last_seen_ts: None,
@@ -660,6 +697,7 @@ fn entry_to_server(id: String, name: &str, entry: &Value) -> Option<Server> {
             server_name: None,
             version: None,
             protocol: None,
+            sse: false,
             tools: vec![],
             latency_ms: None,
             last_seen_ts: None,
@@ -763,6 +801,7 @@ pub fn import_mcp_text(state: &Arc<AppState>, raw: &str) -> Value {
                     server_name: None,
                     version: None,
                     protocol: None,
+                    sse: false,
                     tools: vec![],
                     latency_ms: None,
                     last_seen_ts: None,
@@ -831,6 +870,7 @@ fn push_imported(state: &Arc<AppState>, name: String, program: String, args: Vec
         server_name: None,
         version: None,
         protocol: None,
+        sse: false,
         tools: vec![],
         latency_ms: None,
         last_seen_ts: None,
@@ -936,7 +976,15 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                                     "info",
                                     &format!("[{}] http démarré (pid {}) — re-sonde", id, pid),
                                 );
-                                let mut res2 = probe::probe_http(port, &path, 5000);
+                                // Re-probe borné : le launcher peut builder avant d'écouter
+                                // (bin/launch.cjs fait `npm run build`), jusqu'à 30 s.
+                                let mut res2 = probe::probe_http(port, &path, 2000);
+                                let deadline =
+                                    std::time::Instant::now() + std::time::Duration::from_secs(30);
+                                while !res2.mcp_up && std::time::Instant::now() < deadline {
+                                    std::thread::sleep(std::time::Duration::from_millis(1000));
+                                    res2 = probe::probe_http(port, &path, 2000);
+                                }
                                 if res2.mcp_up && res2.pid.is_none() {
                                     res2.pid = Some(pid);
                                 }
@@ -960,6 +1008,7 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                     srv.server_name = res.name.clone();
                     srv.version = res.version.clone();
                     srv.protocol = res.protocol.clone();
+                    srv.sse = res.sse;
                     srv.tools = res.tools.clone();
                     srv.latency_ms = Some(res.latency_ms);
                     srv.last_seen_ts = Some(crate::types::now_ts());
@@ -1169,6 +1218,7 @@ pub fn scan_ports(state: &Arc<AppState>, range: Option<(u16, u16)>) {
                     server_name: p.name.clone(),
                     version: p.version.clone(),
                     protocol: p.protocol.clone(),
+                    sse: p.sse,
                     tools: p.tools,
                     latency_ms: Some(p.latency_ms),
                     last_seen_ts: Some(crate::types::now_ts()),
@@ -1366,6 +1416,7 @@ pub fn scan_network_range(
                             server_name: p.name.clone(),
                             version: p.version.clone(),
                             protocol: p.protocol.clone(),
+                            sse: p.sse,
                             tools: p.tools,
                             latency_ms: Some(p.latency_ms),
                             last_seen_ts: Some(crate::types::now_ts()),
@@ -1571,6 +1622,7 @@ pub fn import_peer(state: &Arc<AppState>, ip: &str) -> Value {
                 server_name: name,
                 version,
                 protocol: None,
+                sse: false,
                 tools: vec![],
                 latency_ms: None,
                 last_seen_ts: None,
@@ -1700,6 +1752,18 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     json!({"ok": true})
                 }
                 "kill_stdio" | "kill" => {
+                    let local_port = {
+                        let servers = lockv(&state.servers);
+                        servers
+                            .iter()
+                            .find(|s| s.id == id)
+                            .and_then(|s| match &s.transport {
+                                Transport::Http {
+                                    host: None, port, ..
+                                } => Some(*port),
+                                _ => None,
+                            })
+                    };
                     {
                         let mut servers = lockv(&state.servers);
                         if let Some(s) = servers.iter_mut().find(|s| s.id == id) {
@@ -1716,7 +1780,28 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     }
                     children.remove(&id);
                     drop(children);
-                    poll_one(state, &id);
+                    // Le launcher détache le vrai serveur : child.kill() ne tue que le
+                    // lanceur. On tue aussi le process qui écoute sur le port (local only).
+                    if let Some(p) = local_port {
+                        probe::kill_port(p);
+                    }
+                    // Le serveur réel (node/fastmcp) met 1-3 s à libérer le port :
+                    // on re-polle jusqu'à DOWN (borné à 10 s) pour un feedback UI exact.
+                    for _ in 0..20 {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        poll_one(state, &id);
+                        let encore_up = {
+                            let servers = lockv(&state.servers);
+                            servers
+                                .iter()
+                                .find(|s| s.id == id)
+                                .map(|s| s.state == SState::Up)
+                                .unwrap_or(false)
+                        };
+                        if !encore_up {
+                            break;
+                        }
+                    }
                     add_log(state, "info", &format!("[{}] stdio arrêté", id));
                     json!({"ok": true})
                 }
@@ -1766,6 +1851,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     server_name: None,
                     version: None,
                     protocol: None,
+                    sse: false,
                     tools: vec![],
                     latency_ms: None,
                     last_seen_ts: None,
@@ -1835,6 +1921,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     server_name: None,
                     version: None,
                     protocol: None,
+                    sse: false,
                     tools: vec![],
                     latency_ms: None,
                     last_seen_ts: None,
@@ -1996,6 +2083,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                                 server_name: None,
                                 version: None,
                                 protocol: None,
+                                sse: false,
                                 tools: vec![],
                                 latency_ms: None,
                                 last_seen_ts: None,
@@ -2088,6 +2176,7 @@ fn server_json(s: &Server) -> Value {
         "latency_ms": s.latency_ms,
         "last_seen": s.last_seen_ts, "last_error": s.last_error,
         "can_start": s.start_cmd.is_some(), "auto_restart": s.auto_restart,
+        "sse": s.sse,
     })
 }
 
@@ -2184,6 +2273,31 @@ mod tests {
     }
 
     #[test]
+    fn seeds_ont_une_commande_de_lancement() {
+        let servers = default_servers();
+        for s in &servers {
+            let cmd = s
+                .start_cmd
+                .as_ref()
+                .unwrap_or_else(|| panic!("{} doit avoir une start_cmd", s.id));
+            assert_eq!(cmd.program, "node");
+            assert!(
+                cmd.args
+                    .first()
+                    .map(|a| a.ends_with("/bin/launch.cjs"))
+                    .unwrap_or(false),
+                "{} doit lancer son bin/launch.cjs",
+                s.id
+            );
+            assert!(cmd.workdir.is_some(), "{} doit avoir un workdir", s.id);
+        }
+        let ov = servers.iter().find(|s| s.id == "seed-overmind").unwrap();
+        let cmd = ov.start_cmd.as_ref().unwrap();
+        assert!(cmd.args[0].ends_with("/Workflow/bin/launch.cjs"));
+        assert!(cmd.workdir.as_deref().unwrap().ends_with("/Workflow"));
+    }
+
+    #[test]
     fn load_config_reactive_un_seed_et_ajoute_un_inconnu() {
         let cfg = "{\"servers\":[{\"id\":\"seed-debats\",\"enabled\":true},{\"id\":\"mon-mcp\",\"label\":\"Mon MCP\",\"transport\":\"http\",\"port\":4567,\"path\":\"/x\",\"enabled\":false}]}";
         let (servers, _) = load_config(&tmp_config("cfg_mixte.json", Some(cfg)));
@@ -2252,6 +2366,7 @@ mod tests {
                 server_name: Some("n".into()),
                 version: Some("1".into()),
                 protocol: None,
+                sse: false,
                 tools: vec![],
                 latency_ms: Some(3),
                 last_seen_ts: Some(1),
@@ -2314,6 +2429,7 @@ mod tests {
                 server_name: None,
                 version: None,
                 protocol: None,
+                sse: false,
                 tools: vec![
                     crate::types::ToolInfo {
                         name: "a".into(),
@@ -2370,6 +2486,7 @@ mod tests {
                 server_name: None,
                 version: None,
                 protocol: None,
+                sse: false,
                 tools: vec![
                     crate::types::ToolInfo {
                         name: "a".into(),
@@ -2421,6 +2538,7 @@ mod tests {
                     server_name: None,
                     version: None,
                     protocol: None,
+                    sse: false,
                     tools: vec![crate::types::ToolInfo {
                         name: "t".into(),
                         desc: String::new(),
@@ -2448,6 +2566,7 @@ mod tests {
                     server_name: None,
                     version: None,
                     protocol: None,
+                    sse: false,
                     tools: vec![],
                     latency_ms: None,
                     last_seen_ts: None,

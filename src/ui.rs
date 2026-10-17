@@ -159,6 +159,11 @@ h4.sec::after{content:'';flex:1;height:1px;background:var(--border-soft)}
 .tag{font:10px var(--mono);padding:1px 7px;border-radius:3px;border:1px solid var(--border);color:var(--t3)}
 .tag.npm{color:#bc8cff;border-color:#bc8cff44}
 .tag.py{color:#39c5cf;border-color:#39c5cf44}
+.tag.stdio{color:#39c5cf;border-color:#39c5cf44}
+.tag.http{color:#bc8cff;border-color:#bc8cff44}
+.tag.sse{color:var(--ok);border-color:rgba(85,165,131,.45)}
+.tag.https{color:#d2a8ff;border-color:#d2a8ff44;background:#d2a8ff11}
+.srow .l1 .tag{font-size:8.5px;padding:0 5px;line-height:14px;flex-shrink:0}
 #storeDlg{width:min(880px,94vw)}
 .store-import{background:var(--sidebar);border:1px solid var(--border-soft);border-radius:10px;padding:12px;margin-bottom:14px}
 .store-import label{font-size:11px;color:var(--t4);display:block;margin-bottom:6px}
@@ -302,6 +307,7 @@ let state = null;
 let selectedId = null;
 let detailCache = null;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const js = s => esc(JSON.stringify(String(s ?? '')));
 
 async function load() {
   try {
@@ -338,21 +344,31 @@ function renderServers() {
       ? (s.transport_info.host ? `${esc(s.transport_info.host)}:` : '') + s.transport_info.port
       : 'stdio &middot; ' + esc(s.transport_info.program);
     const off = s.tools_disabled.length ? ` &middot; ${s.tools_disabled.length} off` : '';
-    return `<div class="srow ${selectedId===s.id?'sel':''} ${s.enabled?'':'off'}" onclick="select('${esc(s.id)}')">
-      <div class="l1"><span class="dot ${s.state}"></span><span class="nm">${esc(s.label)}</span>${s.transport==='stdio'?'<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>':''}<span class="cnt">${s.tools_count}</span>${rowToggle(s)}${rowCtl(s)}</div>
-      <div class="l2"><span class="st ${s.state}">${s.state}</span> ${ti}${off}</div>
+    return `<div class="srow ${selectedId===s.id?'sel':''} ${s.enabled?'':'off'}" onclick="select(${js(s.id)})">
+      <div class="l1"><span class="dot ${s.state}"></span><span class="nm">${esc(s.label)}</span>${typeBadge(s)}${s.transport==='stdio'?'<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>':''}<span class="cnt">${s.tools_count}</span>${rowToggle(s)}${rowCtl(s)}</div>
+      <div class="l2"><span class="st ${esc(s.state)}">${esc(s.state)}</span> ${ti}${off}</div>
     </div>`;
   }).join('');
 }
 
+// Badge du type de MCP : STDIO / HTTP / SSE (détecté au probe) / HTTPS (port 443), + ·LAN si distant
+function typeBadge(s) {
+  if (s.transport === 'stdio') return '<span class="tag stdio" title="Transport stdio (process local)">STDIO</span>';
+  const t = s.transport_info.port === 443 ? 'HTTPS' : (s.sse ? 'SSE' : 'HTTP');
+  const cls = t === 'HTTPS' ? 'https' : (t === 'SSE' ? 'sse' : 'http');
+  const lan = s.transport_info.host ? '\u00b7LAN' : '';
+  const tip = t === 'HTTPS' ? 'HTTPS (TLS, port 443)' : (t === 'SSE' ? 'HTTP + SSE (text/event-stream détecté)' : 'HTTP streamable');
+  return `<span class="tag ${cls}" title="${tip}${lan ? ' — serveur distant (LAN)' : ''}">${t}${lan}</span>`;
+}
+
 function rowToggle(s) {
-  return `<button class="sw ${s.enabled?'on':'off'}" title="${s.enabled?'D\u00e9sactiver ce serveur (arr\u00eate son process)':'Activer ce serveur (le d\u00e9marre si commande connue)'}" onclick="event.stopPropagation();act('toggle','${esc(s.id)}')">${s.enabled?'ON':'OFF'}</button>`;
+  return `<button class="sw ${s.enabled?'on':'off'}" title="${s.enabled?'D\u00e9sactiver ce serveur (arr\u00eate son process)':'Activer ce serveur (le d\u00e9marre si commande connue)'}" onclick="event.stopPropagation();act('toggle',${js(s.id)})">${s.enabled?'ON':'OFF'}</button>`;
 }
 
 function rowCtl(s) {
   if (!s.can_start) return '';
   const up = s.state === 'UP';
-  return `<button class="rowbtn" title="${up?'Arr\u00eater':'D\u00e9marrer'} ce serveur" onclick="event.stopPropagation();act('${up?'kill':'start'}','${esc(s.id)}')">${up?'\u25a0':'\u25b6'}</button>`;
+  return `<button class="rowbtn" title="${up?'Arr\u00eater':'D\u00e9marrer'} ce serveur" onclick="event.stopPropagation();act('${up?'kill':'start'}',${js(s.id)})">${up?'\u25a0':'\u25b6'}</button>`;
 }
 
 function renderPeers() {
@@ -363,7 +379,7 @@ function renderPeers() {
     return `<div class="peer-row">
       <div class="l1"><span class="dot UP"></span><span class="nm">${esc(p.ip)}</span></div>
       <div class="l2">UI :${p.ui_port} &mdash; ${st.up ?? '?'} UP / ${st.total ?? '?'} serveurs</div>
-      <button onclick="importPeer('${esc(p.ip)}')">Importer ses serveurs</button>
+      <button onclick="importPeer(${js(p.ip)})">Importer ses serveurs</button>
     </div>`;
   }).join('');
 }
@@ -371,8 +387,9 @@ function renderPeers() {
 function renderLog() {
   const lb = document.getElementById('logbody');
   lb.innerHTML = state.log.map(l => {
-    const d = new Date(l.ts * 1000).toLocaleTimeString('fr-FR');
-    return `<div class="logline ${l.level}"><span class="t">${d}</span>  ${esc(l.msg)}</div>`;
+    const ts = Number.isFinite(l.ts) ? l.ts : 0;
+    const d = new Date(ts * 1000).toLocaleTimeString('fr-FR');
+    return `<div class="logline ${esc(l.level)}"><span class="t">${esc(d)}</span>  ${esc(l.msg)}</div>`;
   }).join('');
   lb.scrollTop = lb.scrollHeight;
 }
@@ -418,7 +435,7 @@ function renderDetail() {
        <code>${esc(t.name)}</code>
        <span class="desc" title="${esc(t.desc)}">${esc(t.desc) || '&mdash;'}</span>
        <button class="tgl ${t.disabled?'off':'on'}" title="${t.disabled?'R&eacute;activer ce tool':'D&eacute;sactiver ce tool'}"
-               onclick="toggleTool('${esc(s.id)}','${esc(t.name).replace(/'/g, "\\'")}')">
+               onclick="toggleTool(${js(s.id)},${js(t.name)})">
          ${t.disabled ? 'OFF' : 'ON'}
        </button>
      </div>`).join('');
@@ -427,17 +444,18 @@ function renderDetail() {
   document.getElementById('content').innerHTML = `
     <div class="crumb">serveurs / <b>${esc(s.label)}</b></div>
     <div class="d-head">
-      <span class="dot ${s.state}" style="width:10px;height:10px"></span>
+      <span class="dot ${esc(s.state)}" style="width:10px;height:10px"></span>
       <h1>${esc(s.label)}</h1>
-      <span class="pill ${s.state}">${s.state}</span>
+      <span class="pill ${esc(s.state)}">${esc(s.state)}</span>
+      ${typeBadge(s)}
       ${s.transport === 'stdio' ? '<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>' : ''}
       <span class="sub">${s.server_name ? esc(s.server_name) + ' v' + esc(s.version || '?') : ''}${s.latency_ms != null ? ' &middot; ' + s.latency_ms + ' ms' : ''}</span>
       <div class="d-actions">
-        ${s.can_start && s.state !== 'UP' ? `<button class="primary" onclick="act('start','${esc(s.id)}')">&#9654; Start</button>` : ''}
-        ${s.can_start && s.state === 'UP' ? `<button class="danger" onclick="act('kill','${esc(s.id)}')">&#9632; Stop</button>` : ''}
-        <button onclick="act('refresh','${esc(s.id)}')">Sonder</button>
-        <button onclick="act('toggle','${esc(s.id)}')">${s.enabled ? 'D&eacute;sactiver' : 'Activer'}</button>
-        <button class="danger" onclick="removeSrv('${esc(s.id)}')">Retirer</button>
+        ${s.can_start && s.state !== 'UP' ? `<button class="primary" onclick="act('start',${js(s.id)})">&#9654; Start</button>` : ''}
+        ${s.can_start && s.state === 'UP' ? `<button class="danger" onclick="act('kill',${js(s.id)})">&#9632; Stop</button>` : ''}
+        <button onclick="act('refresh',${js(s.id)})">Sonder</button>
+        <button onclick="act('toggle',${js(s.id)})">${s.enabled ? 'D&eacute;sactiver' : 'Activer'}</button>
+        <button class="danger" onclick="removeSrv(${js(s.id)})">Retirer</button>
       </div>
     </div>
     ${s.last_error ? `<div class="d-err">&#9888; ${esc(s.last_error)}</div>` : ''}
@@ -544,11 +562,12 @@ async function openStore() {
     storeItems = await r.json();
     const cats = ['Tout', ...new Set(storeItems.map(i => i.cat))];
     document.getElementById('storeCats').innerHTML = cats.map(c =>
-      `<button class="scat ${c===storeCat?'sel':''}" onclick="storeCat='${c}';renderStoreItems()">${c}</button>`).join('');
+      `<button class="scat ${c===storeCat?'sel':''}" onclick="storeCat=${js(c)};renderStoreItems()">${esc(c)}</button>`).join('');
   }
   renderStoreItems();
 }
 function renderStoreItems() {
+  if (!storeItems) return;
   const q = (document.getElementById('storeSearch').value || '').toLowerCase();
   const list = storeItems.filter(i => (storeCat==='Tout' || i.cat===storeCat) &&
     (!q || i.name.toLowerCase().includes(q) || i.desc.toLowerCase().includes(q)));
@@ -558,7 +577,7 @@ function renderStoreItems() {
       <div class="scard-top"><b>${esc(i.name)}</b><span class="tag ${i.kind==='npm'?'npm':'py'}">${i.kind}</span></div>
       <div class="scard-desc">${esc(i.desc)}</div>
       <div class="scard-cmd" title="${esc(i.program + ' ' + i.args.join(' '))}">${esc(cmd)}</div>
-      <button class="primary" onclick="installStore('${esc(i.id)}', this)">&#10515; Installer</button>
+      <button class="primary" onclick="installStore(${js(i.id)}, this)">&#10515; Installer</button>
     </div>`;
   }).join('') || '<div class="empty-sec">aucun r&eacute;sultat</div>';
 }

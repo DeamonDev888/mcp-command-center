@@ -3,3 +3,5 @@ config.json
 *.log
 *.tmp
 .tmp
+
+desktop/gen/
