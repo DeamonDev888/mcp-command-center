@@ -250,7 +250,241 @@ pub fn save_config(state: &AppState) {
     std::fs::rename(&tmp, &state.config_path).ok();
 }
 
-// ---------- polling ----------
+// ---------- boutique MCP (catalogue + import, porté de l'app Hermes desktop :
+// mcp-doc.ts pour le parsing des configs, mcp-import.ts pour « collez n'importe quoi ») ----------
+
+pub struct StoreItem {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub desc: &'static str,
+    pub cat: &'static str,
+    pub kind: &'static str, // npm | python
+    pub program: &'static str,
+    pub args: &'static [&'static str],
+}
+
+pub const STORE: &[StoreItem] = &[
+    StoreItem { id: "filesystem", name: "Filesystem", desc: "Lecture/écriture de fichiers dans un dossier autorisé", cat: "Fichiers", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-filesystem", "C:/Users/Deamon"] },
+    StoreItem { id: "gdrive", name: "Google Drive", desc: "Recherche et lecture des fichiers Google Drive", cat: "Fichiers", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-gdrive"] },
+    StoreItem { id: "git", name: "Git", desc: "Lecture et manipulation de dépôts git (status, diff, log, commit)", cat: "Dev", kind: "python", program: "uvx", args: &["mcp-server-git"] },
+    StoreItem { id: "github", name: "GitHub", desc: "API GitHub : repos, issues, PR (GITHUB_TOKEN requis en env)", cat: "Dev", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-github"] },
+    StoreItem { id: "memory", name: "Memory", desc: "Graph de connaissances persistant (mémoire longue)", cat: "Utilitaires", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-memory"] },
+    StoreItem { id: "seqthink", name: "Sequential Thinking", desc: "Raisonnement structuré étape par étape", cat: "Utilitaires", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-sequential-thinking"] },
+    StoreItem { id: "everything", name: "Everything", desc: "Serveur de démo/test qui expose tous les comportements MCP", cat: "Utilitaires", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-everything"] },
+    StoreItem { id: "time", name: "Time", desc: "Heure et conversions de fuseaux horaires", cat: "Utilitaires", kind: "python", program: "uvx", args: &["mcp-server-time"] },
+    StoreItem { id: "fetch", name: "Fetch", desc: "Récupération de pages web et conversion en markdown", cat: "Web", kind: "python", program: "uvx", args: &["mcp-server-fetch"] },
+    StoreItem { id: "puppeteer", name: "Puppeteer", desc: "Automatisation de navigateur : screenshots, clics, scraping", cat: "Web", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-puppeteer"] },
+    StoreItem { id: "brave", name: "Brave Search", desc: "Recherche web Brave (BRAVE_API_KEY requis en env)", cat: "Web", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-brave-search"] },
+    StoreItem { id: "postgres", name: "PostgreSQL", desc: "Accès lecture seule à une base PostgreSQL (URL en args)", cat: "Données", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-postgres"] },
+    StoreItem { id: "sqlite", name: "SQLite", desc: "Requêtes et analyse d'une base SQLite locale", cat: "Données", kind: "python", program: "uvx", args: &["mcp-server-sqlite", "--db-path", "test.db"] },
+    StoreItem { id: "slack", name: "Slack", desc: "Lecture/écriture de canaux Slack (tokens requis en env)", cat: "Données", kind: "npm", program: "npx", args: &["-y", "@modelcontextprotocol/server-slack"] },
+];
+
+pub fn store_json() -> Value {
+    json!(STORE.iter().map(|s| json!({
+        "id": s.id, "name": s.name, "desc": s.desc,
+        "cat": s.cat, "kind": s.kind,
+        "program": s.program, "args": s.args,
+    })).collect::<Vec<_>>())
+}
+
+/// Porté de mcp-import.ts : "@modelcontextprotocol/server-filesystem" → "filesystem".
+fn cleanup_name(base: &str) -> String {
+    let mut b = base.to_string();
+    if let Some(slash) = b.rfind('/') { b = b[slash + 1..].to_string(); }
+    b = regex_like_strip(&b, &["cjs", "js", "mjs", "py", "ts"]);
+    for p in ["mcp-server-", "server-", "mcp-"] {
+        if b.starts_with(p) { b = b[p.len()..].to_string(); }
+    }
+    for s in ["-mcp-server", "-mcp", "-server"] {
+        if b.ends_with(s) { b = b[..b.len() - s.len()].to_string(); }
+    }
+    if b.is_empty() { base.to_string() } else { b }
+}
+
+fn regex_like_strip(name: &str, exts: &[&str]) -> String {
+    for e in exts {
+        if let Some(stripped) = name.strip_suffix(&format!(".{}", e)) {
+            return stripped.to_string();
+        }
+    }
+    name.to_string()
+}
+
+/// Porté de mcp-doc.ts : accepte {"mcpServers": {...}}, {"mcp_servers": {...}}
+/// ou une map brute name → entry. Retourne (nom, entry).
+pub fn parse_servers_doc(raw: &str) -> Result<Vec<(String, Value)>, String> {
+    let parsed: Value = serde_json::from_str(raw).map_err(|e| format!("JSON invalide: {}", e))?;
+    let obj = parsed.as_object().ok_or("attendu un objet JSON")?;
+    let map = obj.get("mcpServers")
+        .or_else(|| obj.get("mcp_servers"))
+        .and_then(|w| w.as_object())
+        .unwrap_or(obj); // map brute
+    Ok(map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+}
+
+fn entry_to_server(id: String, name: &str, entry: &Value) -> Option<Server> {
+    let command = entry.get("command").and_then(|x| x.as_str());
+    let url = entry.get("url").and_then(|x| x.as_str());
+    let args: Vec<String> = entry.get("args").and_then(|x| x.as_array())
+        .map(|a| a.iter().filter_map(|i| i.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    if let Some(cmd) = command {
+        let workdir = entry.get("cwd").and_then(|x| x.as_str()).map(String::from);
+        return Some(Server {
+            start_cmd: Some(StartCmd { program: cmd.to_string(), args: args.clone(), workdir: workdir.clone() }),
+            id, label: name.to_string(),
+            transport: Transport::Stdio { program: cmd.to_string(), args, workdir },
+            origin: Origin::Manual, enabled: true, state: SState::Down,
+            pid: None, bound_host: None, server_name: None, version: None,
+            protocol: None, tools: vec![], latency_ms: None,
+            last_seen_ts: None, last_error: None, auto_restart: true,
+            tools_disabled: vec![],
+        });
+    }
+    if let Some(u) = url {
+        let (host, port, path) = parse_url_parts(u)?;
+        return Some(Server {
+            start_cmd: None, id, label: name.to_string(),
+            transport: Transport::Http { host: Some(host), port, path },
+            origin: Origin::Manual, enabled: true, state: SState::Down,
+            pid: None, bound_host: None, server_name: None, version: None,
+            protocol: None, tools: vec![], latency_ms: None,
+            last_seen_ts: None, last_error: None, auto_restart: true,
+            tools_disabled: vec![],
+        });
+    }
+    None
+}
+
+fn parse_url_parts(u: &str) -> Option<(String, u16, String)> {
+    let rest = u.strip_prefix("https://").or_else(|| u.strip_prefix("http://"))?;
+    let (hostport, path) = match rest.find('/') {
+        Some(i) => (&rest[..i], rest[i..].to_string()),
+        None => (rest, "/mcp".to_string()),
+    };
+    let (host, port) = match hostport.rsplit_once(':') {
+        Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) => (h.to_string(), p.parse().ok()?),
+        _ => (hostport.to_string(), if u.starts_with("https") { 443 } else { 80 }),
+    };
+    Some((host, port, path))
+}
+
+/// Porté de mcp-import.ts : collez n'importe quoi — snippet mcp.json, commande
+/// npx/uvx/docker, ligne `claude mcp add`, ou simple URL → serveurs ajoutés.
+pub fn import_mcp_text(state: &Arc<AppState>, raw: &str) -> Value {
+    let text = raw.trim();
+    if text.is_empty() { return json!({"ok": false, "error": "texte vide"}); }
+
+    // 1. JSON (mcp.json)
+    if text.starts_with('{') {
+        match parse_servers_doc(text) {
+            Ok(entries) if !entries.is_empty() => {
+                let mut added = 0usize;
+                for (name, entry) in entries {
+                    let id = format!("store-{}", name);
+                    let mut servers = lockv(&state.servers);
+                    if servers.iter().any(|s| s.id == id) { continue; }
+                    if let Some(srv) = entry_to_server(id, &name, &entry) {
+                        let label = srv.label.clone();
+                        servers.push(srv);
+                        drop(servers);
+                        add_log(state, "info", &format!("[boutique] import JSON : {}", label));
+                        added += 1;
+                    }
+                }
+                if added > 0 { save_config(state); }
+                return json!({"ok": true, "added": added, "source": "json"});
+            }
+            Ok(_) => { /* json vide → continuer sur les autres pistes */ }
+            Err(e) => return json!({"ok": false, "error": e}),
+        }
+    }
+
+    // 2. `claude mcp add <name> <cmd> [args...]`
+    let toks: Vec<&str> = text.split_whitespace().collect();
+    if toks.len() >= 3 && toks[0] == "claude" && toks[1] == "mcp" && toks[2] == "add" {
+        let name = toks[3].to_string();
+        let program = toks[4].to_string();
+        let args: Vec<String> = toks[5..].iter().map(|s| s.to_string()).collect();
+        return push_imported(state, name, program, args);
+    }
+
+    // 3. URL directe → serveur HTTP
+    if text.starts_with("http://") || text.starts_with("https://") {
+        if let Some((host, port, path)) = parse_url_parts(text) {
+            let name = name_from_url(&host);
+            let id = format!("store-{}", name);
+            let mut servers = lockv(&state.servers);
+            if !servers.iter().any(|s| s.id == id) {
+                servers.push(Server {
+                    start_cmd: None, id: id.clone(), label: name.clone(),
+                    transport: Transport::Http { host: Some(host), port, path },
+                    origin: Origin::Manual, enabled: true, state: SState::Down,
+                    pid: None, bound_host: None, server_name: None, version: None,
+                    protocol: None, tools: vec![], latency_ms: None,
+                    last_seen_ts: None, last_error: None, auto_restart: true,
+                    tools_disabled: vec![],
+                });
+                drop(servers);
+                save_config(state);
+                add_log(state, "info", &format!("[boutique] import URL : {}", name));
+                return json!({"ok": true, "added": 1, "source": "url"});
+            }
+            return json!({"ok": true, "added": 0, "source": "url", "note": "déjà présent"});
+        }
+    }
+
+    // 4. Commande npx/uvx/docker → serveur stdio
+    if let Some(first) = toks.first() {
+        if ["npx", "uvx", "docker", "node", "python", "python3"].contains(first) {
+            // premier token qui n'est pas une option (-y, --yes…) = le package
+            let spec = toks.iter().skip(1).find(|t| !t.starts_with('-')).copied().unwrap_or("");
+            let name = if spec.is_empty() { "serveur-importe".to_string() } else { cleanup_name(spec) };
+            let name = format!("{}-{}", name, now_compact());
+            let program = first.to_string();
+            let args: Vec<String> = toks[1..].iter().map(|s| s.to_string()).collect();
+            return push_imported(state, name, program, args);
+        }
+    }
+
+    json!({"ok": false, "error": "rien de reconnu : colle un mcp.json, une commande npx/uvx, une URL, ou `claude mcp add ...`"})
+}
+
+fn push_imported(state: &Arc<AppState>, name: String, program: String, args: Vec<String>) -> Value {
+    let id = format!("store-{}", name);
+    let mut servers = lockv(&state.servers);
+    if servers.iter().any(|s| s.id == id) {
+        return json!({"ok": true, "added": 0, "note": "déjà présent"});
+    }
+    servers.push(Server {
+        start_cmd: Some(StartCmd { program: program.clone(), args: args.clone(), workdir: None }),
+        id: id.clone(), label: name.clone(),
+        transport: Transport::Stdio { program, args, workdir: None },
+        origin: Origin::Manual, enabled: true, state: SState::Down,
+        pid: None, bound_host: None, server_name: None, version: None,
+        protocol: None, tools: vec![], latency_ms: None,
+        last_seen_ts: None, last_error: None, auto_restart: true,
+        tools_disabled: vec![],
+    });
+    drop(servers);
+    save_config(state);
+    add_log(state, "info", &format!("[boutique] import commande : {}", name));
+    json!({"ok": true, "added": 1, "source": "commande"})
+}
+
+/// Porté de mcp-import.ts nameFromUrl : "mcp.linear.app" → "linear"
+/// (dégage api/mcp/www, garde la marque).
+fn name_from_url(host: &str) -> String {
+    let labels: Vec<&str> = host.split('.').filter(|l| !l.is_empty()).collect();
+    let mut it: Vec<&str> = labels.to_vec();
+    while it.len() > 1 && ["api", "mcp", "www"].contains(&it[0]) {
+        it.remove(0);
+    }
+    it.first().map(|s| s.to_string()).unwrap_or_else(|| "server".to_string())
+}
+
+
 
 /// Nombre de tools actifs (tools_disabled écartés).
 pub fn tools_actifs(s: &Server) -> usize {
@@ -396,7 +630,7 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                     servers.iter_mut().find(|s| s.id == id).and_then(|s| s.start_cmd.clone())
                 };
                 if let Some(cmd) = cmd {
-                    match probe::probe_stdio(&cmd.program, &cmd.args, cmd.workdir.as_deref(), 6000, true) {
+                    match probe::probe_stdio(&cmd.program, &cmd.args, cmd.workdir.as_deref(), 15000, true) {
                         Ok((p, handle)) => {
                             if let Some(h) = handle {
                                 lockv(&state.children).insert(id.to_string(), h);
@@ -976,6 +1210,57 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                 if now_disabled { "DÉSACTIVÉ" } else { "réactivé" }, count));
             json!({"ok": true, "disabled": now_disabled, "tools_actifs": count})
         }
+        "install_store" => {
+            let sid = req.get("id").and_then(|x| x.as_str()).unwrap_or("");
+            match STORE.iter().find(|s| s.id == sid) {
+                Some(it) => {
+                    let id = format!("store-{}", it.id);
+                    let already = {
+                        let mut servers = lockv(&state.servers);
+                        let already = servers.iter().any(|s| s.id == id);
+                        if !already {
+                            let args: Vec<String> = it.args.iter().map(|a| a.to_string()).collect();
+                            servers.push(Server {
+                                id: id.clone(),
+                                label: it.name.to_string(),
+                                transport: Transport::Stdio {
+                                    program: it.program.to_string(), args, workdir: None,
+                                },
+                                origin: Origin::Manual,
+                                enabled: true,
+                                state: SState::Down,
+                                auto_restart: true,
+                                pid: None, bound_host: None, server_name: None, version: None,
+                                protocol: None, tools: vec![], latency_ms: None,
+                                last_seen_ts: None, last_error: None,
+                                start_cmd: Some(StartCmd {
+                                    program: it.program.to_string(),
+                                    args: it.args.iter().map(|a| a.to_string()).collect(),
+                                    workdir: None,
+                                }),
+                                tools_disabled: vec![],
+                            });
+                        }
+                        already
+                    };
+                    if already { return json!({"ok": true, "added": 0, "note": "déjà installé"}); }
+                    save_config(state);
+                    add_log(state, "info", &format!("[boutique] installé : {}", it.name));
+                    poll_one(state, &id);
+                    let st = {
+                        let servers = lockv(&state.servers);
+                        servers.iter().find(|s| s.id == id)
+                            .map(|s| s.state.as_str().to_string()).unwrap_or_default()
+                    };
+                    json!({"ok": true, "added": 1, "id": id, "state": st})
+                }
+                None => json!({"ok": false, "error": "item inconnu"}),
+            }
+        }
+        "import_mcp" => {
+            let raw = req.get("text").and_then(|x| x.as_str()).unwrap_or("");
+            import_mcp_text(state, raw)
+        }
         _ => json!({"ok": false, "error": format!("action inconnue: {}", action)}),
     }
 }
@@ -1256,6 +1541,65 @@ mod tests {
         assert_eq!(j["stats"]["tools"], serde_json::json!(1));
         assert_eq!(j["servers"][1]["state"], serde_json::json!("DISABLED"));
         assert_eq!(j["servers"][1]["origin"], serde_json::json!("seed"));
+    }
+
+    #[test]
+    fn test_state_helper() {}
+
+    fn test_state() -> Arc<AppState> {
+        Arc::new(AppState {
+            servers: Mutex::new(vec![]),
+            log: Mutex::new(VecDeque::new()),
+            settings: Mutex::new(Settings::default()),
+            children: Mutex::new(std::collections::HashMap::new()),
+            config_path: String::new(),
+            peers: Mutex::new(std::collections::HashMap::new()),
+        })
+    }
+
+    #[test]
+    fn cleanup_name_hermes() {
+        assert_eq!(cleanup_name("@modelcontextprotocol/server-filesystem"), "filesystem");
+        assert_eq!(cleanup_name("mcp-server-git"), "git");
+        assert_eq!(cleanup_name("mcp-server-time"), "time");
+    }
+
+    #[test]
+    fn parse_servers_doc_accepte_les_trois_formes() {
+        let w = r#"{"mcpServers":{"fs":{"command":"npx","args":["-y","pkg"]}}}"#;
+        let e = parse_servers_doc(w).unwrap();
+        assert_eq!(e.len(), 1);
+        assert_eq!(e[0].0, "fs");
+        let snake = r#"{"mcp_servers":{"fs":{"command":"npx"}}}"#;
+        assert_eq!(parse_servers_doc(snake).unwrap().len(), 1);
+        let brut = r#"{"fs":{"command":"npx"}}"#;
+        assert_eq!(parse_servers_doc(brut).unwrap().len(), 1);
+        assert!(parse_servers_doc("not json").is_err());
+    }
+
+    #[test]
+    fn import_mcp_texte_reconnait_tout() {
+        let state = test_state();
+        // URL
+        let j = import_mcp_text(&state, "https://mcp.linear.app/mcp");
+        assert_eq!(j["ok"], json!(true));
+        // commande claude
+        let j2 = import_mcp_text(&state, "claude mcp add monserveur npx -y pkg");
+        assert_eq!(j2["ok"], json!(true));
+        // commande npx brute
+        let j3 = import_mcp_text(&state, "npx -y @modelcontextprotocol/server-filesystem /tmp");
+        assert_eq!(j3["ok"], json!(true));
+        let servers = lockv(&state.servers);
+        assert!(servers.iter().any(|s| s.id == "store-linear"));
+        assert!(servers.iter().any(|s| s.label.starts_with("monserveur")));
+        assert!(servers.iter().any(|s| s.id.starts_with("store-filesystem-")));
+    }
+
+    #[test]
+    fn name_from_url_hermes() {
+        assert_eq!(name_from_url("mcp.linear.app"), "linear");
+        assert_eq!(name_from_url("api.github.com"), "github");
+        assert_eq!(name_from_url("example.com"), "example");
     }
 
     #[test]

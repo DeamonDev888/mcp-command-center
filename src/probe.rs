@@ -35,13 +35,30 @@ pub struct StdioHandle {
     pub stdin: Option<ChildStdin>,
 }
 
+fn resolve_windows_cmd(program: &str) -> String {
+    // Windows : CreateProcess ne résout que les .exe — npx/uvx sont des .cmd → introuvables.
+    // Retourne <prog>.cmd si présent dans le PATH, sinon le programme tel quel.
+    if !program.contains('.') {
+        let path_var = std::env::var("PATH").unwrap_or_default();
+        for dir in path_var.split(';') {
+            if dir.is_empty() { continue; }
+            let cand = std::path::Path::new(dir).join(format!("{}.cmd", program));
+            if cand.exists() {
+                return cand.to_string_lossy().to_string();
+            }
+        }
+    }
+    program.to_string()
+}
+
 /// Spawn un process serveur (HTTP/HTTPS lancé par le command center) sans handshake
 /// JSON-RPC : le probe HTTP classique fera le handshake. stdout/stderr nullés
 /// (pas de pipe = pas de risque de blocage buffer plein).
 pub fn spawn_process(
     program: &str, args: &[String], workdir: Option<&str>,
 ) -> Result<StdioHandle, String> {
-    let mut cmd = Command::new(program);
+    let program = resolve_windows_cmd(program);
+    let mut cmd = Command::new(&program);
     cmd.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     #[cfg(windows)]
     {
@@ -260,9 +277,10 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
 /// keep_alive=true → ne tue pas le process, renvoie un StdioHandle.
 pub fn probe_stdio(
     program: &str, args: &[String], workdir: Option<&str>, timeout_ms: u64, keep_alive: bool,
-) -> Result<(McpProbe, Option<StdioHandle>), String> {
-    let t0 = Instant::now();
-    let mut cmd = Command::new(program);
+ ) -> Result<(McpProbe, Option<StdioHandle>), String> {
+ let t0 = Instant::now();
+ let program = resolve_windows_cmd(program);
+ let mut cmd = Command::new(&program);
     cmd.args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
     #[cfg(windows)]
     {

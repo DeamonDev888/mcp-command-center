@@ -155,6 +155,30 @@ h4.sec::after{content:'';flex:1;height:1px;background:var(--border-soft)}
 .logline.warn{color:var(--warn)}
 .logline.error{color:var(--bad)}
 
+/* --- Boutique MCP (porté de l'app Hermes : directory à cartes + import) --- */
+.tag{font:10px var(--mono);padding:1px 7px;border-radius:3px;border:1px solid var(--border);color:var(--t3)}
+.tag.npm{color:#bc8cff;border-color:#bc8cff44}
+.tag.py{color:#39c5cf;border-color:#39c5cf44}
+#storeDlg{width:min(880px,94vw)}
+.store-import{background:var(--sidebar);border:1px solid var(--border-soft);border-radius:10px;padding:12px;margin-bottom:14px}
+.store-import label{font-size:11px;color:var(--t4);display:block;margin-bottom:6px}
+.store-import textarea{width:100%;background:var(--chrome);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--t1);font:11.5px var(--mono);resize:vertical}
+.store-import textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--active)}
+.store-msg{font:11px var(--mono);margin-left:10px;color:var(--ok)}
+.store-bar{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.store-bar input{flex:1;min-width:180px}
+.store-cats{display:flex;gap:6px;flex-wrap:wrap}
+.scat{padding:3px 12px;border-radius:14px;font-size:11px}
+.scat.sel{background:var(--active2);border-color:var(--accent);color:var(--accent)}
+.store-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.scard{background:var(--sidebar);border:1px solid var(--border-soft);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px}
+.scard:hover{border-color:var(--border)}
+.scard-top{display:flex;align-items:center;gap:8px}
+.scard-top b{flex:1;font-size:13px}
+.scard-desc{font-size:11.5px;color:var(--t3);flex:1}
+.scard-cmd{font:10px var(--mono);color:var(--t4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scard button{align-self:flex-start}
+
 /* --- Formulaire d'ajout (modal) --- */
 dialog{background:var(--card);color:var(--t1);border:1px solid var(--border);border-radius:14px;padding:0;
   width:min(680px,92vw);max-height:85vh;box-shadow:0 18px 50px rgba(0,0,0,.5)}
@@ -185,6 +209,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
     <button class="primary" onclick="doScan()">&#128269; Scan ports</button>
     <button onclick="doScanNet()">&#127760; Scan r&eacute;seau</button>
     <button onclick="doPeers()">&#129309; Pairs</button>
+    <button onclick="openStore()">&#128722; Boutique</button>
     <button onclick="refreshAll()">&#8635;</button>
   </div>
 </div>
@@ -249,6 +274,26 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
         <button type="submit" class="primary">Ajouter &amp; sonder</button>
       </div>
     </form>
+  </div>
+</dialog>
+
+<dialog id="storeDlg">
+  <div class="dlg-head">
+    <h2>&#128722; Boutique &mdash; serveurs MCP</h2>
+    <button class="close" onclick="storeDlg.close()">&times;</button>
+  </div>
+  <div class="dlg-body" style="padding-top:12px">
+    <div class="store-import">
+      <label>Collez une config, une commande ou une URL &mdash; on détecte le reste</label>
+      <textarea id="importBox" rows="3" placeholder='{"mcpServers":{"fs":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","C:/data"]}}}&#10;npx -y @modelcontextprotocol/server-memory&#10;https://mcp.exemple.app/mcp&#10;claude mcp add mon-srv npx -y pkg'></textarea>
+      <button class="primary" onclick="doImport()" style="margin-top:6px">Importer</button>
+      <span id="importMsg" class="store-msg"></span>
+    </div>
+    <div class="store-bar">
+      <input id="storeSearch" placeholder="Rechercher dans la boutique&hellip;" oninput="renderStoreItems()">
+      <div id="storeCats" class="store-cats"></div>
+    </div>
+    <div id="storeGrid" class="store-grid"></div>
   </div>
 </dialog>
 
@@ -487,6 +532,57 @@ async function addServer(ev) {
   if (!j.ok) alert(j.error || 'erreur');
   else { document.getElementById('dlg').close(); selectedId = j.id; await act('refresh', j.id); }
   return false;
+}
+
+/* ===== Boutique MCP (porté de Hermes mcp-import.ts / connectors-directory) ===== */
+let storeItems = null;
+let storeCat = 'Tout';
+async function openStore() {
+  document.getElementById('storeDlg').showModal();
+  if (!storeItems) {
+    const r = await fetch('/api/store');
+    storeItems = await r.json();
+    const cats = ['Tout', ...new Set(storeItems.map(i => i.cat))];
+    document.getElementById('storeCats').innerHTML = cats.map(c =>
+      `<button class="scat ${c===storeCat?'sel':''}" onclick="storeCat='${c}';renderStoreItems()">${c}</button>`).join('');
+  }
+  renderStoreItems();
+}
+function renderStoreItems() {
+  const q = (document.getElementById('storeSearch').value || '').toLowerCase();
+  const list = storeItems.filter(i => (storeCat==='Tout' || i.cat===storeCat) &&
+    (!q || i.name.toLowerCase().includes(q) || i.desc.toLowerCase().includes(q)));
+  document.getElementById('storeGrid').innerHTML = list.map(i => {
+    const cmd = (i.program + ' ' + i.args.join(' ')).replace(/C:\/Users\/Deamon/g, '~');
+    return `<div class="scard">
+      <div class="scard-top"><b>${esc(i.name)}</b><span class="tag ${i.kind==='npm'?'npm':'py'}">${i.kind}</span></div>
+      <div class="scard-desc">${esc(i.desc)}</div>
+      <div class="scard-cmd" title="${esc(i.program + ' ' + i.args.join(' '))}">${esc(cmd)}</div>
+      <button class="primary" onclick="installStore('${esc(i.id)}', this)">&#10515; Installer</button>
+    </div>`;
+  }).join('') || '<div class="empty-sec">aucun r&eacute;sultat</div>';
+}
+async function installStore(id, btn) {
+  btn.disabled = true; btn.textContent = '\u23f3 Installation\u2026';
+  const r = await fetch('/api/action', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({action:'install_store', id})});
+  const j = await r.json();
+  if (j.ok) {
+    btn.textContent = j.added ? (j.state === 'UP' ? '\u2713 Install\u00e9 et UP' : '\u2713 Install\u00e9 (d\u00e9marrage\u2026)') : 'D\u00e9j\u00e0 install\u00e9';
+    await load();
+  } else { btn.disabled = false; btn.textContent = 'R\u00e9essayer'; alert(j.error || 'erreur'); }
+}
+async function doImport() {
+  const box = document.getElementById('importBox');
+  const msg = document.getElementById('importMsg');
+  const r = await fetch('/api/action', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({action:'import_mcp', text: box.value})});
+  const j = await r.json();
+  if (j.ok) {
+    msg.textContent = j.added ? `\u2713 ${j.added} serveur(s) import\u00e9(s)` : 'd\u00e9j\u00e0 pr\u00e9sent';
+    if (j.added) { box.value = ''; await load(); }
+  } else msg.textContent = '\u2717 ' + (j.error || 'erreur');
+  setTimeout(() => msg.textContent = '', 5000);
 }
 
 load();

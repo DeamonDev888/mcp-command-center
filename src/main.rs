@@ -10,14 +10,47 @@ use std::thread;
 use std::time::Duration;
 use crate::types::{lockv, AppState};
 
-/// Ouvre l'URL dans le navigateur par défaut (best-effort, jamais bloquant).
+/// Ouvre l'URL dans une FENÊTRE desktop dédiée (mode --app, comme un shell Electron
+/// sans la payload) : Edge/Chrome --app donnent une vraie fenêtre sans barres du
+/// navigateur. Fallback : navigateur par défaut.
 fn open_browser(url: &str) {
     #[cfg(target_os = "windows")]
-    let _ = std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn();
+    {
+        for edge in [
+            "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+            "C:/Program Files/Microsoft/Edge/Application/msedge.exe",
+            "C:/Program Files/Google/Chrome/Application/chrome.exe",
+            "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+        ] {
+            if std::path::Path::new(edge).exists()
+                && std::process::Command::new(edge)
+                    .args(["--app", url, "--window-size=1320,880"])
+                    .spawn()
+                    .is_ok()
+            {
+                return;
+            }
+        }
+        let _ = std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn();
+    }
     #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("open").arg(url).spawn();
+    {
+        for b in ["Google Chrome", "Microsoft Edge", "Chromium"] {
+            if std::process::Command::new("open").args(["-a", b, "--args", "--app", url]).spawn().is_ok() {
+                return;
+            }
+        }
+        let _ = std::process::Command::new("open").arg(url).spawn();
+    }
     #[cfg(target_os = "linux")]
-    let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    {
+        for b in ["google-chrome", "chromium", "chromium-browser", "microsoft-edge"] {
+            if std::process::Command::new(b).args(["--app", url]).spawn().is_ok() {
+                return;
+            }
+        }
+        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    }
 }
 
 fn main() {
@@ -178,6 +211,10 @@ fn route(state: &Arc<AppState>, method: &str, path: &str, body: &[u8]) -> (u16, 
     if method == "GET" && path.starts_with("/api/detail?id=") {
         let id = urldecode(&path["/api/detail?id=".len()..]);
         let j = manage::detail_json(state, &id);
+        return (200, "application/json", j.to_string().into_bytes());
+    }
+    if method == "GET" && path == "/api/store" {
+        let j = manage::store_json();
         return (200, "application/json", j.to_string().into_bytes());
     }
     if method == "POST" && path == "/api/action" {

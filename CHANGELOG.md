@@ -1,3 +1,17 @@
+## [0.5.0] — Fenêtre desktop + Boutique MCP
+
+### Desktop
+- L'app s'ouvre maintenant dans une FENÊTRE dédiée (Edge/Chrome --app, style Electron sans la payload) au lieu d'un onglet navigateur. Fallback navigateur. MCC_NO_BROWSER=1 pour désactiver.
+
+### Boutique MCP (portée de l'app Hermes desktop)
+- Bouton « Boutique » : catalogue de 14 serveurs MCP officiels (Filesystem, Git, GitHub, Memory, Fetch, Puppeteer, Brave, PostgreSQL, SQLite, Slack…), catégories + recherche, install en un clic.
+- Import « collez n'importe quoi » (porté de mcp-import.ts) : snippet mcp.json (mcpServers ou mcp_servers ou map brute), commande npx/uvx/docker/claude mcp add, ou simple URL → serveurs créés.
+- Backend : /api/store, actions install_store + import_mcp, parsing tolerant (mcp-doc.ts), nettoyage de noms (@modelcontextprotocol/server-filesystem → filesystem).
+
+### Corrigé (Windows)
+- Rust Command::new("npx") échouait : CreateProcess ne résout que les .exe — résolution .cmd dans le PATH ajoutée (npx/uvx fonctionnent).
+- Timeout de handshake stdio 6 s → 15 s (npx télécharge le package au premier lancement).
+
 ## [0.4.3] — L'app s'ouvre (navigateur auto au démarrage)
 
 ### Corrigé (UX bloquant)
