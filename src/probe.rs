@@ -35,6 +35,24 @@ pub struct StdioHandle {
     pub stdin: Option<ChildStdin>,
 }
 
+/// Spawn un process serveur (HTTP/HTTPS lancé par le command center) sans handshake
+/// JSON-RPC : le probe HTTP classique fera le handshake. stdout/stderr nullés
+/// (pas de pipe = pas de risque de blocage buffer plein).
+pub fn spawn_process(
+    program: &str, args: &[String], workdir: Option<&str>,
+) -> Result<StdioHandle, String> {
+    let mut cmd = Command::new(program);
+    cmd.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    if let Some(wd) = workdir { cmd.current_dir(wd); }
+    let child = cmd.spawn().map_err(|e| format!("spawn {}: {}", program, e))?;
+    Ok(StdioHandle { child, stdin: None })
+}
+
 fn find_sub(hay: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.len() > hay.len() { return None; }
     hay.windows(needle.len()).position(|w| w == needle)

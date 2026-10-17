@@ -1,3 +1,15 @@
+## [0.4.0] — Le command center lance aussi les MCP HTTP/HTTPS
+
+### Backend
+- start_cmd optionnel pour les serveurs HTTP : le command center peut les démarrer, les arrêter et les relancer (auto-restart), comme les stdio.
+- Actions génériques `start` / `kill` (alias compat `start_stdio` / `kill_stdio`).
+- Auto-start HTTP : un serveur HTTP local éteint avec commande de lancement est démarré au prochain cycle de poll, puis sondé (probe → spawn → re-probe). Jamais pour un serveur distant (gate host local).
+- Persistance : la commande de lancement (program/args/workdir) est écrite et rechargée depuis config.json pour les HTTP.
+
+### UI
+- Form d'ajout HTTP : champs optionnels « commande de lancement ».
+- Boutons Start/Stop sur chaque serveur avec commande (HTTP comme stdio) dans l'explorateur et le détail.
+
 ## [0.3.1] — Start/Stop stdio + badge « désuet »
 
 ### UI

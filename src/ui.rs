@@ -223,6 +223,14 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
           <div><label>Port</label><input id="fPort" type="number" placeholder="3099"></div>
           <div><label>Chemin MCP</label><input id="fPath" value="/mcp"></div>
         </div>
+        <div style="margin-top:12px">
+          <label>Commande de lancement (option — permet Start/Stop par le command center)</label>
+          <div class="row" style="margin-bottom:8px">
+            <div><input id="fHttpProgram" placeholder="ex. node ou uvx mcp-server-x"></div>
+            <div><input id="fHttpWorkdir" placeholder="workdir (option)"></div>
+          </div>
+          <input id="fHttpArgs" placeholder="args (ex. dist/server.js --port 3099)">
+        </div>
       </div>
       <div id="stdioFields" style="display:none">
         <div class="row">
@@ -288,9 +296,9 @@ function renderServers() {
 }
 
 function rowCtl(s) {
-  if (s.transport !== 'stdio') return '';
+  if (!s.can_start) return '';
   const up = s.state === 'UP';
-  return `<button class="rowbtn" title="${up?'Arr\u00eater':'D\u00e9marrer'} ce serveur" onclick="event.stopPropagation();act('${up?'kill_stdio':'start_stdio'}','${esc(s.id)}')">${up?'\u25a0':'\u25b6'}</button>`;
+  return `<button class="rowbtn" title="${up?'Arr\u00eater':'D\u00e9marrer'} ce serveur" onclick="event.stopPropagation();act('${up?'kill':'start'}','${esc(s.id)}')">${up?'\u25a0':'\u25b6'}</button>`;
 }
 
 function renderPeers() {
@@ -371,8 +379,8 @@ function renderDetail() {
       ${s.transport === 'stdio' ? '<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>' : ''}
       <span class="sub">${s.server_name ? esc(s.server_name) + ' v' + esc(s.version || '?') : ''}${s.latency_ms != null ? ' &middot; ' + s.latency_ms + ' ms' : ''}</span>
       <div class="d-actions">
-        ${s.transport === 'stdio' && s.state !== 'UP' ? `<button class="primary" onclick="act('start_stdio','${esc(s.id)}')">&#9654; Start</button>` : ''}
-        ${s.transport === 'stdio' && s.state === 'UP' ? `<button class="danger" onclick="act('kill_stdio','${esc(s.id)}')">&#9632; Stop</button>` : ''}
+        ${s.can_start && s.state !== 'UP' ? `<button class="primary" onclick="act('start','${esc(s.id)}')">&#9654; Start</button>` : ''}
+        ${s.can_start && s.state === 'UP' ? `<button class="danger" onclick="act('kill','${esc(s.id)}')">&#9632; Stop</button>` : ''}
         <button onclick="act('refresh','${esc(s.id)}')">Sonder</button>
         <button onclick="act('toggle','${esc(s.id)}')">${s.enabled ? 'D&eacute;sactiver' : 'Activer'}</button>
         <button class="danger" onclick="removeSrv('${esc(s.id)}')">Retirer</button>
@@ -451,7 +459,17 @@ async function addServer(ev) {
   ev.preventDefault();
   const t = document.getElementById('fTransport').value;
   const body = {action: 'add', transport: t, label: document.getElementById('fLabel').value};
-  if (t === 'http') { body.port = +document.getElementById('fPort').value; body.path = document.getElementById('fPath').value || '/mcp'; }
+  if (t === 'http') {
+    body.port = +document.getElementById('fPort').value;
+    body.path = document.getElementById('fPath').value || '/mcp';
+    const prog = document.getElementById('fHttpProgram').value.trim();
+    if (prog) {
+      body.program = prog;
+      const wd = document.getElementById('fHttpWorkdir').value.trim();
+      if (wd) body.workdir = wd;
+      body.args = document.getElementById('fHttpArgs').value.split(/\s+/).filter(Boolean);
+    }
+  }
   else { body.program = document.getElementById('fProgram').value;
          body.workdir = document.getElementById('fWorkdir').value || null;
          body.args = document.getElementById('fArgs').value.split(/\s+/).filter(Boolean); }

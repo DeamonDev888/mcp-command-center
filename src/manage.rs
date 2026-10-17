@@ -98,6 +98,21 @@ fn apply_json(srv: &mut Server, s: &Value) {
             };
         }
     }
+    // commande de lancement optionnelle pour un serveur HTTP (Start/Stop par le command center)
+    if let Some(program) = s.get("program").and_then(|x| x.as_str()) {
+        if !program.is_empty() {
+            let args: Vec<String> = s
+                .get("args")
+                .and_then(|x| x.as_array())
+                .map(|a| a.iter().filter_map(|i| i.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            srv.start_cmd = Some(StartCmd {
+                program: program.to_string(),
+                args,
+                workdir: s.get("workdir").and_then(|x| x.as_str()).map(String::from),
+            });
+        }
+    }
     if let Some(l) = s.get("label").and_then(|x| x.as_str()) { srv.label = l.to_string(); }
     if let Some(arr) = s.get("tools_disabled").and_then(|x| x.as_array()) {
         srv.tools_disabled = arr.iter().filter_map(|i| i.as_str().map(String::from)).collect();
@@ -122,11 +137,24 @@ fn from_json(s: &Value) -> Option<Server> {
         },
     };
     let enabled = s.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true);
+    // commande de lancement optionnelle (HTTP lancé par le command center)
+    let start_cmd = {
+        let program = s.get("program").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        if program.is_empty() { None } else {
+            Some(StartCmd {
+                program,
+                args: s.get("args").and_then(|x| x.as_array()).map(|a| {
+                    a.iter().filter_map(|i| i.as_str().map(String::from)).collect()
+                }).unwrap_or_default(),
+                workdir: s.get("workdir").and_then(|x| x.as_str()).map(String::from),
+            })
+        }
+    };
     Some(Server {
         id, label, transport, origin: Origin::Manual, enabled, auto_restart: true,
         state: if enabled { SState::Down } else { SState::Disabled },
         pid: None, bound_host: None, server_name: None, version: None, protocol: None,
-        tools: vec![], latency_ms: None, last_seen_ts: None, last_error: None, start_cmd: None,
+        tools: vec![], latency_ms: None, last_seen_ts: None, last_error: None, start_cmd,
         tools_disabled: vec![],
     })
 }
@@ -168,6 +196,12 @@ pub fn save_config(state: &AppState) {
                 if let Some(h) = host { o.insert("host".into(), json!(h)); }
                 o.insert("port".into(), json!(port));
                 o.insert("path".into(), json!(path));
+                // commande de lancement (Start/Stop par le command center)
+                if let Some(c) = &s.start_cmd {
+                    o.insert("program".into(), json!(c.program));
+                    o.insert("args".into(), json!(c.args));
+                    if let Some(w) = &c.workdir { o.insert("workdir".into(), json!(w)); }
+                }
             }
             Transport::Stdio { program, args, workdir } => {
                 o.insert("transport".into(), json!("stdio"));
@@ -222,10 +256,55 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
     if !enabled { return; }
     match transport {
         Transport::Http { host, port, path } => {
-            let res = match &host {
+            let mut res = match &host {
                 Some(h) => probe::probe_http_host(h, port, &path, 6000),
                 None => probe::probe_http(port, &path, 6000),
             };
+            // Auto-start : serveur HTTP LOCAL éteint + commande de lancement configurée
+            // (jamais pour un serveur distant, host.is_none() gate)
+            if !res.mcp_up && host.is_none() {
+                let (can_auto, child_alive) = {
+                    let servers = lockv(&state.servers);
+                    let mut children = lockv(&state.children);
+                    let alive = match children.get_mut(id) {
+                        Some(h) => h.child.try_wait().ok().flatten().is_none(),
+                        None => false,
+                    };
+                    let can = servers
+                        .iter()
+                        .find(|s| s.id == id)
+                        .map(|s| s.start_cmd.is_some() && s.auto_restart)
+                        .unwrap_or(false);
+                    (can, alive)
+                };
+                if can_auto && !child_alive {
+                    let cmd = {
+                        let servers = lockv(&state.servers);
+                        servers.iter().find(|s| s.id == id).and_then(|s| s.start_cmd.clone())
+                    };
+                    if let Some(cmd) = cmd {
+                        match probe::spawn_process(&cmd.program, &cmd.args, cmd.workdir.as_deref()) {
+                            Ok(h) => {
+                                let pid = h.child.id();
+                                lockv(&state.children).insert(id.to_string(), h);
+                                {
+                                    let mut servers = lockv(&state.servers);
+                                    if let Some(srv) = servers.iter_mut().find(|s| s.id == id) {
+                                        srv.pid = Some(pid);
+                                    }
+                                }
+                                add_log(state, "info", &format!(
+                                    "[{}] http démarré (pid {}) — re-sonde", id, pid));
+                                let mut res2 = probe::probe_http(port, &path, 5000);
+                                if res2.mcp_up && res2.pid.is_none() { res2.pid = Some(pid); }
+                                res = res2;
+                            }
+                            Err(e) => add_log(state, "warn", &format!(
+                                "[{}] démarrage HTTP KO : {}", id, e)),
+                        }
+                    }
+                }
+            }
             let mut servers = lockv(&state.servers);
             if let Some(srv) = servers.iter_mut().find(|s| s.id == id) {
                 if res.mcp_up {
@@ -239,6 +318,7 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                     srv.latency_ms = Some(res.latency_ms);
                     srv.last_seen_ts = Some(crate::types::now_ts());
                     srv.last_error = None;
+                    if res.pid.is_some() { srv.pid = res.pid; }
                     if changed {
                         add_log(state, "info", &format!(
                             "[{}] UP : {} v{} — {} tools ({} ms)", srv.label,
@@ -252,9 +332,10 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                     srv.state = if res.port_open { SState::PortOnly } else { SState::Down };
                     srv.last_error = res.error.clone();
                     srv.latency_ms = None;
+                    if !res.port_open && host.is_none() { srv.pid = None; }
                     if was_up {
-                        add_log(state, "warn", &format!("[{}] PORT-ONLY : {}", srv.label,
-                            res.error.as_deref().unwrap_or("?")));
+                        add_log(state, "warn", &format!("[{}] PORT-ONLY : {}",
+                            srv.label, res.error.as_deref().unwrap_or("?")));
                     }
                 }
             }
@@ -648,7 +729,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
     let id = req.get("id").and_then(|x| x.as_str()).map(String::from);
 
     match action.as_str() {
-        "toggle" | "refresh" | "kill_stdio" | "start_stdio" => {
+        "toggle" | "refresh" | "kill_stdio" | "start_stdio" | "start" | "kill" => {
             let id = match id { Some(i) => i, None => return json!({"ok": false, "error": "id manquant"}) };
             match action.as_str() {
                 "toggle" => {
@@ -674,7 +755,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     json!({"ok": true, "enabled": now_enabled})
                 }
                 "refresh" => { poll_one(state, &id); json!({"ok": true}) }
-                "start_stdio" => {
+                "start_stdio" | "start" => {
                     {
                         let mut servers = lockv(&state.servers);
                         match servers.iter_mut().find(|s| s.id == id) {
@@ -697,7 +778,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     poll_one(state, &id);
                     json!({"ok": true})
                 }
-                "kill_stdio" => {
+                "kill_stdio" | "kill" => {
                     {
                         let mut servers = lockv(&state.servers);
                         if let Some(s) = servers.iter_mut().find(|s| s.id == id) {
@@ -751,6 +832,19 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     Some(p) if (1..=65535).contains(&p) => p as u16,
                     _ => return json!({"ok": false, "error": "port invalide"}),
                 };
+                // commande de lancement optionnelle → le command center peut Start/Stop ce HTTP
+                let sstart = {
+                    let program = req.get("program").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    if program.is_empty() { None } else {
+                        Some(StartCmd {
+                            program,
+                            args: req.get("args").and_then(|x| x.as_array()).map(|a| {
+                                a.iter().filter_map(|i| i.as_str().map(String::from)).collect()
+                            }).unwrap_or_default(),
+                            workdir: req.get("workdir").and_then(|x| x.as_str()).map(String::from),
+                        })
+                    }
+                };
                 Server {
                     id: format!("manual-http-{}", now_compact()),
                     label: req.get("label").and_then(|x| x.as_str()).unwrap_or("").to_string(),
@@ -762,7 +856,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     origin: Origin::Manual, enabled: true, state: SState::Down,
                     pid: None, bound_host: None, server_name: None, version: None,
                     protocol: None, tools: vec![], latency_ms: None,
-                    last_seen_ts: None, last_error: None, start_cmd: None, auto_restart: true,
+                    last_seen_ts: None, last_error: None, start_cmd: sstart, auto_restart: true,
                     tools_disabled: vec![],
                 }
             };
@@ -858,7 +952,7 @@ pub fn start_cmd_for(srv: &Server) -> Option<StartCmd> {
         Transport::Stdio { program, args, workdir } => Some(StartCmd {
             program: program.clone(), args: args.clone(), workdir: workdir.clone(),
         }),
-        Transport::Http { .. } => None,
+        Transport::Http { .. } => srv.start_cmd.clone(),
     }
 }
 
@@ -1124,5 +1218,32 @@ mod tests {
         assert_eq!(j["stats"]["tools"], serde_json::json!(1));
         assert_eq!(j["servers"][1]["state"], serde_json::json!("DISABLED"));
         assert_eq!(j["servers"][1]["origin"], serde_json::json!("seed"));
+    }
+
+    #[test]
+    fn http_avec_start_cmd_charge_et_persiste() {
+        let cfg = r#"{"servers":[{"id":"h1","label":"H","transport":"http","port":3210,"path":"/mcp","program":"node","args":["srv.js","--p","3210"],"workdir":"C:/s","enabled":true}]}"#;
+        let path = tmp_config("cfg_http_cmd.json", Some(cfg));
+        let (servers, _) = load_config(&path);
+        let s = servers.iter().find(|s| s.id == "h1").unwrap();
+        let cmd = s.start_cmd.as_ref().expect("start_cmd http doit être chargé du json");
+        assert_eq!(cmd.program, "node");
+        assert_eq!(cmd.args, vec!["srv.js".to_string(), "--p".to_string(), "3210".to_string()]);
+        assert_eq!(cmd.workdir.as_deref(), Some("C:/s"));
+        // round-trip save/reload
+        let state = AppState {
+            servers: Mutex::new(servers.clone()),
+            log: Mutex::new(VecDeque::new()),
+            settings: Mutex::new(Settings::default()),
+            children: Mutex::new(std::collections::HashMap::new()),
+            config_path: path.clone(),
+            peers: Mutex::new(std::collections::HashMap::new()),
+        };
+        save_config(&state);
+        let (servers2, _) = load_config(&path);
+        let s2 = servers2.iter().find(|s| s.id == "h1").unwrap();
+        let cmd2 = s2.start_cmd.as_ref().expect("start_cmd http doit survivre au round-trip");
+        assert_eq!(cmd2.program, "node");
+        assert_eq!(cmd2.args, vec!["srv.js".to_string(), "--p".to_string(), "3210".to_string()]);
     }
 }
