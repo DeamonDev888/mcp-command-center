@@ -11,8 +11,10 @@ use std::time::Duration;
 use crate::types::{lockv, AppState};
 
 fn main() {
-    let manifest = env!("CARGO_MANIFEST_DIR");
-    let config_path = format!("{}/config.json", manifest);
+    let config_path = manage::resolve_config_path(
+        env!("CARGO_MANIFEST_DIR"),
+        std::env::var("MCC_CONFIG").ok(),
+    );
     let (servers, settings) = manage::load_config(&config_path);
     let state = Arc::new(AppState {
         servers: Mutex::new(servers),

@@ -37,6 +37,26 @@ fn default_servers() -> Vec<Server> {
     ]
 }
 
+/// Résolution du chemin de config au runtime (voir main.rs) :
+/// 1. override explicite (MCC_CONFIG)
+/// 2. CARGO_MANIFEST_DIR/config.json s'il existe (dev local)
+/// 3. dossier de l'exe / config.json (release distribuée — le chemin compile-time
+///    du runner CI n'existe pas sur la machine cliente, sinon rien n'est persisté)
+pub fn resolve_config_path(manifest_dir: &str, override_env: Option<String>) -> String {
+    if let Some(p) = override_env {
+        if !p.is_empty() { return p; }
+    }
+    let dev_path = std::path::Path::new(manifest_dir).join("config.json");
+    if dev_path.exists() {
+        return dev_path.to_string_lossy().to_string();
+    }
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from(manifest_dir));
+    exe_dir.join("config.json").to_string_lossy().to_string()
+}
+
 pub fn load_config(path: &str) -> (Vec<Server>, crate::types::Settings) {
     let defaults = default_servers();
     let settings = crate::types::Settings::default();
@@ -1236,6 +1256,32 @@ mod tests {
         assert_eq!(j["stats"]["tools"], serde_json::json!(1));
         assert_eq!(j["servers"][1]["state"], serde_json::json!("DISABLED"));
         assert_eq!(j["servers"][1]["origin"], serde_json::json!("seed"));
+    }
+
+    #[test]
+    fn resolve_config_path_override_gagne() {
+        let p = resolve_config_path("C:/nimporte", Some("D:/ma/config.json".to_string()));
+        assert_eq!(p, "D:/ma/config.json");
+    }
+
+    #[test]
+    fn resolve_config_path_dev_existant_gagne() {
+        let dir = std::env::temp_dir().join("mcpcc_resolve_dev");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.json"), "{}").unwrap();
+        let p = resolve_config_path(&dir.to_string_lossy(), None);
+        assert_eq!(p, dir.join("config.json").to_string_lossy().to_string());
+    }
+
+    #[test]
+    fn resolve_config_path_sans_config_pointe_vers_exe() {
+        let dir = std::env::temp_dir().join("mcpcc_resolve_vide");
+        std::fs::create_dir_all(&dir).unwrap();
+        let _ = std::fs::remove_file(dir.join("config.json"));
+        let p = resolve_config_path(&dir.to_string_lossy(), None);
+        assert!(p.ends_with("config.json"), "doit finir par config.json, got {}", p);
+        assert!(!p.starts_with(&dir.to_string_lossy().to_string()),
+            "ne doit PAS pointer vers le manifest (machine cliente), got {}", p);
     }
 
     #[test]

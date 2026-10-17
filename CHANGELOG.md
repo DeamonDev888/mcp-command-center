@@ -1,3 +1,9 @@
+## [0.4.2] — Persistance réparée sur la release distribuée
+
+### Corrigé (bloquant)
+- La release téléchargée ne persistait RIEN : config.json était écrit vers le chemin compile-time du runner CI (CARGO_MANIFEST_DIR), inexistant sur la machine cliente → tout serveur ajouté disparaissait au restart.
+- Résolution au runtime : MCC_CONFIG (override) → CARGO_MANIFEST_DIR/config.json si présent (dev) → dossier de l'exe (release distribuée). Validé par simulation machine cliente : add → restart → serveur conservé, config.json écrit à côté de l'exe.
+
 ## [0.4.1] — ON/OFF = vrai interrupteur
 
 ### Backend
