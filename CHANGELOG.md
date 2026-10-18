@@ -10,6 +10,14 @@
 
 Preuve réelle : Overmind, discord, postgres, X, NEWS détectés SSE ; demo-http (JSON chunked) HTTP ; stdio → STDIO.
 
+### Lancement des serveurs locaux
+- Seeds : chaque serveur embarque désormais sa commande de lancement réelle (`node <workdir>/bin/launch.cjs` + workdir du launcher MCP MONITOR v7.3) → les boutons ▶/■ fonctionnent même sans `config.json` (exe distribué, premier démarrage). Corrige les boutons absents (`can_start: false`) après réécriture de la config.
+- Start : re-probe borné (30 s max, pas de 1 s) après le spawn — les launchers font `npm run build` avant d'écouter.
+- Stop : tue aussi le process qui écoute réellement le port (netstat → taskkill, local uniquement) car le launcher détache le serveur ; état DOWN immédiat (boucle de vérification bornée).
+- Spawn détaché (`CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS`) : les serveurs survivent au shell et à un Ctrl+C dans la console de l'app.
+
+Preuve réelle : dossier vierge sans config → `can_start: true` sur les 7 seeds ; Start Overmind → UP 16 tools ; Stop → DOWN immédiat, port 3099 fermé (3,7 s).
+
 ## [0.6.0] — App NATIVE (Tauri) + CLI headless
 
 ### Architecture
