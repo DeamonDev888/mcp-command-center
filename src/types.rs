@@ -93,6 +93,8 @@ pub struct Server {
     pub protocol: Option<String>,
     /// Transport SSE détecté au probe (Content-Type: text/event-stream)
     pub sse: bool,
+    /// Langage inféré (stdio: commande ; HTTP: en-têtes Server/X-Powered-By)
+    pub lang: Option<String>,
     pub tools: Vec<ToolInfo>,
     pub latency_ms: Option<u64>,
     pub last_seen_ts: Option<u64>,

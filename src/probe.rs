@@ -5,6 +5,20 @@ use std::net::{SocketAddr, TcpStream};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::time::{Duration, Instant};
 
+/// En-têtes utiles d'une réponse HTTP (inférence du langage serveur).
+#[derive(Default, Clone)]
+pub struct RespHead {
+    pub content_type: String,
+    pub server: String,
+    pub powered_by: String,
+}
+
+impl RespHead {
+    pub fn sse(&self) -> bool {
+        self.content_type.contains("text/event-stream")
+    }
+}
+
 pub struct McpProbe {
     pub mcp_up: bool,
     #[allow(dead_code)] // réservé : distinguer port fermé vs MCP muet côté UI
@@ -16,6 +30,9 @@ pub struct McpProbe {
     pub protocol: Option<String>,
     /// Transport SSE détecté (Content-Type: text/event-stream sur la réponse initialize)
     pub sse: bool,
+    /// Langage inféré (stdio : la commande ; HTTP : en-têtes Server/X-Powered-By).
+    /// La spec MCP n'expose PAS le langage dans serverInfo.
+    pub lang: Option<String>,
     pub tools: Vec<ToolInfo>,
     pub latency_ms: u64,
     pub error: Option<String>,
@@ -32,6 +49,7 @@ impl McpProbe {
             version: None,
             protocol: None,
             sse: false,
+            lang: None,
             tools: vec![],
             latency_ms: 0,
             error: Some(err),
@@ -121,6 +139,96 @@ pub fn spawn_process(
     Ok(StdioHandle { child, stdin: None })
 }
 
+/// Langage inféré d'un serveur stdio depuis sa commande de lancement.
+/// (La spec MCP n'expose pas le langage : serverInfo = name/title/version only.)
+pub fn detect_lang_stdio(program: &str, args: &[String]) -> Option<String> {
+    let p = program
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(program)
+        .to_lowercase();
+    let p = p
+        .trim_end_matches(".exe")
+        .trim_end_matches(".cmd")
+        .trim_end_matches(".bat");
+    let lang = match p {
+        "node" | "npx" | "bun" | "deno" | "tsx" | "ts-node" => "node",
+        "python" | "python3" | "py" | "uv" | "uvx" | "pipx" | "poetry" | "pdm" => "python",
+        "cargo" | "rustc" => "rust",
+        "go" => "go",
+        "java" | "javaw" | "mvn" | "gradle" => "java",
+        "dotnet" => "dotnet",
+        "ruby" | "bundle" => "ruby",
+        "php" => "php",
+        _ => {
+            // binaire inconnu : indices dans les args (script .py/.js/.ts)
+            let joined = args.join(" ").to_lowercase();
+            if joined.contains(".py") {
+                "python"
+            } else if joined.contains(".js") || joined.contains(".ts") || joined.contains(".mjs") {
+                "node"
+            } else {
+                return None;
+            }
+        }
+    };
+    Some(lang.to_string())
+}
+
+/// Langage inféré d'un serveur HTTP depuis les en-têtes de réponse
+/// (Server / X-Powered-By) ou, à défaut, le nom du serveur MCP.
+pub fn detect_lang_http(head: &RespHead, name: Option<&str>) -> Option<String> {
+    let h = format!("{} {}", head.server, head.powered_by).to_lowercase();
+    let lang = if [
+        "uvicorn",
+        "hypercorn",
+        "gunicorn",
+        "werkzeug",
+        "aiohttp",
+        "starlette",
+        "fastapi",
+        "quart",
+    ]
+    .iter()
+    .any(|k| h.contains(k))
+    {
+        "python"
+    } else if ["express", "next.js", "fastify", "node"]
+        .iter()
+        .any(|k| h.contains(k))
+    {
+        "node"
+    } else if ["hyper", "axum", "actix", "rocket", "warp", "salvo"]
+        .iter()
+        .any(|k| h.contains(k))
+    {
+        "rust"
+    } else if ["kestrel", "asp.net"].iter().any(|k| h.contains(k)) {
+        "dotnet"
+    } else if ["jetty", "tomcat", "undertow", "netty"]
+        .iter()
+        .any(|k| h.contains(k))
+    {
+        "java"
+    } else if ["net/http", "gofiber", "fasthttp"]
+        .iter()
+        .any(|k| h.contains(k))
+    {
+        "go"
+    } else {
+        // pas d'en-tête exploitable : indices dans le nom du serveur
+        let n = name.unwrap_or("").to_lowercase();
+        if n.contains("rust") {
+            "rust"
+        } else if n.contains("python") {
+            "python"
+        } else {
+            return None;
+        }
+    };
+    Some(lang.to_string())
+}
+
 fn find_sub(hay: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.len() > hay.len() {
         return None;
@@ -152,11 +260,11 @@ pub fn http_post(
     path: &str,
     body: &str,
     timeout_ms: u64,
-) -> Result<(String, Vec<u8>, bool), String> {
+) -> Result<(String, Vec<u8>, RespHead), String> {
     let mut last_err = String::new();
     for host in ["::1", "127.0.0.1"] {
         match http_post_host(host, port, path, body, timeout_ms) {
-            Ok((b, ct)) => return Ok((host.to_string(), b, ct.contains("text/event-stream"))),
+            Ok((b, h)) => return Ok((host.to_string(), b, h)),
             Err(e) => last_err = e,
         }
     }
@@ -170,7 +278,7 @@ pub fn http_post_host(
     path: &str,
     body: &str,
     timeout_ms: u64,
-) -> Result<(Vec<u8>, String), String> {
+) -> Result<(Vec<u8>, RespHead), String> {
     let timeout = Duration::from_millis(timeout_ms);
     let mut last_err = String::new();
     {
@@ -251,16 +359,22 @@ pub fn http_post_host(
                 }
                 let sep = find_sub(&data, b"\r\n\r\n").unwrap_or(0);
                 let head = String::from_utf8_lossy(&data[..sep]).to_lowercase();
-                let content_type = head
-                    .lines()
-                    .find_map(|l| l.strip_prefix("content-type:"))
-                    .map(|v| v.trim().to_string())
-                    .unwrap_or_default();
+                let header = |name: &str| -> String {
+                    head.lines()
+                        .find_map(|l| l.strip_prefix(name))
+                        .map(|v| v.trim().to_string())
+                        .unwrap_or_default()
+                };
+                let resp_head = RespHead {
+                    content_type: header("content-type:"),
+                    server: header("server:"),
+                    powered_by: header("x-powered-by:"),
+                };
                 let mut body_bytes = data[sep + 4..].to_vec();
                 if head.contains("transfer-encoding: chunked") {
                     body_bytes = dechunk(&body_bytes);
                 }
-                return Ok((body_bytes, content_type));
+                return Ok((body_bytes, resp_head));
             }
             Err(e) => {
                 last_err = format!("{}: {}", host, e);
@@ -330,15 +444,15 @@ pub fn rpc_call(
     params: Value,
     id: u64,
     timeout_ms: u64,
-) -> Result<(Value, String, bool), String> {
+) -> Result<(Value, String, RespHead), String> {
     let body = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string();
-    let (host, bytes, sse) = http_post(port, path, &body, timeout_ms)?;
+    let (host, bytes, head) = http_post(port, path, &body, timeout_ms)?;
     let v =
         extract_json(&bytes).ok_or_else(|| format!("réponse non JSON ({} octets)", bytes.len()))?;
     if let Some(err) = v.get("error") {
         return Err(format!("rpc error: {}", err));
     }
-    Ok((v.get("result").cloned().unwrap_or(Value::Null), host, sse))
+    Ok((v.get("result").cloned().unwrap_or(Value::Null), host, head))
 }
 
 /// Probe MCP streamable-HTTP complète : initialize + tools/list.
@@ -357,7 +471,7 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
         "capabilities": {},
         "clientInfo": {"name": "mcp-command-center", "version": env!("CARGO_PKG_VERSION")}
     });
-    let (res, host, sse) = match rpc_call(port, path, "initialize", init_params, 1, timeout_ms) {
+    let (res, host, head) = match rpc_call(port, path, "initialize", init_params, 1, timeout_ms) {
         Ok(x) => x,
         Err(e) => return McpProbe::fail(e, true),
     };
@@ -376,6 +490,8 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
         .and_then(|x| x.as_str())
         .map(String::from);
 
+    let sse = head.sse();
+    let lang = detect_lang_http(&head, name.as_deref());
     let mut tools = Vec::new();
     if let Ok((tr, _, _)) = rpc_call(port, path, "tools/list", json!({}), 2, timeout_ms) {
         if let Some(arr) = tr.get("tools").and_then(|t| t.as_array()) {
@@ -406,6 +522,7 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
         version,
         protocol,
         sse,
+        lang,
         tools,
         latency_ms: latency,
         error: None,
@@ -574,6 +691,7 @@ pub fn probe_stdio(
                 version,
                 protocol,
                 sse: false,
+                lang: detect_lang_stdio(&program, args),
                 tools,
                 latency_ms: latency,
                 error: None,
@@ -596,6 +714,7 @@ pub fn probe_stdio(
                 version,
                 protocol,
                 sse: false,
+                lang: detect_lang_stdio(&program, args),
                 tools,
                 latency_ms: latency,
                 error: None,
@@ -614,16 +733,15 @@ pub fn rpc_call_host(
     params: Value,
     id: u64,
     timeout_ms: u64,
-) -> Result<(Value, bool), String> {
+) -> Result<(Value, RespHead), String> {
     let body = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string();
-    let (bytes, content_type) = http_post_host(host, port, path, &body, timeout_ms)?;
-    let sse = content_type.contains("text/event-stream");
+    let (bytes, head) = http_post_host(host, port, path, &body, timeout_ms)?;
     let v =
         extract_json(&bytes).ok_or_else(|| format!("réponse non JSON ({} octets)", bytes.len()))?;
     if let Some(err) = v.get("error") {
         return Err(format!("rpc error: {}", err));
     }
-    Ok((v.get("result").cloned().unwrap_or(Value::Null), sse))
+    Ok((v.get("result").cloned().unwrap_or(Value::Null), head))
 }
 
 /// Probe MCP streamable-HTTP sur un hôte précis : initialize + tools/list.
@@ -637,11 +755,11 @@ pub fn probe_http_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> Mc
         "capabilities": {},
         "clientInfo": {"name": "mcp-command-center", "version": env!("CARGO_PKG_VERSION")}
     });
-    let (res, sse) = match rpc_call_host(host, port, path, "initialize", init_params, 1, timeout_ms)
-    {
-        Ok(x) => x,
-        Err(e) => return McpProbe::fail(e, true),
-    };
+    let (res, head) =
+        match rpc_call_host(host, port, path, "initialize", init_params, 1, timeout_ms) {
+            Ok(x) => x,
+            Err(e) => return McpProbe::fail(e, true),
+        };
     let latency = t0.elapsed().as_millis() as u64;
     let si = res.get("serverInfo");
     let name = si
@@ -657,6 +775,8 @@ pub fn probe_http_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> Mc
         .and_then(|x| x.as_str())
         .map(String::from);
 
+    let sse = head.sse();
+    let lang = detect_lang_http(&head, name.as_deref());
     let mut tools = Vec::new();
     if let Ok((tr, _)) = rpc_call_host(host, port, path, "tools/list", json!({}), 2, timeout_ms) {
         if let Some(arr) = tr.get("tools").and_then(|t| t.as_array()) {
@@ -687,6 +807,7 @@ pub fn probe_http_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> Mc
         version,
         protocol,
         sse,
+        lang,
         tools,
         latency_ms: latency,
         error: None,

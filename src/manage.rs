@@ -55,6 +55,7 @@ fn default_servers() -> Vec<Server> {
             version: None,
             protocol: None,
             sse: false,
+            lang: None,
             tools: vec![],
             latency_ms: None,
             last_seen_ts: None,
@@ -319,6 +320,7 @@ fn from_json(s: &Value) -> Option<Server> {
         version: None,
         protocol: None,
         sse: false,
+        lang: None,
         tools: vec![],
         latency_ms: None,
         last_seen_ts: None,
@@ -670,6 +672,7 @@ fn entry_to_server(id: String, name: &str, entry: &Value) -> Option<Server> {
             version: None,
             protocol: None,
             sse: false,
+            lang: None,
             tools: vec![],
             latency_ms: None,
             last_seen_ts: None,
@@ -698,6 +701,7 @@ fn entry_to_server(id: String, name: &str, entry: &Value) -> Option<Server> {
             version: None,
             protocol: None,
             sse: false,
+            lang: None,
             tools: vec![],
             latency_ms: None,
             last_seen_ts: None,
@@ -802,6 +806,7 @@ pub fn import_mcp_text(state: &Arc<AppState>, raw: &str) -> Value {
                     version: None,
                     protocol: None,
                     sse: false,
+                    lang: None,
                     tools: vec![],
                     latency_ms: None,
                     last_seen_ts: None,
@@ -871,6 +876,7 @@ fn push_imported(state: &Arc<AppState>, name: String, program: String, args: Vec
         version: None,
         protocol: None,
         sse: false,
+        lang: None,
         tools: vec![],
         latency_ms: None,
         last_seen_ts: None,
@@ -1009,6 +1015,7 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                     srv.version = res.version.clone();
                     srv.protocol = res.protocol.clone();
                     srv.sse = res.sse;
+                    srv.lang = res.lang.clone();
                     srv.tools = res.tools.clone();
                     srv.latency_ms = Some(res.latency_ms);
                     srv.last_seen_ts = Some(crate::types::now_ts());
@@ -1116,6 +1123,8 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                                 srv.server_name = p.name.clone();
                                 srv.version = p.version.clone();
                                 srv.protocol = p.protocol.clone();
+                                srv.sse = p.sse;
+                                srv.lang = p.lang.clone();
                                 srv.tools = p.tools.clone();
                                 srv.latency_ms = Some(p.latency_ms);
                                 srv.last_seen_ts = Some(crate::types::now_ts());
@@ -1219,6 +1228,7 @@ pub fn scan_ports(state: &Arc<AppState>, range: Option<(u16, u16)>) {
                     version: p.version.clone(),
                     protocol: p.protocol.clone(),
                     sse: p.sse,
+                    lang: p.lang.clone(),
                     tools: p.tools,
                     latency_ms: Some(p.latency_ms),
                     last_seen_ts: Some(crate::types::now_ts()),
@@ -1417,6 +1427,7 @@ pub fn scan_network_range(
                             version: p.version.clone(),
                             protocol: p.protocol.clone(),
                             sse: p.sse,
+                            lang: p.lang.clone(),
                             tools: p.tools,
                             latency_ms: Some(p.latency_ms),
                             last_seen_ts: Some(crate::types::now_ts()),
@@ -1623,6 +1634,7 @@ pub fn import_peer(state: &Arc<AppState>, ip: &str) -> Value {
                 version,
                 protocol: None,
                 sse: false,
+                lang: None,
                 tools: vec![],
                 latency_ms: None,
                 last_seen_ts: None,
@@ -1852,6 +1864,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     version: None,
                     protocol: None,
                     sse: false,
+                    lang: None,
                     tools: vec![],
                     latency_ms: None,
                     last_seen_ts: None,
@@ -1922,6 +1935,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     version: None,
                     protocol: None,
                     sse: false,
+                    lang: None,
                     tools: vec![],
                     latency_ms: None,
                     last_seen_ts: None,
@@ -2084,6 +2098,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                                 version: None,
                                 protocol: None,
                                 sse: false,
+                                lang: None,
                                 tools: vec![],
                                 latency_ms: None,
                                 last_seen_ts: None,
@@ -2176,7 +2191,7 @@ fn server_json(s: &Server) -> Value {
         "latency_ms": s.latency_ms,
         "last_seen": s.last_seen_ts, "last_error": s.last_error,
         "can_start": s.start_cmd.is_some(), "auto_restart": s.auto_restart,
-        "sse": s.sse,
+        "sse": s.sse, "lang": s.lang,
     })
 }
 
@@ -2367,6 +2382,7 @@ mod tests {
                 version: Some("1".into()),
                 protocol: None,
                 sse: false,
+                lang: None,
                 tools: vec![],
                 latency_ms: Some(3),
                 last_seen_ts: Some(1),
@@ -2430,6 +2446,7 @@ mod tests {
                 version: None,
                 protocol: None,
                 sse: false,
+                lang: None,
                 tools: vec![
                     crate::types::ToolInfo {
                         name: "a".into(),
@@ -2487,6 +2504,7 @@ mod tests {
                 version: None,
                 protocol: None,
                 sse: false,
+                lang: None,
                 tools: vec![
                     crate::types::ToolInfo {
                         name: "a".into(),
@@ -2539,6 +2557,7 @@ mod tests {
                     version: None,
                     protocol: None,
                     sse: false,
+                    lang: None,
                     tools: vec![crate::types::ToolInfo {
                         name: "t".into(),
                         desc: String::new(),
@@ -2567,6 +2586,7 @@ mod tests {
                     version: None,
                     protocol: None,
                     sse: false,
+                    lang: None,
                     tools: vec![],
                     latency_ms: None,
                     last_seen_ts: None,
@@ -2654,6 +2674,82 @@ mod tests {
         assert_eq!(name_from_url("mcp.linear.app"), "linear");
         assert_eq!(name_from_url("api.github.com"), "github");
         assert_eq!(name_from_url("example.com"), "example");
+    }
+
+    #[test]
+    fn detect_lang_stdio_par_commande() {
+        let none: Vec<String> = vec![];
+        assert_eq!(
+            crate::probe::detect_lang_stdio("node", &none).as_deref(),
+            Some("node")
+        );
+        assert_eq!(
+            crate::probe::detect_lang_stdio("npx", &none).as_deref(),
+            Some("node")
+        );
+        assert_eq!(
+            crate::probe::detect_lang_stdio("uvx", &none).as_deref(),
+            Some("python")
+        );
+        assert_eq!(
+            crate::probe::detect_lang_stdio("C:/Python311/python.exe", &none).as_deref(),
+            Some("python")
+        );
+        assert_eq!(
+            crate::probe::detect_lang_stdio("cargo", &none).as_deref(),
+            Some("rust")
+        );
+        assert_eq!(
+            crate::probe::detect_lang_stdio("java", &none).as_deref(),
+            Some("java")
+        );
+        assert_eq!(
+            crate::probe::detect_lang_stdio("dotnet", &none).as_deref(),
+            Some("dotnet")
+        );
+        assert_eq!(
+            crate::probe::detect_lang_stdio("mybinary", &["server.py".to_string()]).as_deref(),
+            Some("python")
+        );
+        assert_eq!(
+            crate::probe::detect_lang_stdio("mybinary", &["index.js".to_string()]).as_deref(),
+            Some("node")
+        );
+        assert_eq!(crate::probe::detect_lang_stdio("strange", &none), None);
+    }
+
+    #[test]
+    fn detect_lang_http_par_entetes() {
+        let mk = |server: &str, powered: &str| crate::probe::RespHead {
+            content_type: String::new(),
+            server: server.to_string(),
+            powered_by: powered.to_string(),
+        };
+        assert_eq!(
+            crate::probe::detect_lang_http(&mk("uvicorn", ""), None).as_deref(),
+            Some("python")
+        );
+        assert_eq!(
+            crate::probe::detect_lang_http(&mk("", "Express"), None).as_deref(),
+            Some("node")
+        );
+        assert_eq!(
+            crate::probe::detect_lang_http(&mk("hyper", ""), None).as_deref(),
+            Some("rust")
+        );
+        assert_eq!(
+            crate::probe::detect_lang_http(&mk("Kestrel", ""), None).as_deref(),
+            Some("dotnet")
+        );
+        assert_eq!(
+            crate::probe::detect_lang_http(&mk("Jetty(11)", ""), None).as_deref(),
+            Some("java")
+        );
+        assert_eq!(crate::probe::detect_lang_http(&mk("", ""), None), None);
+        assert_eq!(
+            crate::probe::detect_lang_http(&mk("", ""), Some("my-rust-server")).as_deref(),
+            Some("rust")
+        );
     }
 
     #[test]

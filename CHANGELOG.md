@@ -1,3 +1,18 @@
+## [0.6.2] — Langage des serveurs MCP + logos
+
+### Frontend
+- Chip de langage (monogramme coloré façon logo) à côté du badge de type : JS (Node/TS), PY, RS, GO, JV, C#, RB, PHP. Survol = libellé complet. Badge absent si le langage est inconnu (aucune invention).
+- Transport conservé : STDIO / HTTP / SSE / HTTPS (+ ·LAN).
+
+### Backend
+- Détection du langage — la spec MCP n'expose PAS le langage (serverInfo = name/title/version uniquement) :
+  - stdio : commande de lancement (node/npx/tsx → Node, python/uv/uvx → Python, cargo → Rust, go/java/dotnet/ruby/php), extension du script en dernier recours.
+  - HTTP : en-têtes Server / X-Powered-By (uvicorn/gunicorn/werkzeug → Python, express → Node, hyper/axum → Rust, Kestrel → .NET, Jetty/Tomcat → Java, net/http → Go), sinon indice dans le nom.
+- RespHead (content-type/server/x-powered-by) remplace le simple content-type ; `lang` exposé dans /api/state.
+- Fixture `examples/test-py-header-server.js` (se présente comme uvicorn) pour tester l'inférence.
+
+Preuves : py-header → python (header uvicorn) ; Filesystem/demo-stdio → node (commande) ; serveurs réels sans en-tête → lang inconnu.
+
 ## [0.6.1] — Badges du type de MCP (STDIO / HTTP / SSE / HTTPS)
 
 ### UI

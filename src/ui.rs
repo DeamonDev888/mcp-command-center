@@ -164,6 +164,7 @@ h4.sec::after{content:'';flex:1;height:1px;background:var(--border-soft)}
 .tag.sse{color:var(--ok);border-color:rgba(85,165,131,.45)}
 .tag.https{color:#d2a8ff;border-color:#d2a8ff44;background:#d2a8ff11}
 .srow .l1 .tag{font-size:8.5px;padding:0 5px;line-height:14px;flex-shrink:0}
+.langchip{font:8.5px var(--mono);font-weight:700;border:1px solid;border-radius:4px;padding:0 4px;line-height:14px;flex-shrink:0}
 #storeDlg{width:min(880px,94vw)}
 .store-import{background:var(--sidebar);border:1px solid var(--border-soft);border-radius:10px;padding:12px;margin-bottom:14px}
 .store-import label{font-size:11px;color:var(--t4);display:block;margin-bottom:6px}
@@ -345,10 +346,27 @@ function renderServers() {
       : 'stdio &middot; ' + esc(s.transport_info.program);
     const off = s.tools_disabled.length ? ` &middot; ${s.tools_disabled.length} off` : '';
     return `<div class="srow ${selectedId===s.id?'sel':''} ${s.enabled?'':'off'}" onclick="select(${js(s.id)})">
-      <div class="l1"><span class="dot ${s.state}"></span><span class="nm">${esc(s.label)}</span>${typeBadge(s)}${s.transport==='stdio'?'<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>':''}<span class="cnt">${s.tools_count}</span>${rowToggle(s)}${rowCtl(s)}</div>
+      <div class="l1"><span class="dot ${s.state}"></span><span class="nm">${esc(s.label)}</span>${langChip(s)}${typeBadge(s)}${s.transport==='stdio'?'<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>':''}<span class="cnt">${s.tools_count}</span>${rowToggle(s)}${rowCtl(s)}</div>
       <div class="l2"><span class="st ${esc(s.state)}">${esc(s.state)}</span> ${ti}${off}</div>
     </div>`;
   }).join('');
+}
+
+// Chip du langage MCP (inféré : commande stdio ou en-têtes HTTP) — monogramme coloré façon logo
+const LANG_META = {
+  node:   { t: 'JS',  c: '#f7df1e', n: 'Node.js / TypeScript' },
+  python: { t: 'PY',  c: '#4b8bbe', n: 'Python' },
+  rust:   { t: 'RS',  c: '#dea584', n: 'Rust' },
+  go:     { t: 'GO',  c: '#00add8', n: 'Go' },
+  java:   { t: 'JV',  c: '#e76f00', n: 'Java' },
+  dotnet: { t: 'C#',  c: '#512bd4', n: '.NET' },
+  ruby:   { t: 'RB',  c: '#cc342d', n: 'Ruby' },
+  php:    { t: 'PHP', c: '#777bb4', n: 'PHP' },
+};
+function langChip(s) {
+  const m = LANG_META[s.lang];
+  if (!m) return '';
+  return `<span class="langchip" style="color:${m.c};border-color:${m.c}66;background:${m.c}14" title="Langage inféré : ${m.n}">${m.t}</span>`;
 }
 
 // Badge du type de MCP : STDIO / HTTP / SSE (détecté au probe) / HTTPS (port 443), + ·LAN si distant
@@ -447,6 +465,7 @@ function renderDetail() {
       <span class="dot ${esc(s.state)}" style="width:10px;height:10px"></span>
       <h1>${esc(s.label)}</h1>
       <span class="pill ${esc(s.state)}">${esc(s.state)}</span>
+      ${langChip(s)}
       ${typeBadge(s)}
       ${s.transport === 'stdio' ? '<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>' : ''}
       <span class="sub">${s.server_name ? esc(s.server_name) + ' v' + esc(s.version || '?') : ''}${s.latency_ms != null ? ' &middot; ' + s.latency_ms + ' ms' : ''}</span>
