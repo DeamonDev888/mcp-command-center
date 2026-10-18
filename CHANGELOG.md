@@ -1,3 +1,12 @@
+## [0.6.3] — Desktop multi-OS (Windows, Linux, macOS Intel + Apple Silicon)
+
+### Distribution
+- Le job CI `desktop` construit désormais la fenêtre native Tauri sur les 4 cibles : `windows-x86_64`, `linux-x86_64`, `macos-aarch64` (Apple Silicon), `macos-x86_64` (Intel).
+- Linux : dépendances WebKitGTK installées dans le job (`libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`).
+- Assets publiés : `mcp-command-center-desktop-{windows-x86_64.exe, linux-x86_64, macos-aarch64, macos-x86_64}` en plus des 4 binaires CLI.
+
+Note Linux : le binaire desktop utilise la webview système (WebKitGTK) — le paquet d'exécution `libwebkit2gtk-4.1-0` est requis (standard sur Ubuntu 24.04+).
+
 ## [0.6.2] — Langage des serveurs MCP + logos
 
 ### Frontend

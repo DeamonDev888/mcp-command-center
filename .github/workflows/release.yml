@@ -70,31 +70,61 @@ jobs:
           if-no-files-found: error
 
   desktop:
-    name: desktop (fenêtre native Tauri)
-    runs-on: windows-latest
+    name: desktop ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: mcp-command-center-desktop-windows-x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: mcp-command-center-desktop-linux-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: mcp-command-center-desktop-macos-aarch64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: mcp-command-center-desktop-macos-x86_64
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
+      - name: Dépendances système (Linux — WebKitGTK)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev \
+            librsvg2-dev libgtk-3-dev
+
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-pc-windows-msvc
+          targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: desktop-windows
+          key: desktop-${{ matrix.target }}
 
-      - name: Build (Tauri / WebView2)
-        run: cargo build --release -p mcp-command-center-desktop --target x86_64-pc-windows-msvc
+      - name: Build (Tauri / webview système)
+        run: cargo build --release -p mcp-command-center-desktop --target ${{ matrix.target }}
 
       - name: Collecter le binaire
         shell: bash
         run: |
-          cp "target/x86_64-pc-windows-msvc/release/mcp-command-center-desktop.exe" "mcp-command-center-desktop-windows-x86_64.exe"
-          echo "FILE=mcp-command-center-desktop-windows-x86_64.exe" >> "$GITHUB_ENV"
+          EXT=""
+          case "${{ matrix.target }}" in
+            *windows*) EXT=".exe" ;;
+          esac
+          FILE="${{ matrix.artifact }}${EXT}"
+          cp "target/${{ matrix.target }}/release/mcp-command-center-desktop${EXT}" "$FILE"
+          echo "FILE=$FILE" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: mcp-command-center-desktop-windows-x86_64
+          name: ${{ matrix.artifact }}
           path: ${{ env.FILE }}
           if-no-files-found: error
 
