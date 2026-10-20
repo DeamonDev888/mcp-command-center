@@ -8,6 +8,18 @@
 
 Preuve : Overmind 3099 / discord 3141 / postgres 5433 / X 3142 → HTTP+SSE ; fixtures test-sse (réponses data: sans event) et JSON chunked → HTTP ; flux `event: endpoint` → SSE. 35 tests verts, clippy -D warnings propre.
 
+## [0.6.5] — UI honnête : « Retirer » masqué sur les seeds + refresh parallèle
+
+### Corrigé (audit 2026-10-19, F6/F7)
+- **« Retirer » masqué pour les serveurs seed** (origin: seed) : leur retrait ne survivait pas au reboot (`load_config` réinjecte les 7 seeds) — un bouton qui promettait ce qu'il ne tient pas. Une note dans la vue détail l'explique et renvoie à **Désactiver** (persisté, lui). Les serveurs manuels/boutique gardent leur « Retirer ».
+- **`refreshAll()` parallélisé** : les sondes des serveurs activés partent en `Promise.all` avec un seul rechargement d'état à la fin — avant, N rafraîchissements séquentiels pouvaient prendre N × timeout.
+- **`ui-dist/index.html` (frontendDist Tauri)** : la redirection figée vers le port 5090 est remplacée par une sonde 5090→5099 qui rejoint l'URL réelle quand le core a glissé de port — le fallback mort de l'audit redevient vivant.
+- Versions alignées sur 0.6.5 (tauri.conf.json traînait à 0.6.4) + `cargo fmt` appliqué au préexistant `probe.rs` (rustfmt de toolchain récente).
+
+### Vérifié
+- 35/35 tests, `cargo fmt --check` OK, clippy 0 warning.
+- E2E local (app lancée avec `MCC_CONFIG` de test, 13 serveurs désactivés — aucun launcher spawné) : HTML servi contient les 3 modifs, JS embarqué compile (vm), contrat `/api/detail` (`origin` seed×7 / manual×6), et rendu `renderDetail` exécuté contre les vraies réponses API — seed : sans « Retirer » + note ; manuel : avec « Retirer », sans note.
+
 ## [0.6.4] — Plus aucune fenêtre console qui s'ouvre
 
 ### Corrigé (bug bloquant)

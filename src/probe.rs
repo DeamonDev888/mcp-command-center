@@ -439,8 +439,7 @@ pub fn sse_get_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> bool 
 
 /// sse_get_host sur ::1 puis 127.0.0.1 (binds FastMCP = IPv6-only).
 pub fn sse_get(port: u16, path: &str, timeout_ms: u64) -> bool {
-    sse_get_host("::1", port, path, timeout_ms)
-        || sse_get_host("127.0.0.1", port, path, timeout_ms)
+    sse_get_host("::1", port, path, timeout_ms) || sse_get_host("127.0.0.1", port, path, timeout_ms)
 }
 
 /// POST JSON vers localhost (essaye ::1 puis 127.0.0.1), lit toute la réponse (gère chunked).
@@ -689,8 +688,7 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
     // initialize a été répondu) — un vrai serveur SSE-only échouerait avant.
     let sse = head.sse();
     let sse_path = if path == "/sse" { path } else { "/sse" };
-    let sse_endpoint =
-        sse_get_host(&host, port, sse_path, timeout_ms.clamp(500, 1200));
+    let sse_endpoint = sse_get_host(&host, port, sse_path, timeout_ms.clamp(500, 1200));
     // 1) en-têtes Server/X-Powered-By ; 2) sinon le vrai process qui écoute le port
     let lang = detect_lang_http(&head, name.as_deref()).or_else(|| port_owner_lang(port));
     let mut tools = Vec::new();
@@ -984,8 +982,7 @@ pub fn probe_http_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> Mc
     // réponses ; sse_endpoint = /sse legacy co-servi (FastMCP).
     let sse = head.sse();
     let sse_path = if path == "/sse" { path } else { "/sse" };
-    let sse_endpoint =
-        sse_get_host(host, port, sse_path, timeout_ms.clamp(500, 1200));
+    let sse_endpoint = sse_get_host(host, port, sse_path, timeout_ms.clamp(500, 1200));
     let lang = detect_lang_http(&head, name.as_deref());
     let mut tools = Vec::new();
     if let Ok((tr, _)) = rpc_call_host(host, port, path, "tools/list", json!({}), 2, timeout_ms) {
@@ -1149,7 +1146,10 @@ mod tests {
                 let _ = s.write_all(resp.as_bytes());
             }
         });
-        assert!(sse_get(port, "/sse", 2000), "un endpoint SSE legacy doit etre detecte");
+        assert!(
+            sse_get(port, "/sse", 2000),
+            "un endpoint SSE legacy doit etre detecte"
+        );
 
         // 2. FastMCP httpStream : Content-Type text/event-stream MAIS corps JSON
         //    (réponses encodées, aucun "event:") → false. C'est la confusion

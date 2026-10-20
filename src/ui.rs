@@ -109,6 +109,9 @@ button:disabled{opacity:.35;cursor:not-allowed}
 .pill.PROBING,.pill.STARTING{color:var(--accent);border-color:var(--active2);background:var(--active)}
 .d-err{color:var(--bad);font:11.5px var(--mono);background:rgba(231,94,120,.06);border:1px solid rgba(231,94,120,.25);
   border-radius:8px;padding:8px 12px;margin:12px 0 0;word-break:break-word}
+.seed-note{font-size:11.5px;color:var(--t3);background:var(--hover);border:1px solid var(--border-soft);
+  border-radius:8px;padding:7px 11px;margin:12px 0 0}
+.seed-note b{color:var(--t2)}
 h4.sec{font:10px var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.9px;color:var(--t4);
   margin:24px 0 10px;display:flex;align-items:center;gap:10px}
 h4.sec::after{content:'';flex:1;height:1px;background:var(--border-soft)}
@@ -481,9 +484,10 @@ function renderDetail() {
         ${s.can_start && s.state === 'UP' ? `<button class="danger" onclick="act('kill',${js(s.id)})">&#9632; Stop</button>` : ''}
         <button onclick="act('refresh',${js(s.id)})">Sonder</button>
         <button onclick="act('toggle',${js(s.id)})">${s.enabled ? 'D&eacute;sactiver' : 'Activer'}</button>
-        <button class="danger" onclick="removeSrv(${js(s.id)})">Retirer</button>
+        ${s.origin !== 'seed' ? `<button class="danger" onclick="removeSrv(${js(s.id)})">Retirer</button>` : ''}
       </div>
     </div>
+    ${s.origin === 'seed' ? '<div class="seed-note">Serveur seed : &laquo; Retirer &raquo; ne survit pas au red&eacute;marrage (r&eacute;inject&eacute; au boot) &mdash; <b>D&eacute;sactiver</b> l&rsquo;&eacute;teint durablement.</div>' : ''}
     ${s.last_error ? `<div class="d-err">&#9888; ${esc(s.last_error)}</div>` : ''}
     <h4 class="sec">Informations</h4>
     <div class="kv">${kv}</div>
@@ -512,8 +516,12 @@ async function doScan() {
 }
 
 async function refreshAll() {
+  // audit F7 : parallélisé — les sondes partent en vol, un seul rechargement d'état à la fin
   const ids = state.servers.filter(s => s.enabled).map(s => s.id);
-  for (const id of ids) await act('refresh', id);
+  await Promise.all(ids.map(id =>
+    fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action: 'refresh', id})}).catch(() => {})));
+  await load();
 }
 
 async function doScanNet() {
