@@ -1,3 +1,13 @@
+## [0.6.4] — Plus aucune fenêtre console qui s'ouvre
+
+### Corrigé (bug bloquant)
+- Cliquer Start/Stop (ou chaque poll) ouvrait des fenêtres console : les spawns utilitaires (netstat, tasklist, taskkill, arp, ipconfig, hostname) n'avaient pas CREATE_NO_WINDOW depuis une app GUI. Helper `hidden()` appliqué à TOUS les Command de l'app.
+- Kill des serveurs stdio : `Child::kill()` ne tuait que le lanceur .cmd, pas node.exe détaché → processus orphelins et consoles résiduelles. `kill_tree()` (taskkill /F /T /PID) remplace les 6 sites de kill (toggle OFF, kill_stdio, remove, chemins d'erreur handshake).
+
+### Vérifié
+- 0 console visible (MainWindowHandle ≠ 0) avant/après 5 toggles + polls.
+- Start → UP (pid réel), Stop → process tué côté OS, aucune fenêtre.
+
 ## [0.6.3] — Langage détecté par le process réel + chips visibles partout
 
 ### Corrigé

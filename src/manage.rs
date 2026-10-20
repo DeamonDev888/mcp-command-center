@@ -1303,9 +1303,11 @@ pub fn scan_network(state: &Arc<AppState>, range: Option<(u16, u16)>) {
 pub fn local_ips() -> Vec<String> {
     let mut ips = std::collections::BTreeSet::new();
     let output = if cfg!(windows) {
-        Command::new("ipconfig").output()
+        let mut c = Command::new("ipconfig");
+        probe::hidden(&mut c).output()
     } else {
-        Command::new("hostname").arg("-I").output()
+        let mut c = Command::new("hostname");
+        probe::hidden(&mut c).arg("-I").output()
     };
     if let Ok(o) = output {
         let text = String::from_utf8_lossy(&o.stdout).to_string();
@@ -1707,7 +1709,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                         // OFF réel : tuer le process lancé par le command center (stdio ou HTTP)
                         let mut children = lockv(&state.children);
                         if let Some(h) = children.get_mut(&id) {
-                            let _ = h.child.kill();
+                            probe::kill_tree(h.child.id());
                             let _ = h.child.wait();
                         }
                         children.remove(&id);
@@ -1787,7 +1789,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     }
                     let mut children = lockv(&state.children);
                     if let Some(h) = children.get_mut(&id) {
-                        let _ = h.child.kill();
+                        probe::kill_tree(h.child.id());
                         let _ = h.child.wait();
                     }
                     children.remove(&id);
@@ -1963,7 +1965,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
             };
             let mut children = lockv(&state.children);
             if let Some(h) = children.get_mut(&id) {
-                let _ = h.child.kill();
+                probe::kill_tree(h.child.id());
                 let _ = h.child.wait();
             }
             children.remove(&id);

@@ -82,19 +82,50 @@ fn resolve_windows_cmd(program: &str) -> String {
     program.to_string()
 }
 
+/// Applique CREATE_NO_WINDOW : aucune fenêtre console ne s'ouvre, même quand le
+/// parent est une app GUI (Tauri). À utiliser pour TOUT process console lancé par l'app.
+pub fn hidden(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    cmd
+}
+
+/// Tue l'arbre complet d'un PID (cmd.exe → node.exe). `Child::kill()` ne tue que
+/// le lanceur .cmd : les serveurs détachés survivent et gardent leur console.
+pub fn kill_tree(pid: u32) {
+    #[cfg(windows)]
+    {
+        let mut c = std::process::Command::new("taskkill");
+        let _ = hidden(&mut c)
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = pid;
+    }
+}
+
 /// Tue le process qui ÉCOUTE réellement sur un port local (méthode du launcher
 /// MCP MONITOR v7.3) : `child.kill()` ne tue que le lanceur, pas le serveur
 /// détaché qu'il a spawné. netstat -ano → PIDs LISTENING → taskkill /F /PID.
 #[cfg(windows)]
 pub fn kill_port(port: u16) {
-    if let Ok(out) = Command::new("netstat").args(["-ano"]).output() {
+    let mut c = Command::new("netstat");
+    if let Ok(out) = hidden(&mut c).args(["-ano"]).output() {
         let text = String::from_utf8_lossy(&out.stdout);
         let needle = format!(":{}", port);
         for line in text.lines() {
             if line.contains("LISTENING") && line.contains(&needle) {
                 if let Some(pid) = line.split_whitespace().last() {
                     if !pid.is_empty() && pid.chars().all(|c| c.is_ascii_digit()) {
-                        let _ = Command::new("taskkill")
+                        let mut t = Command::new("taskkill");
+                        let _ = hidden(&mut t)
                             .args(["/F", "/PID", pid])
                             .stdout(Stdio::null())
                             .stderr(Stdio::null())
@@ -264,7 +295,8 @@ fn build_port_owner_map() -> std::collections::HashMap<u16, String> {
     use std::collections::HashMap;
     use std::process::Command;
     let mut ports: Vec<(u16, u32)> = Vec::new();
-    if let Ok(out) = Command::new("netstat").args(["-ano"]).output() {
+    let mut c = Command::new("netstat");
+    if let Ok(out) = hidden(&mut c).args(["-ano"]).output() {
         for line in String::from_utf8_lossy(&out.stdout).lines() {
             let toks: Vec<&str> = line.split_whitespace().collect();
             if toks.len() >= 5 && toks.contains(&"LISTENING") {
@@ -280,10 +312,8 @@ fn build_port_owner_map() -> std::collections::HashMap<u16, String> {
         }
     }
     let mut names: HashMap<u32, String> = HashMap::new();
-    if let Ok(out) = Command::new("tasklist")
-        .args(["/FO", "CSV", "/NH"])
-        .output()
-    {
+    let mut t = Command::new("tasklist");
+    if let Ok(out) = hidden(&mut t).args(["/FO", "CSV", "/NH"]).output() {
         for line in String::from_utf8_lossy(&out.stdout).lines() {
             let cols: Vec<&str> = line.split("\",\"").collect();
             if cols.len() > 1 {
@@ -678,7 +708,7 @@ pub fn probe_stdio(
         }
     });
     if let Err(e) = writeln!(stdin, "{}", init) {
-        let _ = child.kill();
+        kill_tree(pid);
         return Err(format!("write init: {}", e));
     }
     let _ = stdin.flush();
@@ -764,7 +794,7 @@ pub fn probe_stdio(
 
     let latency = t0.elapsed().as_millis() as u64;
     if init_err.is_some() || !got_init {
-        let _ = child.kill();
+        kill_tree(pid);
         let _ = child.wait();
         let msg = init_err.unwrap_or_else(|| {
             format!(
@@ -796,7 +826,7 @@ pub fn probe_stdio(
             }),
         ))
     } else {
-        let _ = child.kill();
+        kill_tree(pid);
         let _ = child.wait();
         Ok((
             McpProbe {
@@ -942,7 +972,8 @@ pub fn probe_peer(ip: &str, port: u16) -> PeerProbe {
 /// IPs voisines depuis le cache ARP local (Windows: arp -a, Linux/mac: arp -a).
 /// Filtrées sur le /24 demandé, sans self.
 pub fn arp_hosts(prefix: &str, self_ip: &str) -> Vec<String> {
-    let out = Command::new("arp").arg("-a").output();
+    let mut c = Command::new("arp");
+    let out = hidden(&mut c).arg("-a").output();
     let stdout = match out {
         Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
         Err(_) => return Vec::new(),
