@@ -1,3 +1,13 @@
+## [0.6.3] — Langage détecté par le process réel + chips visibles partout
+
+### Corrigé
+- Les serveurs HTTP locaux sans en-têtes n'avaient AUCUN langage → chip absent. Le probe interroge désormais le vrai process qui écoute le port (netstat -ano → PID → tasklist → image, cache 10 s) : node.exe → node, python.exe → python, java.exe → java, dotnet.exe → dotnet…
+- Normalisation de l'image (`node.exe` → `node`) pour que la chip s'affiche.
+- Chip « ? » explicite quand le langage est indétectable (au lieu de rien).
+- La fenêtre native desktop embarquait un vieux core (v0.6.0) → rebuild aligné sur le core courant.
+
+Preuve : Overmind/discord/postgres/X/NEWS détectés `node` via leur process node.exe ; py-header → python (header uvicorn) ; stdio → node (commande).
+
 ## [0.6.3] — Desktop multi-OS (Windows, Linux, macOS Intel + Apple Silicon)
 
 ### Distribution

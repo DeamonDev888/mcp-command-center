@@ -165,6 +165,7 @@ h4.sec::after{content:'';flex:1;height:1px;background:var(--border-soft)}
 .tag.https{color:#d2a8ff;border-color:#d2a8ff44;background:#d2a8ff11}
 .srow .l1 .tag{font-size:8.5px;padding:0 5px;line-height:14px;flex-shrink:0}
 .langchip{font:8.5px var(--mono);font-weight:700;border:1px solid;border-radius:4px;padding:0 4px;line-height:14px;flex-shrink:0}
+.langchip.unk{color:var(--t4);border-color:var(--border-soft);background:transparent;font-weight:400}
 #storeDlg{width:min(880px,94vw)}
 .store-import{background:var(--sidebar);border:1px solid var(--border-soft);border-radius:10px;padding:12px;margin-bottom:14px}
 .store-import label{font-size:11px;color:var(--t4);display:block;margin-bottom:6px}
@@ -365,7 +366,7 @@ const LANG_META = {
 };
 function langChip(s) {
   const m = LANG_META[s.lang];
-  if (!m) return '';
+  if (!m) return '<span class="langchip unk" title="Langage non d\u00e9tect\u00e9 (ni commande ni en-t\u00eates ni process)">?</span>';
   return `<span class="langchip" style="color:${m.c};border-color:${m.c}66;background:${m.c}14" title="Langage inféré : ${m.n}">${m.t}</span>`;
 }
 

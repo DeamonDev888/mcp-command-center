@@ -229,6 +229,99 @@ pub fn detect_lang_http(head: &RespHead, name: Option<&str>) -> Option<String> {
     Some(lang.to_string())
 }
 
+/// Langage inféré du process qui écoute réellement un port local
+/// (Windows : netstat -ano → PID → tasklist → image). Cache 10 s.
+#[cfg(windows)]
+pub fn port_owner_lang(port: u16) -> Option<String> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+    static CACHE: OnceLock<Mutex<(Instant, HashMap<u16, String>)>> = OnceLock::new();
+    let cache = CACHE
+        .get_or_init(|| Mutex::new((Instant::now() - Duration::from_secs(60), HashMap::new())));
+    if let Ok(g) = cache.lock() {
+        let (t, map) = &*g;
+        if t.elapsed() < Duration::from_secs(10) {
+            return map.get(&port).and_then(|img| detect_lang_from_image(img));
+        }
+    }
+    let map = build_port_owner_map();
+    let lang = map.get(&port).and_then(|img| detect_lang_from_image(img));
+    if let Ok(mut g) = cache.lock() {
+        *g = (Instant::now(), map);
+    }
+    lang
+}
+
+#[cfg(not(windows))]
+pub fn port_owner_lang(_port: u16) -> Option<String> {
+    None
+}
+
+/// port → nom d'image du process propriétaire (Windows).
+#[cfg(windows)]
+fn build_port_owner_map() -> std::collections::HashMap<u16, String> {
+    use std::collections::HashMap;
+    use std::process::Command;
+    let mut ports: Vec<(u16, u32)> = Vec::new();
+    if let Ok(out) = Command::new("netstat").args(["-ano"]).output() {
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            let toks: Vec<&str> = line.split_whitespace().collect();
+            if toks.len() >= 5 && toks.contains(&"LISTENING") {
+                if let (Some(addr), Some(pid)) = (toks.get(1), toks.last()) {
+                    if let (Some(p), Ok(pid)) = (
+                        addr.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()),
+                        pid.parse::<u32>(),
+                    ) {
+                        ports.push((p, pid));
+                    }
+                }
+            }
+        }
+    }
+    let mut names: HashMap<u32, String> = HashMap::new();
+    if let Ok(out) = Command::new("tasklist")
+        .args(["/FO", "CSV", "/NH"])
+        .output()
+    {
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            let cols: Vec<&str> = line.split("\",\"").collect();
+            if cols.len() > 1 {
+                let name = cols[0].trim_matches('"').to_lowercase();
+                if let Ok(pid) = cols[1].trim_matches('"').parse::<u32>() {
+                    names.insert(pid, name);
+                }
+            }
+        }
+    }
+    ports
+        .into_iter()
+        .filter_map(|(p, pid)| names.get(&pid).map(|n| (p, n.clone())))
+        .collect()
+}
+
+/// Image de process → langage (node.exe, python.exe, java.exe…).
+pub fn detect_lang_from_image(image: &str) -> Option<String> {
+    let i = image.to_lowercase();
+    let i = i.trim_end_matches(".exe");
+    let lang = if ["node", "deno", "bun"].contains(&i) {
+        "node"
+    } else if i.starts_with("python") {
+        "python"
+    } else if ["java", "javaw"].contains(&i) {
+        "java"
+    } else if i == "dotnet" {
+        "dotnet"
+    } else if i == "ruby" {
+        "ruby"
+    } else if i == "php" {
+        "php"
+    } else {
+        return None;
+    };
+    Some(lang.to_string())
+}
+
 fn find_sub(hay: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.len() > hay.len() {
         return None;
@@ -491,7 +584,8 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
         .map(String::from);
 
     let sse = head.sse();
-    let lang = detect_lang_http(&head, name.as_deref());
+    // 1) en-têtes Server/X-Powered-By ; 2) sinon le vrai process qui écoute le port
+    let lang = detect_lang_http(&head, name.as_deref()).or_else(|| port_owner_lang(port));
     let mut tools = Vec::new();
     if let Ok((tr, _, _)) = rpc_call(port, path, "tools/list", json!({}), 2, timeout_ms) {
         if let Some(arr) = tr.get("tools").and_then(|t| t.as_array()) {
