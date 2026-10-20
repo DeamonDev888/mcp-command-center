@@ -91,8 +91,11 @@ pub struct Server {
     pub server_name: Option<String>,
     pub version: Option<String>,
     pub protocol: Option<String>,
-    /// Transport SSE détecté au probe (Content-Type: text/event-stream)
+    /// Réponses initialize encodées SSE (Content-Type: text/event-stream).
+    /// Ne qualifie PAS le transport : FastMCP httpStream répond ainsi par défaut.
     pub sse: bool,
+    /// Endpoint SSE legacy (/sse → event:) co-servi (FastMCP httpStream le fait).
+    pub sse_endpoint: bool,
     /// Langage inféré (stdio: commande ; HTTP: en-têtes Server/X-Powered-By)
     pub lang: Option<String>,
     pub tools: Vec<ToolInfo>,

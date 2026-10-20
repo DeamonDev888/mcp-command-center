@@ -28,8 +28,14 @@ pub struct McpProbe {
     pub name: Option<String>,
     pub version: Option<String>,
     pub protocol: Option<String>,
-    /// Transport SSE détecté (Content-Type: text/event-stream sur la réponse initialize)
+    /// Réponses JSON-RPC encodées SSE (Content-Type: text/event-stream sur
+    /// l'initialize). NE suffit PAS à qualifier un transport SSE : FastMCP
+    /// httpStream répond par défaut ainsi (enableJsonResponse=false) tout en
+    /// restant du streamable HTTP.
     pub sse: bool,
+    /// Endpoint SSE legacy co-servé (GET /sse → 200 + `event:`). Vrai sur un
+    /// FastMCP httpStream (compat 2024-11-05) ET sur un vrai serveur SSE.
+    pub sse_endpoint: bool,
     /// Langage inféré (stdio : la commande ; HTTP : en-têtes Server/X-Powered-By).
     /// La spec MCP n'expose PAS le langage dans serverInfo.
     pub lang: Option<String>,
@@ -49,6 +55,7 @@ impl McpProbe {
             version: None,
             protocol: None,
             sse: false,
+            sse_endpoint: false,
             lang: None,
             tools: vec![],
             latency_ms: 0,
@@ -376,6 +383,66 @@ pub fn port_open(host: &str, port: u16, timeout: Duration) -> bool {
     }
 }
 
+/// Le endpoint SSE legacy (GET, généralement /sse) sert-il un flux SSE ?
+/// Un 200 dont le début de réponse contient `event:` = flux SSE ouvert.
+/// Seule signature fiable du transport SSE legacy : un FastMCP httpStream
+/// co-sert /sse (compat 2024-11-05), donc ce flag n'a de sens qu'associé au
+/// résultat du POST initialize (répondu = streamable HTTP, quelle que soit
+/// l'encodage de ses réponses).
+pub fn sse_get_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> bool {
+    let addr = match socket_addr(host, port) {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    let timeout = Duration::from_millis(timeout_ms);
+    let mut stream = match TcpStream::connect_timeout(&addr, timeout) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    stream.set_read_timeout(Some(timeout)).ok();
+    stream.set_write_timeout(Some(timeout)).ok();
+    let req = format!(
+        "GET {} HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\nConnection: close\r\n\r\n",
+        path
+    );
+    if stream.write_all(req.as_bytes()).is_err() {
+        return false;
+    }
+    let mut data = Vec::new();
+    let mut tmp = [0u8; 4096];
+    let deadline = Instant::now() + timeout;
+    loop {
+        let remain = deadline.saturating_duration_since(Instant::now());
+        if remain.is_zero() {
+            break;
+        }
+        stream.set_read_timeout(Some(remain)).ok();
+        match stream.read(&mut tmp) {
+            Ok(0) => break,
+            Ok(n) => {
+                data.extend_from_slice(&tmp[..n]);
+                // premier événement reçu : suffit à qualifier le flux
+                if find_sub(&data, b"event:").is_some() {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    if data.is_empty() {
+        return false;
+    }
+    let head = String::from_utf8_lossy(&data).to_lowercase();
+    (head.starts_with("http/1.1 2") || head.starts_with("http/1.0 2"))
+        && find_sub(&data, b"event:").is_some()
+}
+
+/// sse_get_host sur ::1 puis 127.0.0.1 (binds FastMCP = IPv6-only).
+pub fn sse_get(port: u16, path: &str, timeout_ms: u64) -> bool {
+    sse_get_host("::1", port, path, timeout_ms)
+        || sse_get_host("127.0.0.1", port, path, timeout_ms)
+}
+
 /// POST JSON vers localhost (essaye ::1 puis 127.0.0.1), lit toute la réponse (gère chunked).
 /// Renvoie (host_utilisé, corps, transport SSE détecté).
 pub fn http_post(
@@ -613,7 +680,17 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
         .and_then(|x| x.as_str())
         .map(String::from);
 
+    // Classification transport — le Content-Type de l'initialize NE SUFFIT PAS :
+    // FastMCP httpStream répond en text/event-stream (mcp-proxy encode les
+    // réponses JSON-RPC en événements SSE, enableJsonResponse=false par défaut)
+    // tout en restant du streamable HTTP, et co-sert /sse (compat 2024-11-05).
+    // sse = encodage SSE des réponses ; sse_endpoint = /sse legacy co-servi.
+    // Le transport réel est streamable HTTP dans tous les cas ici (le POST
+    // initialize a été répondu) — un vrai serveur SSE-only échouerait avant.
     let sse = head.sse();
+    let sse_path = if path == "/sse" { path } else { "/sse" };
+    let sse_endpoint =
+        sse_get_host(&host, port, sse_path, timeout_ms.clamp(500, 1200));
     // 1) en-têtes Server/X-Powered-By ; 2) sinon le vrai process qui écoute le port
     let lang = detect_lang_http(&head, name.as_deref()).or_else(|| port_owner_lang(port));
     let mut tools = Vec::new();
@@ -646,6 +723,7 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
         version,
         protocol,
         sse,
+        sse_endpoint,
         lang,
         tools,
         latency_ms: latency,
@@ -815,6 +893,7 @@ pub fn probe_stdio(
                 version,
                 protocol,
                 sse: false,
+                sse_endpoint: false,
                 lang: detect_lang_stdio(&program, args),
                 tools,
                 latency_ms: latency,
@@ -838,6 +917,7 @@ pub fn probe_stdio(
                 version,
                 protocol,
                 sse: false,
+                sse_endpoint: false,
                 lang: detect_lang_stdio(&program, args),
                 tools,
                 latency_ms: latency,
@@ -899,7 +979,13 @@ pub fn probe_http_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> Mc
         .and_then(|x| x.as_str())
         .map(String::from);
 
+    // Même classification que probe_http (voir le commentaire là-bas) :
+    // POST initialize répondu = streamable HTTP ; sse = encodage SSE des
+    // réponses ; sse_endpoint = /sse legacy co-servi (FastMCP).
     let sse = head.sse();
+    let sse_path = if path == "/sse" { path } else { "/sse" };
+    let sse_endpoint =
+        sse_get_host(host, port, sse_path, timeout_ms.clamp(500, 1200));
     let lang = detect_lang_http(&head, name.as_deref());
     let mut tools = Vec::new();
     if let Ok((tr, _)) = rpc_call_host(host, port, path, "tools/list", json!({}), 2, timeout_ms) {
@@ -931,6 +1017,7 @@ pub fn probe_http_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> Mc
         version,
         protocol,
         sse,
+        sse_endpoint,
         lang,
         tools,
         latency_ms: latency,
@@ -1047,6 +1134,45 @@ mod tests {
             b": keepalive\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"ok\":true}}\n\n";
         let v = extract_json(body).expect("SSE doit etre parse");
         assert_eq!(v["result"]["ok"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn sse_get_detecte_un_flux_event_stream_et_rejete_l_encodage_sse_du_streamable() {
+        // 1. endpoint SSE legacy : 200 + "event:" dans le flux → true
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        thread::spawn(move || {
+            if let Ok((mut s, _)) = l.accept() {
+                let mut buf = [0u8; 8192];
+                let _ = s.read(&mut buf);
+                let resp = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\nevent: endpoint\ndata: /messages?sessionId=abc\n\n";
+                let _ = s.write_all(resp.as_bytes());
+            }
+        });
+        assert!(sse_get(port, "/sse", 2000), "un endpoint SSE legacy doit etre detecte");
+
+        // 2. FastMCP httpStream : Content-Type text/event-stream MAIS corps JSON
+        //    (réponses encodées, aucun "event:") → false. C'est la confusion
+        //    exacte qui faisait badge tous les serveurs FastMCP en "SSE".
+        let l2 = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port2 = l2.local_addr().unwrap().port();
+        thread::spawn(move || {
+            if let Ok((mut s, _)) = l2.accept() {
+                let mut buf = [0u8; 8192];
+                let _ = s.read(&mut buf);
+                let body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}";
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:x}\r\n{}\r\n0\r\n\r\n",
+                    body.len(),
+                    body
+                );
+                let _ = s.write_all(resp.as_bytes());
+            }
+        });
+        assert!(
+            !sse_get(port2, "/sse", 2000),
+            "du JSON encodé SSE (streamable httpStream) ne doit PAS passer pour un endpoint SSE"
+        );
     }
 
     #[test]

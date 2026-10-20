@@ -370,14 +370,20 @@ function langChip(s) {
   return `<span class="langchip" style="color:${m.c};border-color:${m.c}66;background:${m.c}14" title="Langage inféré : ${m.n}">${m.t}</span>`;
 }
 
-// Badge du type de MCP : STDIO / HTTP / SSE (détecté au probe) / HTTPS (port 443), + ·LAN si distant
+// Badge du type de MCP : STDIO / HTTPS / HTTP+SSE (streamable + endpoint legacy
+// co-servi, typique FastMCP) / SSE (réponses event-stream sans POST prouvé) /
+// HTTP (streamable), + ·LAN si distant. Le POST initialize répondu = streamable
+// HTTP quel que soit l'encodage des réponses (le probe n'atteint le badge que là).
 function typeBadge(s) {
   if (s.transport === 'stdio') return '<span class="tag stdio" title="Transport stdio (process local)">STDIO</span>';
-  const t = s.transport_info.port === 443 ? 'HTTPS' : (s.sse ? 'SSE' : 'HTTP');
-  const cls = t === 'HTTPS' ? 'https' : (t === 'SSE' ? 'sse' : 'http');
   const lan = s.transport_info.host ? '\u00b7LAN' : '';
-  const tip = t === 'HTTPS' ? 'HTTPS (TLS, port 443)' : (t === 'SSE' ? 'HTTP + SSE (text/event-stream détecté)' : 'HTTP streamable');
-  return `<span class="tag ${cls}" title="${tip}${lan ? ' — serveur distant (LAN)' : ''}">${t}${lan}</span>`;
+  const suffix = lan ? ' — serveur distant (LAN)' : '';
+  if (s.transport_info.port === 443) return `<span class="tag https" title="HTTPS (TLS, port 443)${suffix}">HTTPS${lan}</span>`;
+  if (s.sse && s.sse_endpoint) return `<span class="tag sse" title="HTTP streamable + endpoint SSE legacy co-servé : réponses initialize en text/event-stream et GET /sse ouvert (comportement FastMCP/mcp-proxy)${suffix}">HTTP+SSE${lan}</span>`;
+  const t = s.sse ? 'SSE' : 'HTTP';
+  const cls = t === 'SSE' ? 'sse' : 'http';
+  const tip = t === 'SSE' ? 'Réponses initialize en text/event-stream' : 'HTTP streamable (JSON)';
+  return `<span class="tag ${cls}" title="${tip}${suffix}">${t}${lan}</span>`;
 }
 
 function rowToggle(s) {

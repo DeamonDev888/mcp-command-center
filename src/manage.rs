@@ -55,6 +55,7 @@ fn default_servers() -> Vec<Server> {
             version: None,
             protocol: None,
             sse: false,
+            sse_endpoint: false,
             lang: None,
             tools: vec![],
             latency_ms: None,
@@ -320,6 +321,7 @@ fn from_json(s: &Value) -> Option<Server> {
         version: None,
         protocol: None,
         sse: false,
+        sse_endpoint: false,
         lang: None,
         tools: vec![],
         latency_ms: None,
@@ -672,6 +674,7 @@ fn entry_to_server(id: String, name: &str, entry: &Value) -> Option<Server> {
             version: None,
             protocol: None,
             sse: false,
+            sse_endpoint: false,
             lang: None,
             tools: vec![],
             latency_ms: None,
@@ -701,6 +704,7 @@ fn entry_to_server(id: String, name: &str, entry: &Value) -> Option<Server> {
             version: None,
             protocol: None,
             sse: false,
+            sse_endpoint: false,
             lang: None,
             tools: vec![],
             latency_ms: None,
@@ -806,6 +810,7 @@ pub fn import_mcp_text(state: &Arc<AppState>, raw: &str) -> Value {
                     version: None,
                     protocol: None,
                     sse: false,
+                    sse_endpoint: false,
                     lang: None,
                     tools: vec![],
                     latency_ms: None,
@@ -876,6 +881,7 @@ fn push_imported(state: &Arc<AppState>, name: String, program: String, args: Vec
         version: None,
         protocol: None,
         sse: false,
+        sse_endpoint: false,
         lang: None,
         tools: vec![],
         latency_ms: None,
@@ -1015,6 +1021,7 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                     srv.version = res.version.clone();
                     srv.protocol = res.protocol.clone();
                     srv.sse = res.sse;
+                    srv.sse_endpoint = res.sse_endpoint;
                     srv.lang = res.lang.clone();
                     srv.tools = res.tools.clone();
                     srv.latency_ms = Some(res.latency_ms);
@@ -1124,6 +1131,7 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                                 srv.version = p.version.clone();
                                 srv.protocol = p.protocol.clone();
                                 srv.sse = p.sse;
+                                srv.sse_endpoint = p.sse_endpoint;
                                 srv.lang = p.lang.clone();
                                 srv.tools = p.tools.clone();
                                 srv.latency_ms = Some(p.latency_ms);
@@ -1228,6 +1236,7 @@ pub fn scan_ports(state: &Arc<AppState>, range: Option<(u16, u16)>) {
                     version: p.version.clone(),
                     protocol: p.protocol.clone(),
                     sse: p.sse,
+                    sse_endpoint: p.sse_endpoint,
                     lang: p.lang.clone(),
                     tools: p.tools,
                     latency_ms: Some(p.latency_ms),
@@ -1429,6 +1438,7 @@ pub fn scan_network_range(
                             version: p.version.clone(),
                             protocol: p.protocol.clone(),
                             sse: p.sse,
+                            sse_endpoint: p.sse_endpoint,
                             lang: p.lang.clone(),
                             tools: p.tools,
                             latency_ms: Some(p.latency_ms),
@@ -1636,6 +1646,7 @@ pub fn import_peer(state: &Arc<AppState>, ip: &str) -> Value {
                 version,
                 protocol: None,
                 sse: false,
+                sse_endpoint: false,
                 lang: None,
                 tools: vec![],
                 latency_ms: None,
@@ -1866,6 +1877,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     version: None,
                     protocol: None,
                     sse: false,
+                    sse_endpoint: false,
                     lang: None,
                     tools: vec![],
                     latency_ms: None,
@@ -1937,6 +1949,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     version: None,
                     protocol: None,
                     sse: false,
+                    sse_endpoint: false,
                     lang: None,
                     tools: vec![],
                     latency_ms: None,
@@ -2100,6 +2113,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                                 version: None,
                                 protocol: None,
                                 sse: false,
+                                sse_endpoint: false,
                                 lang: None,
                                 tools: vec![],
                                 latency_ms: None,
@@ -2193,7 +2207,7 @@ fn server_json(s: &Server) -> Value {
         "latency_ms": s.latency_ms,
         "last_seen": s.last_seen_ts, "last_error": s.last_error,
         "can_start": s.start_cmd.is_some(), "auto_restart": s.auto_restart,
-        "sse": s.sse, "lang": s.lang,
+        "sse": s.sse, "sse_endpoint": s.sse_endpoint, "lang": s.lang,
     })
 }
 
@@ -2384,6 +2398,7 @@ mod tests {
                 version: Some("1".into()),
                 protocol: None,
                 sse: false,
+                sse_endpoint: false,
                 lang: None,
                 tools: vec![],
                 latency_ms: Some(3),
@@ -2448,6 +2463,7 @@ mod tests {
                 version: None,
                 protocol: None,
                 sse: false,
+                sse_endpoint: false,
                 lang: None,
                 tools: vec![
                     crate::types::ToolInfo {
@@ -2506,6 +2522,7 @@ mod tests {
                 version: None,
                 protocol: None,
                 sse: false,
+                sse_endpoint: false,
                 lang: None,
                 tools: vec![
                     crate::types::ToolInfo {
@@ -2559,6 +2576,7 @@ mod tests {
                     version: None,
                     protocol: None,
                     sse: false,
+                    sse_endpoint: false,
                     lang: None,
                     tools: vec![crate::types::ToolInfo {
                         name: "t".into(),
@@ -2588,6 +2606,7 @@ mod tests {
                     version: None,
                     protocol: None,
                     sse: false,
+                    sse_endpoint: false,
                     lang: None,
                     tools: vec![],
                     latency_ms: None,

@@ -1,3 +1,13 @@
+## [0.6.5] — Fini les faux badges SSE : les FastMCP httpStream sont étiquetés HTTP+SSE
+
+### Corrigé (classification transport)
+- Tous les serveurs FastMCP lancés en `transportType: httpStream` répondaient badge « SSE ». Cause : mcp-proxy encode les réponses JSON-RPC en événements SSE (`Content-Type: text/event-stream`, `enableJsonResponse=false` par défaut) tout en restant du **streamable HTTP** — et FastMCP co-sert aussi `/sse` (compat 2024-11-05). Le Content-Type de l'initialize ne qualifie PAS le transport.
+- Nouveau champ de sonde `sse_endpoint` : GET /sse considéré legacy seulement si le flux contient un vrai `event:` (un POST /mcp répondu = streamable HTTP, point).
+- Badge UI : « HTTP+SSE » quand le serveur répond en streamable ET co-sert /sse (signature FastMCP/mcp-proxy), « HTTP » streamable JSON, « SSE » réservé aux réponses event-stream sans endpoint streamable prouvé. Info visible au survol.
+- `/api/state` expose `sse_endpoint` ; `sse` conserve sa signification (encodage SSE des réponses).
+
+Preuve : Overmind 3099 / discord 3141 / postgres 5433 / X 3142 → HTTP+SSE ; fixtures test-sse (réponses data: sans event) et JSON chunked → HTTP ; flux `event: endpoint` → SSE. 35 tests verts, clippy -D warnings propre.
+
 ## [0.6.4] — Plus aucune fenêtre console qui s'ouvre
 
 ### Corrigé (bug bloquant)
