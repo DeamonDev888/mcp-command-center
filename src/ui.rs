@@ -31,8 +31,18 @@ body{background:var(--chrome);color:var(--t1);font:13px/1.5 var(--sans);display:
   border-radius:6px;padding:2px 8px;white-space:nowrap}
 .tb-badge b{color:var(--t1);font-weight:600}
 .tb-badge.ok b{color:var(--ok)}
+#stAuto{padding:3px 9px;font-size:11px;border-radius:6px}
+#stAuto.auto-off{color:var(--t4);border-style:dashed}
+.tb-badge.upd{color:var(--warn);border-color:rgba(192,133,50,.5);background:rgba(192,133,50,.1);cursor:pointer}
+.tb-badge.upd:hover{border-color:var(--warn);color:var(--warn)}
 .tb-spacer{flex:1}
 .tb-actions{display:flex;gap:6px}
+/* Contrôles de fenêtre (mode desktop Tauri, fenêtre sans décorations) */
+#winCtrls{display:none;gap:2px;margin-left:8px}
+.wbtn{width:34px;height:28px;padding:0;display:flex;align-items:center;justify-content:center;
+  border:none;border-radius:6px;background:transparent;color:var(--t3);font-size:12px;cursor:pointer}
+.wbtn:hover{background:var(--hover);color:var(--t1)}
+.wbtn.wclose:hover{background:rgba(231,94,120,.16);color:var(--bad)}
 
 /* ===== Boutons (style Hermes : discret, accent au survol) ===== */
 button{background:transparent;color:var(--t2);border:1px solid var(--border);border-radius:7px;
@@ -66,6 +76,10 @@ button:disabled{opacity:.35;cursor:not-allowed}
   padding:0 6px;font-size:9px;line-height:15px;min-width:20px;flex-shrink:0}
 .rowbtn:hover{color:var(--accent);border-color:var(--accent);background:var(--hover)}
 .srow.off .rowbtn{opacity:.5}
+/* Drag & drop de réordonnancement (préférence / priorité de sondage) */
+.srow.dragging{opacity:.35}
+.srow.drop-above{box-shadow:0 -2px 0 var(--accent)}
+.srow.drop-below{box-shadow:0 2px 0 var(--accent)}
 .sw{min-width:34px;text-align:center;font:9px var(--mono);font-weight:600;border-radius:9px;padding:1px 6px;flex-shrink:0}
 .sw.on{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08)}
 .sw.on:hover{border-color:var(--bad);color:var(--bad);background:rgba(231,94,120,.06)}
@@ -112,9 +126,34 @@ button:disabled{opacity:.35;cursor:not-allowed}
 .seed-note{font-size:11.5px;color:var(--t3);background:var(--hover);border:1px solid var(--border-soft);
   border-radius:8px;padding:7px 11px;margin:12px 0 0}
 .seed-note b{color:var(--t2)}
+/* Onglets du détail + blocs de conf agent */
+.tabs{display:flex;gap:4px;margin:20px 0 0;border-bottom:1px solid var(--border-soft)}
+.tab{border:1px solid transparent;background:none;border-radius:7px 7px 0 0;padding:5px 12px;color:var(--t3);font:12px var(--sans)}
+.tab:hover{color:var(--accent);background:var(--hover)}
+.tab.sel{color:var(--accent);background:var(--active2);font-weight:600;border-bottom:2px solid var(--accent)}
+.conf-note{font-size:11.5px;color:var(--t4);margin:0 0 12px}
+.conf-note b{color:var(--t3)}
+.conf-block{background:var(--sidebar);border:1px solid var(--border-soft);border-radius:10px;margin-bottom:10px;overflow:hidden}
+.conf-head{display:flex;align-items:center;gap:8px;padding:7px 12px;font:11px var(--sans);color:var(--t3);border-bottom:1px solid var(--border-soft)}
+.conf-head button{margin-left:auto;padding:2px 10px;font-size:11px}
+.conf-block pre{margin:0;padding:12px 14px;font:11.5px var(--mono);color:var(--t2);overflow-x:auto;white-space:pre}
+/* Barre latérale ajustable */
+#grip{width:5px;flex-shrink:0;cursor:col-resize;background:transparent;transition:background .12s}
+#grip:hover,#grip.drag{background:var(--active2)}
 h4.sec{font:10px var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.9px;color:var(--t4);
   margin:24px 0 10px;display:flex;align-items:center;gap:10px}
 h4.sec::after{content:'';flex:1;height:1px;background:var(--border-soft)}
+/* Replis du détail (Informations / Démarrage) — même style que h4.sec */
+details.fold{margin:24px 0 0}
+details.fold summary{list-style:none;cursor:pointer;user-select:none;
+  font:10px var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.9px;color:var(--t4);
+  display:flex;align-items:center;gap:10px;transition:color .12s}
+details.fold summary::-webkit-details-marker{display:none}
+details.fold summary::before{content:'\25B8';font-size:9px;flex-shrink:0;transition:color .12s}
+details.fold[open] summary::before{content:'\25BE'}
+details.fold summary::after{content:'';flex:1;height:1px;background:var(--border-soft)}
+details.fold summary:hover{color:var(--accent)}
+details.fold .kv{margin-top:12px}
 .kv{display:grid;grid-template-columns:170px 1fr;gap:7px 14px;font-size:12.5px}
 .kv .k{color:var(--t4)}
 .kv .v{font:12px var(--mono);color:var(--t2);word-break:break-all}
@@ -165,29 +204,38 @@ h4.sec::after{content:'';flex:1;height:1px;background:var(--border-soft)}
 .tag.stdio{color:#39c5cf;border-color:#39c5cf44}
 .tag.http{color:#bc8cff;border-color:#bc8cff44}
 .tag.sse{color:var(--ok);border-color:rgba(85,165,131,.45)}
-.tag.https{color:#d2a8ff;border-color:#d2a8ff44;background:#d2a8ff11}
+.tag.https{color:#d2a8ff;border-color:#d2a8ff44;background:#d2a8ff11;box-shadow:0 0 8px rgba(210,168,255,.35)}
+/* Framework détecté par fingerprint (litemcp) : badge violet « glow HTTPS » — halo pulsant */
+.tag.litemcp{color:#e9d5ff;border-color:#d2a8ff88;background:#d2a8ff1f;box-shadow:0 0 10px rgba(210,168,255,.55);animation:glowPulse 2.4s ease-in-out infinite}
+@keyframes glowPulse{50%{box-shadow:0 0 18px rgba(210,168,255,.9)}}
 .srow .l1 .tag{font-size:8.5px;padding:0 5px;line-height:14px;flex-shrink:0}
 .langchip{font:8.5px var(--mono);font-weight:700;border:1px solid;border-radius:4px;padding:0 4px;line-height:14px;flex-shrink:0}
 .langchip.unk{color:var(--t4);border-color:var(--border-soft);background:transparent;font-weight:400}
-#storeDlg{width:min(880px,94vw)}
-.store-import{background:var(--sidebar);border:1px solid var(--border-soft);border-radius:10px;padding:12px;margin-bottom:14px}
-.store-import label{font-size:11px;color:var(--t4);display:block;margin-bottom:6px}
-.store-import textarea{width:100%;background:var(--chrome);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--t1);font:11.5px var(--mono);resize:vertical}
-.store-import textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--active)}
-.store-msg{font:11px var(--mono);margin-left:10px;color:var(--ok)}
+#storeDlg{width:min(1180px,96vw)}
 .store-bar{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.store-count{color:var(--t3);font-weight:400;font-size:12.5px;margin-left:2px}
+/* Machines distantes (dialog SSH) */
+.machine-form{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.machine-form input{flex:1;min-width:170px}
+.machine-msg{font:11px var(--mono);color:var(--t2);min-height:16px;margin-bottom:8px}
+.machine-row{background:var(--sidebar);border:1px solid var(--border-soft);border-radius:9px;padding:8px 10px;margin-bottom:8px}
+.machine-row .l1{display:flex;align-items:center;gap:8px}
+.machine-row .nm{font:12.5px var(--mono);color:var(--t1)}
+.machine-row .l2{font:10.5px var(--mono);color:var(--t3);margin:3px 0 6px}
+.machine-row .macts{display:flex;gap:6px;flex-wrap:wrap}
 .store-bar input{flex:1;min-width:180px}
 .store-cats{display:flex;gap:6px;flex-wrap:wrap}
 .scat{padding:3px 12px;border-radius:14px;font-size:11px}
 .scat.sel{background:var(--active2);border-color:var(--accent);color:var(--accent)}
-.store-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
-.scard{background:var(--sidebar);border:1px solid var(--border-soft);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px}
+.store-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(184px,1fr));gap:7px}
+.scard{background:var(--sidebar);border:1px solid var(--border-soft);border-radius:9px;padding:8px 10px;display:flex;flex-direction:column;gap:4px}
 .scard:hover{border-color:var(--border)}
-.scard-top{display:flex;align-items:center;gap:8px}
-.scard-top b{flex:1;font-size:13px}
-.scard-desc{font-size:11.5px;color:var(--t3);flex:1}
-.scard-cmd{font:10px var(--mono);color:var(--t4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.scard button{align-self:flex-start}
+.scard-top{display:flex;align-items:center;gap:6px}
+.scard-top b{flex:1;font-size:12px}
+.slogo{width:18px;height:18px;flex-shrink:0}
+.scard-desc{font-size:10.5px;color:var(--t3);flex:1;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.scard-cmd{font:9.5px var(--mono);color:var(--t4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scard button{align-self:flex-start;padding:2px 9px;font-size:11px}
 
 /* --- Formulaire d'ajout (modal) --- */
 dialog{background:var(--card);color:var(--t1);border:1px solid var(--border);border-radius:14px;padding:0;
@@ -209,29 +257,38 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
 </head>
 <body>
 
-<div id="titlebar">
-  <span class="logo"><em>&#9679;</em> MCP <em>Command Center</em></span>
+<div id="titlebar" data-tauri-drag-region>
+  <span class="logo" data-tauri-drag-region><em>&#9679;</em> MCP <em>Command Center</em></span>
+  <span class="tb-badge" title="Version installée">v__MCC_VERSION__</span>
+  <button id="stAuto" onclick="toggleAutostart()" title="Lancer l'application au démarrage de l'OS (tray silencieux)"></button>
+  <span class="tb-badge upd" id="stUpdate" style="display:none"></span>
   <span class="tb-badge ok">UP <b id="stUp">0</b>/<b id="stTotal">0</b></span>
   <span class="tb-badge">tools <b id="stTools">0</b></span>
   <span class="tb-badge">refresh <b id="stRefresh">15</b>s</span>
-  <span class="tb-spacer"></span>
+  <span class="tb-spacer" data-tauri-drag-region></span>
   <div class="tb-actions">
     <button class="primary" onclick="doScan()">&#128269; Scan ports</button>
     <button onclick="doScanNet()">&#127760; Scan r&eacute;seau</button>
-    <button onclick="doPeers()">&#129309; Pairs</button>
+    <button onclick="openMachineDlg()">🖥️ Machines</button>
     <button onclick="openStore()">&#128722; Boutique</button>
     <button onclick="refreshAll()">&#8635;</button>
+  </div>
+  <div id="winCtrls">
+    <button class="wbtn" id="wMin" title="R&eacute;duire">&#x2500;</button>
+    <button class="wbtn" id="wMax" title="Agrandir / restaurer">&#x25A1;</button>
+    <button class="wbtn wclose" id="wClose" title="Fermer">&#x2715;</button>
   </div>
 </div>
 
 <div id="main">
   <aside id="explorer">
-    <div class="sec-label">Serveurs MCP</div>
+    <div class="sec-label" title="Glisser-déposer une ligne pour r&eacute;ordonner : pr&eacute;f&eacute;rence d'affichage et priorit&eacute; de sondage">Serveurs MCP &middot; glisser = priorit&eacute;</div>
     <div id="srvList"></div>
-    <div class="sec-label">Command centers (pairs)</div>
+    <div class="sec-label">Machines &amp; pairs</div>
     <div id="peerList"></div>
     <div id="addWrap"><button onclick="toggleAdd()">+ Ajouter un serveur</button></div>
   </aside>
+  <div id="grip" title="Glisser pour ajuster la largeur"></div>
   <section id="content"></section>
 </div>
 
@@ -289,16 +346,10 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
 
 <dialog id="storeDlg">
   <div class="dlg-head">
-    <h2>&#128722; Boutique &mdash; serveurs MCP</h2>
+    <h2>&#128722; Boutique &mdash; serveurs MCP <span id="storeCount" class="store-count"></span></h2>
     <button class="close" onclick="storeDlg.close()">&times;</button>
   </div>
   <div class="dlg-body" style="padding-top:12px">
-    <div class="store-import">
-      <label>Collez une config, une commande ou une URL &mdash; on détecte le reste</label>
-      <textarea id="importBox" rows="3" placeholder='{"mcpServers":{"fs":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","C:/data"]}}}&#10;npx -y @modelcontextprotocol/server-memory&#10;https://mcp.exemple.app/mcp&#10;claude mcp add mon-srv npx -y pkg'></textarea>
-      <button class="primary" onclick="doImport()" style="margin-top:6px">Importer</button>
-      <span id="importMsg" class="store-msg"></span>
-    </div>
     <div class="store-bar">
       <input id="storeSearch" placeholder="Rechercher dans la boutique&hellip;" oninput="renderStoreItems()">
       <div id="storeCats" class="store-cats"></div>
@@ -307,10 +358,44 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
   </div>
 </dialog>
 
+<dialog id="machineDlg">
+  <div class="dlg-head">
+    <h2>🖥️ Machines distantes</h2>
+    <button class="close" onclick="machineDlg.close()">&times;</button>
+  </div>
+  <div class="dlg-body">
+    <div class="conf-note">Connexion SSH par cl&eacute; (BatchMode — aucun mot de passe possible) : la machine
+    doit accepter ta cl&eacute; publique. L'app liste ses ports en &eacute;coute via <b>netstat</b> distant,
+    y sonde les serveurs MCP et les importe ici automatiquement.</div>
+    <div class="machine-form">
+      <input id="mIp" placeholder="IP ou h&ocirc;te (ex. 192.168.1.42)">
+      <input id="mUser" placeholder="Utilisateur SSH">
+      <button class="primary" onclick="sshDiscover()">🔗 SSH &amp; d&eacute;couvrir</button>
+      <button onclick="sshSave()">💾 Enregistrer</button>
+    </div>
+    <div id="machineMsg" class="machine-msg"></div>
+    <div id="machineList"></div>
+    <div style="margin-top:12px"><button onclick="doPeers();setTimeout(renderMachines,3000)">🔄 D&eacute;tecter les command centers sur le LAN</button></div>
+  </div>
+</dialog>
+
 <script>
+/* Code d'accès API injecté par le serveur (__MCC_ACCESS__ remplacé au rendu de "/")
+   — vide en bind loopback (aucun code requis). Toute requête /api/ l'embarque. */
+const MCC_ACCESS = '__MCC_ACCESS__';
+const MCC_VERSION = '__MCC_VERSION__';
+const _mccFetch = window.fetch.bind(window);
+window.fetch = (url, opts = {}) => {
+  if (typeof url === 'string' && url.startsWith('/api/') && MCC_ACCESS) {
+    opts.headers = Object.assign({}, opts.headers || {}, {'X-MCC-Access': MCC_ACCESS});
+  }
+  return _mccFetch(url, opts);
+};
+
 let state = null;
 let selectedId = null;
 let detailCache = null;
+let detailTab = 'outils';
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const js = s => esc(JSON.stringify(String(s ?? '')));
 
@@ -334,6 +419,18 @@ function render() {
   document.getElementById('stTotal').textContent = s.total;
   document.getElementById('stTools').textContent = s.tools;
   document.getElementById('stRefresh').textContent = state.settings.refresh_secs;
+  const au = document.getElementById('stAuto');
+  if (au) {
+    au.textContent = (state.autostart ? '⏭ Auto-boot ON' : '⏭ Auto-boot OFF');
+    au.classList.toggle('auto-off', !state.autostart);
+  }
+  const upd = document.getElementById('stUpdate');
+  if (state.update_available && state.latest_version) {
+    upd.style.display = '';
+    upd.textContent = '⬆ v' + state.latest_version + ' dispo';
+    upd.title = 'Nouvelle version ' + state.latest_version + ' publiée sur GitHub (installée : v' + MCC_VERSION + ') — github.com/DeamonDev888/mcp-command-center/releases';
+    upd.onclick = () => window.open('https://github.com/DeamonDev888/mcp-command-center/releases/latest', '_blank');
+  } else upd.style.display = 'none';
   renderServers();
   renderPeers();
   renderLog();
@@ -349,8 +446,11 @@ function renderServers() {
       ? (s.transport_info.host ? `${esc(s.transport_info.host)}:` : '') + s.transport_info.port
       : 'stdio &middot; ' + esc(s.transport_info.program);
     const off = s.tools_disabled.length ? ` &middot; ${s.tools_disabled.length} off` : '';
-    return `<div class="srow ${selectedId===s.id?'sel':''} ${s.enabled?'':'off'}" onclick="select(${js(s.id)})">
-      <div class="l1"><span class="dot ${s.state}"></span><span class="nm">${esc(s.label)}</span>${langChip(s)}${typeBadge(s)}${s.transport==='stdio'?'<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>':''}<span class="cnt">${s.tools_count}</span>${rowToggle(s)}${rowCtl(s)}</div>
+    return `<div class="srow ${selectedId===s.id?'sel':''} ${s.enabled?'':'off'}" draggable="true" data-id="${esc(s.id)}"
+      onclick="select(${js(s.id)})"
+      ondragstart="rowDragStart(event,${js(s.id)})" ondragover="rowDragOver(event)"
+      ondragleave="rowDragLeave(event)" ondrop="rowDrop(event)" ondragend="rowDragEnd(event)">
+      <div class="l1"><span class="dot ${s.state}"></span><span class="nm" title="${esc(s.label)}">${esc(s.label)}</span>${langChip(s)}${typeBadge(s)}${frameworkBadge(s)}${s.transport==='stdio'?'<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>':''}<span class="cnt">${s.tools_count}</span>${rowToggle(s)}${rowCtl(s)}</div>
       <div class="l2"><span class="st ${esc(s.state)}">${esc(s.state)}</span> ${ti}${off}</div>
     </div>`;
   }).join('');
@@ -380,13 +480,24 @@ function langChip(s) {
 function typeBadge(s) {
   if (s.transport === 'stdio') return '<span class="tag stdio" title="Transport stdio (process local)">STDIO</span>';
   const lan = s.transport_info.host ? '\u00b7LAN' : '';
-  const suffix = lan ? ' — serveur distant (LAN)' : '';
-  if (s.transport_info.port === 443) return `<span class="tag https" title="HTTPS (TLS, port 443)${suffix}">HTTPS${lan}</span>`;
-  if (s.sse && s.sse_endpoint) return `<span class="tag sse" title="HTTP streamable + endpoint SSE legacy co-servé : réponses initialize en text/event-stream et GET /sse ouvert (comportement FastMCP/mcp-proxy)${suffix}">HTTP+SSE${lan}</span>`;
+  const via = s.via_ssh ? '\u00b7SSH' : '';
+  const viaTip = s.via_ssh ? ' — sondé via SSH depuis la machine (interne)' : '';
+  const suffix = (lan ? ' — serveur distant (LAN)' : '') + viaTip;
+  if (s.transport_info.port === 443) return `<span class="tag https" title="HTTPS (TLS, port 443)${suffix}">HTTPS${lan}${via}</span>`;
+  if (s.sse && s.sse_endpoint) return `<span class="tag sse" title="HTTP streamable + endpoint SSE legacy co-servé : réponses initialize en text/event-stream et GET /sse ouvert (comportement FastMCP/mcp-proxy)${suffix}">HTTP+SSE${lan}${via}</span>`;
   const t = s.sse ? 'SSE' : 'HTTP';
   const cls = t === 'SSE' ? 'sse' : 'http';
   const tip = t === 'SSE' ? 'Réponses initialize en text/event-stream' : 'HTTP streamable (JSON)';
-  return `<span class="tag ${cls}" title="${tip}${suffix}">${t}${lan}</span>`;
+  return `<span class="tag ${cls}" title="${tip}${suffix}">${t}${lan}${via}</span>`;
+}
+
+// Badge du framework détecté par fingerprint (seul litemcp aujourd'hui) :
+// initialize répondu 2026-07-28 SANS négocier la version demandée + sonde
+// GET /health → 200 « ok » — les deux signatures documentées de litemcp.
+function frameworkBadge(s) {
+  if (s.framework !== 'litemcp') return '';
+  const lan = s.transport_info.host ? ' — serveur distant (LAN)' : '';
+  return `<span class="tag litemcp" title="Framework LiteMCP : lib Rust MCP stateless, HTTP streamable (spec 2026-07-28) — fingerprint : version non négociée + sonde /health${lan}">LiteMCP</span>`;
 }
 
 function rowToggle(s) {
@@ -397,6 +508,61 @@ function rowCtl(s) {
   if (!s.can_start) return '';
   const up = s.state === 'UP';
   return `<button class="rowbtn" title="${up?'Arr\u00eater':'D\u00e9marrer'} ce serveur" onclick="event.stopPropagation();act('${up?'kill':'start'}',${js(s.id)})">${up?'\u25a0':'\u25b6'}</button>`;
+}
+
+/* État des replis du détail (mémorisé entre les cycles et les sessions) */
+function saveFold(el) {
+  try { localStorage.setItem('mcc.fold.' + el.dataset.fold, el.open); } catch (e) {}
+}
+
+async function toggleAutostart() {
+  await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'set_autostart', enabled: !state.autostart})});
+  await load();
+}
+
+/* ===== Drag & drop : réordonner les serveurs (préférence / priorité) ===== */
+let dragId = null;
+function rowDragStart(ev, id) {
+  dragId = id;
+  ev.dataTransfer.effectAllowed = 'move';
+  try { ev.dataTransfer.setData('text/plain', id); } catch (e) {}
+  ev.currentTarget.classList.add('dragging');
+}
+function rowDragOver(ev) {
+  if (!dragId) return;
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = 'move';
+  const row = ev.currentTarget;
+  if (row.dataset.id === dragId) return;
+  const rect = row.getBoundingClientRect();
+  const above = ev.clientY < rect.top + rect.height / 2;
+  row.classList.toggle('drop-above', above);
+  row.classList.toggle('drop-below', !above);
+  row._dropAbove = above;
+}
+function rowDragLeave(ev) {
+  ev.currentTarget.classList.remove('drop-above', 'drop-below');
+}
+function rowDrop(ev) {
+  ev.preventDefault();
+  const row = ev.currentTarget;
+  row.classList.remove('drop-above', 'drop-below');
+  const moved = dragId;
+  dragId = null;
+  if (!moved || row.dataset.id === moved) return;
+  // nouvel ordre = ids visibles, la ligne déplacée réinsérée au-dessus/en dessous
+  const ids = [...document.querySelectorAll('#srvList .srow')]
+    .map(r => r.dataset.id).filter(x => x !== moved);
+  const at = ids.indexOf(row.dataset.id);
+  ids.splice(row._dropAbove ? at : at + 1, 0, moved);
+  fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'reorder', ids})}).then(load);
+}
+function rowDragEnd(ev) {
+  ev.currentTarget.classList.remove('dragging');
+  document.querySelectorAll('.srow').forEach(r => r.classList.remove('drop-above', 'drop-below'));
+  dragId = null;
 }
 
 function renderPeers() {
@@ -425,24 +591,68 @@ function renderLog() {
 /* ===== Zone de détail ===== */
 function renderOverview() {
   const s = state.stats;
+  const nbMachines = (state.settings.ssh_hosts || []).length;
   document.getElementById('content').innerHTML = `
     <div class="tiles">
       <div class="tile"><div class="n ok">${s.up}</div><div class="lbl">serveurs UP</div></div>
       <div class="tile"><div class="n">${s.total}</div><div class="lbl">serveurs suivis</div></div>
       <div class="tile"><div class="n">${s.tools}</div><div class="lbl">tools actifs</div></div>
-      <div class="tile"><div class="n">${state.settings.refresh_secs}s</div><div class="lbl">rafra&icirc;chissement</div></div>
+      <div class="tile"><div class="n">${nbMachines}</div><div class="lbl">machines distantes</div></div>
     </div>
     <div class="welcome">
-      <div class="big">S&eacute;lectionne un serveur dans l'explorateur</div>
-      <div class="hint">Pour voir ses tools, ses infos et les basculer ON/OFF un par un.</div>
+      <div class="big">Centre de contr&ocirc;le de tes serveurs MCP</div>
+      <div class="hint">S&eacute;lectionne un serveur dans l'explorateur pour voir ses tools, ses infos et les basculer ON/OFF un par un.</div>
       <div class="qa">
         <button onclick="doScan()">&#128269; Scanner les ports locaux</button>
         <button onclick="doScanNet()">&#127760; Scanner le r&eacute;seau</button>
-        <button onclick="doPeers()">&#129309; D&eacute;tecter les pairs</button>
+        <button onclick="openMachineDlg()">🖥️ Choisir une machine</button>
       </div>
+      <div class="hint" style="margin-top:16px">Le scan utilise la plage configur&eacute;e. Pour une machine du LAN : connexion SSH par cl&eacute;,
+      l'app liste ses ports en &eacute;coute, y sonde les serveurs MCP et les importe ici.</div>
     </div>`;
 }
 
+/* ===== Onglet Conf agent : prêt à coller dans Hermes / Claude / etc. ===== */
+const srvName = s => (s.label || s.id || 'serveur').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'serveur';
+const srvUrl = s => {
+  const h = s.transport_info.host || '127.0.0.1';
+  return 'http://' + h + ':' + s.transport_info.port + (s.transport_info.path || '/mcp');
+};
+function hermesYaml(s) {
+  const n = srvName(s);
+  if (s.transport === 'http')
+    return 'mcp_servers:\n  ' + n + ':\n    url: ' + srvUrl(s) + '\n    enabled: true';
+  const args = (s.transport_info.args || []).map(a => JSON.stringify(a)).join(', ');
+  return 'mcp_servers:\n  ' + n + ':\n    command: ' + (s.transport_info.program || 'npx') + '\n    args: [' + args + ']\n    enabled: true';
+}
+function mcpJson(s) {
+  const n = srvName(s);
+  const blk = s.transport === 'http'
+    ? {type: 'http', url: srvUrl(s)}
+    : {command: s.transport_info.program || 'npx', args: s.transport_info.args || []};
+  return JSON.stringify({mcpServers: {[n]: blk}}, null, 2);
+}
+function claudeCmd(s) {
+  const n = srvName(s);
+  return s.transport === 'http'
+    ? 'claude mcp add --transport http ' + n + ' ' + srvUrl(s)
+    : 'claude mcp add ' + n + ' -- ' + (s.transport_info.program || 'npx') + ' ' + (s.transport_info.args || []).join(' ');
+}
+function copyConf(btn) {
+  const pre = btn.closest('.conf-block').querySelector('pre');
+  navigator.clipboard.writeText(pre.textContent).then(() => {
+    btn.textContent = 'copi\u00e9 \u2713';
+    setTimeout(() => btn.textContent = 'copier', 1500);
+  }).catch(() => {});
+}
+function confAgent(s) {
+  const blk = (t, code) => '<div class="conf-block"><div class="conf-head">' + t + '<button onclick="copyConf(this)">copier</button></div><pre>' + esc(code) + '</pre></div>';
+  return '<h4 class="sec">Connecter ce serveur &agrave; un agent</h4>' +
+    '<div class="conf-note">Copie le bloc de ton agent &mdash; Hermes : colle sous <b>mcp_servers:</b> dans <b>~/.hermes/config.yaml</b>. Cl&eacute;s API : bloc <b>env:</b> (Hermes) ou <b>"env"</b> (JSON) &mdash; voir la desc du serveur.</div>' +
+    blk('Hermes &mdash; config.yaml', hermesYaml(s)) +
+    blk('JSON mcpServers (Claude, Cursor, VS Code&hellip;)', mcpJson(s)) +
+    blk('claude mcp add', claudeCmd(s));
+}
 function renderDetail() {
   const s = detailCache;
   if (!s || s.id !== selectedId) return;
@@ -451,13 +661,47 @@ function renderDetail() {
     : `stdio &middot; ${esc(s.transport_info.program)} ${(s.transport_info.args||[]).join(' ')}`;
   const kv = [
     ['id', s.id], ['transport', ti],
-    ['origine', s.origin], ['pid', s.pid ?? '-'],
+    ['origine', s.origin],
     ['bind', s.bound_host ?? '-'], ['serveur MCP', s.server_name ?? '-'],
     ['version', s.version ?? '-'], ['protocole', s.protocol ?? '-'],
+    ['framework', s.framework === 'litemcp' ? 'LiteMCP (Rust · HTTP stateless 2026-07-28)' : '-'],
+    ['sonde', s.via_ssh ? 'via SSH (interne à la machine)' : 'directe'],
     ['latence', s.latency_ms != null ? s.latency_ms + ' ms' : '-'],
     ['dernier vu', s.last_seen ? new Date(s.last_seen * 1000).toLocaleString('fr-FR') : '-'],
     ['erreur', s.last_error ?? '-'],
   ].map(([k, v]) => `<div class="k">${k}</div><div class="v">${esc(v)}</div>`).join('');
+  /* Panneau Démarrage : contrôle du process par le command center.
+     « au démarrage » = process lancé ici et vivant, mais MCP pas encore répondu. */
+  const starting = s.enabled && s.managed && s.state !== 'UP';
+  const dispState = starting ? 'STARTING' : s.state;
+  const etatProcess = s.state === 'UP' ? 'en marche'
+    : starting ? 'au d&eacute;marrage&hellip;'
+    : s.state === 'PORT-ONLY' ? 'port occup&eacute; (aucune r&eacute;ponse MCP)'
+    : s.state === 'DISABLED' ? 'd&eacute;sactiv&eacute;' : 'arr&ecirc;t&eacute;';
+  const cmd = s.start_cmd
+    ? s.start_cmd.program + ' ' + (s.start_cmd.args || []).join(' ') + (s.start_cmd.workdir ? '  &middot;  ' + s.start_cmd.workdir : '')
+    : null;
+  const kvd = [
+    ['contr&ocirc;le', s.managed ? 'process lanc&eacute; et maintenu par le command center'
+      : (cmd ? 'commande pr&ecirc;te &mdash; process externe non d&eacute;marr&eacute; par ici' : 'aucune &mdash; process externe')],
+    ['&eacute;tat du process', etatProcess],
+    ['pid', s.pid ?? '-'],
+    ['auto-restart', s.auto_restart ? 'ON &mdash; relance automatique au boot/crash' : 'OFF'],
+    ['commande', cmd ?? '-'],
+  ].map(([k, v]) => `<div class="k">${k}</div><div class="v">${esc(v)}</div>`).join('');
+  /* Replis à état mémorisé : le rendu tourne à chaque cycle de rafraîchissement,
+     l'état ouvert/fermé choisi par l'utilisateur est donc persisté (localStorage)
+     et relu ici — sinon le triangle revenait à son état d'origine toutes les 5 s
+     et à chaque réouverture d'onglet. */
+  const foldOpen = name => {
+    try {
+      const v = localStorage.getItem('mcc.fold.' + name);
+      if (v !== null) return v === 'true';
+    } catch (e) {}
+    return name === 'demarrage'; // défauts : Démarrage ouvert, Informations fermé
+  };
+  const fold = (name, title, inner) =>
+    `<details class="fold" data-fold="${name}"${foldOpen(name) ? ' open' : ''} ontoggle="saveFold(this)"><summary>${title}</summary>${inner}</details>`;
   const tools = (s.tools_list || []).map(t =>
     `<div class="tool ${t.disabled?'off':''}">
        <code>${esc(t.name)}</code>
@@ -469,14 +713,17 @@ function renderDetail() {
      </div>`).join('');
   const nOn = (s.tools_list || []).filter(t => !t.disabled).length;
   const nTot = (s.tools_list || []).length;
+  const toolsHtml = `<h4 class="sec">Tools &mdash; ${nOn} actif(s) / ${nTot}${nTot - nOn ? ` (${nTot - nOn} OFF)` : ''}</h4>
+    ${tools || '<div style="color:var(--t4);font-size:12px">aucun tool list&eacute;</div>'}`;
   document.getElementById('content').innerHTML = `
     <div class="crumb">serveurs / <b>${esc(s.label)}</b></div>
     <div class="d-head">
-      <span class="dot ${esc(s.state)}" style="width:10px;height:10px"></span>
+      <span class="dot ${esc(dispState)}" style="width:10px;height:10px"></span>
       <h1>${esc(s.label)}</h1>
-      <span class="pill ${esc(s.state)}">${esc(s.state)}</span>
+      <span class="pill ${esc(dispState)}" ${starting ? 'title="Process lanc&eacute;, MCP pas encore r&eacute;pondu"' : ''}>${starting ? 'AU D&Eacute;MARRAGE' : esc(s.state)}</span>
       ${langChip(s)}
       ${typeBadge(s)}
+      ${frameworkBadge(s)}
       ${s.transport === 'stdio' ? '<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>' : ''}
       <span class="sub">${s.server_name ? esc(s.server_name) + ' v' + esc(s.version || '?') : ''}${s.latency_ms != null ? ' &middot; ' + s.latency_ms + ' ms' : ''}</span>
       <div class="d-actions">
@@ -484,19 +731,30 @@ function renderDetail() {
         ${s.can_start && s.state === 'UP' ? `<button class="danger" onclick="act('kill',${js(s.id)})">&#9632; Stop</button>` : ''}
         <button onclick="act('refresh',${js(s.id)})">Sonder</button>
         <button onclick="act('toggle',${js(s.id)})">${s.enabled ? 'D&eacute;sactiver' : 'Activer'}</button>
-        ${s.origin !== 'seed' ? `<button class="danger" onclick="removeSrv(${js(s.id)})">Retirer</button>` : ''}
+        ${s.origin !== 'seed'
+          ? `<button class="danger" onclick="removeSrv(${js(s.id)})">Retirer</button>`
+          : `<button class="danger" onclick="removeSeedForever(${js(s.id)})" title="Supprime ce seed de la config : il ne sera pas r&eacute;inject&eacute; au red&eacute;marrage">Retirer durablement</button>`}
       </div>
     </div>
-    ${s.origin === 'seed' ? '<div class="seed-note">Serveur seed : &laquo; Retirer &raquo; ne survit pas au red&eacute;marrage (r&eacute;inject&eacute; au boot) &mdash; <b>D&eacute;sactiver</b> l&rsquo;&eacute;teint durablement.</div>' : ''}
+    ${s.origin === 'seed' ? '<div class="seed-note">Serveur seed : <b>Retirer durablement</b> l&rsquo;efface m&ecirc;me apr&egrave;s red&eacute;marrage (consign&eacute; dans config.json) ; <b>D&eacute;sactiver</b> l&rsquo;&eacute;teint sans le supprimer.</div>' : ''}
     ${s.last_error ? `<div class="d-err">&#9888; ${esc(s.last_error)}</div>` : ''}
-    <h4 class="sec">Informations</h4>
-    <div class="kv">${kv}</div>
-    <h4 class="sec">Tools &mdash; ${nOn} actif(s) / ${nTot}${nTot - nOn ? ` (${nTot - nOn} OFF)` : ''}</h4>
-    ${tools || '<div style="color:var(--t4);font-size:12px">aucun tool list&eacute;</div>'}`;
+    ${fold('demarrage', 'D&eacute;marrage', `<div class="kv">${kvd}</div>`)}
+    ${fold('infos', 'Informations', `<div class="kv">${kv}</div>`)}
+    <div class="tabs">
+      <button class="tab ${detailTab === 'outils' ? 'sel' : ''}" onclick="detailTab='outils';renderDetail()">Outils (${nTot})</button>
+      <button class="tab ${detailTab === 'conf' ? 'sel' : ''}" onclick="detailTab='conf';renderDetail()">Conf agent</button>
+    </div>
+    ${detailTab === 'conf' ? confAgent(s) : toolsHtml}`;
 }
 
-function select(id) { selectedId = id; detailCache = null; render(); load(); }
+function select(id) { selectedId = id; detailCache = null; detailTab = 'outils'; render(); load(); }
 function removeSrv(id) { selectedId = null; detailCache = null; act('remove', id); }
+function removeSeedForever(id) {
+  if (!confirm('Retirer ce seed DURABLEMENT ? Il ne sera pas réinjecté au redémarrage du command center.')) return;
+  selectedId = null; detailCache = null;
+  fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'remove', id, durable: true})}).then(load);
+}
 
 /* ===== Actions ===== */
 async function act(action, id) {
@@ -505,13 +763,16 @@ async function act(action, id) {
   await load();
 }
 
+/* Scan en un clic : la plage vient des réglages (settings), aucune saisie demandée */
 async function doScan() {
-  const from = prompt('Scan ports de :', state.settings.scan_from ?? 3000);
-  if (from === null) return;
-  const to = prompt('jusqu\u2019\u00e0 :', state.settings.scan_to ?? 3200);
-  if (to === null) return;
   await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({action: 'scan', from: +from, to: +to})});
+    body: JSON.stringify({action: 'scan'})});
+  await load();
+}
+
+async function doScanNet() {
+  await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'scan_network'})});
   await load();
 }
 
@@ -521,16 +782,6 @@ async function refreshAll() {
   await Promise.all(ids.map(id =>
     fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({action: 'refresh', id})}).catch(() => {})));
-  await load();
-}
-
-async function doScanNet() {
-  const from = prompt('Scan r\u00e9seau ports de :', state.settings.scan_from ?? 3000);
-  if (from === null) return;
-  const to = prompt('jusqu\u2019\u00e0 :', state.settings.scan_to ?? 3200);
-  if (to === null) return;
-  await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({action: 'scan_network', from: +from, to: +to})});
   await load();
 }
 
@@ -544,6 +795,80 @@ async function importPeer(ip) {
   await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action: 'import_peer', ip})});
   await load();
+}
+
+/* ===== Machines distantes (SSH) ===== */
+function openMachineDlg() {
+  document.getElementById('machineDlg').showModal();
+  renderMachines();
+}
+function renderMachines() {
+  if (!state) return;
+  const hosts = state.settings.ssh_hosts || [];
+  const peers = state.peers || [];
+  const box = document.getElementById('machineList');
+  let html = hosts.length ? '' :
+    '<div class="empty-sec">aucune machine enregistr&eacute;e — entre une IP et un utilisateur SSH ci-dessus</div>';
+  html += hosts.map(h => {
+    const peer = peers.find(p => p.ip === h.ip);
+    const st = peer ? `command center d&eacute;tect&eacute; — ${(peer.stats||{}).up ?? '?'} UP / ${(peer.stats||{}).total ?? '?'} serveurs`
+                    : 'machine enregistr&eacute;e';
+    return `<div class="machine-row">
+      <div class="l1"><span class="dot UP"></span><span class="nm">${esc(h.ip)}</span><span class="tag http">${esc(h.user)}</span>${peer ? '<span class="tag sse">pair</span>' : ''}</div>
+      <div class="l2">${st}</div>
+      <div class="macts">
+        <button class="primary" onclick="sshDiscover('${esc(h.ip)}','${esc(h.user)}')">🔗 SSH &amp; d&eacute;couvrir</button>
+        ${peer ? `<button onclick="importPeer('${esc(h.ip)}')">Importer ses serveurs</button>` : ''}
+        <button class="danger" onclick="sshForget('${esc(h.ip)}')">Oublier</button>
+      </div>
+    </div>`;
+  }).join('');
+  const autres = peers.filter(p => !hosts.find(h => h.ip === p.ip));
+  html += autres.map(p => `<div class="machine-row">
+      <div class="l1"><span class="dot UP"></span><span class="nm">${esc(p.ip)}</span><span class="tag sse">pair</span></div>
+      <div class="l2">UI :${p.ui_port} &mdash; ${(p.stats||{}).up ?? '?'} UP / ${(p.stats||{}).total ?? '?'} serveurs</div>
+      <div class="macts"><button onclick="importPeer('${esc(p.ip)}')">Importer ses serveurs</button></div>
+    </div>`).join('');
+  box.innerHTML = html;
+}
+function sshForm() {
+  const ip = (document.getElementById('mIp').value || '').trim();
+  const user = (document.getElementById('mUser').value || '').trim();
+  return {ip, user};
+}
+async function sshDiscover(ip, user) {
+  const f = sshForm();
+  ip = ip || f.ip; user = user || f.user;
+  if (!ip || !user) { alert('IP et utilisateur SSH requis'); return; }
+  const msg = document.getElementById('machineMsg');
+  msg.textContent = '⏳ connexion SSH + netstat distant + sonde des ports… (jusqu\u2019à ~30 s, vois le journal)';
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'ssh_discover', ip, user})});
+  const j = await r.json();
+  if (j.ok && j.started) {
+    msg.textContent = '⏳ d\u00e9couverte lanc\u00e9e sur ' + ip + ' — le journal et la liste se remplissent pendant la sonde.';
+    let t = 0;
+    const iv = setInterval(async () => {
+      await load(); renderMachines();
+      if (++t >= 10) { clearInterval(iv); }
+    }, 4000);
+  } else if (!j.ok) {
+    msg.textContent = '✗ ' + (j.error || 'échec');
+  }
+}
+async function sshSave() {
+  const f = sshForm();
+  if (!f.ip || !f.user) { alert('IP et utilisateur SSH requis'); return; }
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'ssh_save', ip: f.ip, user: f.user})});
+  const j = await r.json();
+  document.getElementById('machineMsg').textContent = j.ok ? '✓ machine enregistr\u00e9e' : '✗ ' + (j.error || 'erreur');
+  await load(); renderMachines();
+}
+async function sshForget(ip) {
+  await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'ssh_forget', ip})});
+  await load(); renderMachines();
 }
 
 async function toggleTool(id, name) {
@@ -588,17 +913,58 @@ async function addServer(ev) {
 
 /* ===== Boutique MCP (porté de Hermes mcp-import.ts / connectors-directory) ===== */
 let storeItems = null;
+let storeLogos = null;
 let storeCat = 'Tout';
 async function openStore() {
   document.getElementById('storeDlg').showModal();
   if (!storeItems) {
     const r = await fetch('/api/store');
     storeItems = await r.json();
+    document.getElementById('storeCount').textContent = '(' + storeItems.length + ' MCP)';
+    // logos officiels (glyphes embarqués au binaire, servis en JSON)
+    fetch('/api/store-logos').then(r2 => r2.json()).then(j => {
+      storeLogos = j;
+      renderStoreItems(); // re-rendu quand les logos arrivent
+    }).catch(() => {});
     const cats = ['Tout', ...new Set(storeItems.map(i => i.cat))];
     document.getElementById('storeCats').innerHTML = cats.map(c =>
       `<button class="scat ${c===storeCat?'sel':''}" onclick="storeCat=${js(c)};renderStoreItems()">${esc(c)}</button>`).join('');
   }
   renderStoreItems();
+}
+/* Logo d'une carte : glyphe officiel par id (STORE_LOGOS), sinon pour les items
+   aitmpl une marque reconnue dans la commande d'installation, sinon un glyphe
+   « paquet » neutre. NB : guillemet-double suivi de dièse interdit dans ce
+   bloc — la séquence fermerait la raw string Rust qui embarque cette page. */
+const PKG_GLYPH = "<path fill='none' stroke='#8a93a5' stroke-width='2' stroke-linejoin='round' d='m12 2 9 5v10l-9 5-9-5V7Zm0 10 9-5m-9 5-9-5m9 5v10'/>";
+const PKG_LOGOS = [
+  ['context7', 'context7'], ['mongodb', 'mongodb'], ['supabase', 'supabase'],
+  ['playwright', 'playwright'], ['figma', 'figma'], ['firecrawl', 'firecrawl'],
+  ['notionhq', 'notion'], ['stripe', 'stripe'], ['kubernetes', 'kubernetes'],
+  ['duckduckgo', 'duckduckgo'], ['todoist', 'todoist'], ['sqlite', 'sqlite'],
+  ['postgres', 'postgresql'], ['server-gdrive', 'googledrive'], ['slack', 'slack'],
+  ['brave', 'brave'], ['n8n', 'n8n'], ['gitlab', 'gitlab'], ['sentry', 'sentry'],
+  ['server-google-maps', 'googlemaps'], ['paddleocr', 'paddlepaddle'],
+  ['chrome-devtools', 'googlechrome'],
+];
+function storeLogoSvg(inner) {
+  return `<svg class="slogo" viewBox="0 0 24 24" aria-hidden="true">${inner}</svg>`;
+}
+function storeLogo(i) {
+  if (!storeLogos) return '';
+  // glyphe officiel par id, préfixes de catalogues additionnels retirés
+  const inner = storeLogos[i.id] || storeLogos[i.id.replace(/^(at|gl)-/, '')];
+  if (inner) return storeLogoSvg(inner);
+  // items de catalogues additionnels : marque reconnue dans la commande,
+  // sinon glyphe « paquet » neutre
+  if (/^(at|gl|gh)-/.test(i.id)) {
+    const cmd = (i.program + ' ' + (i.args || []).join(' ')).toLowerCase();
+    for (const [needle, lid] of PKG_LOGOS) {
+      if (storeLogos[lid] && cmd.includes(needle)) return storeLogoSvg(storeLogos[lid]);
+    }
+    return storeLogoSvg(PKG_GLYPH);
+  }
+  return '';
 }
 function renderStoreItems() {
   if (!storeItems) return;
@@ -608,7 +974,7 @@ function renderStoreItems() {
   document.getElementById('storeGrid').innerHTML = list.map(i => {
     const cmd = (i.program + ' ' + i.args.join(' ')).replace(/C:\/Users\/Deamon/g, '~');
     return `<div class="scard">
-      <div class="scard-top"><b>${esc(i.name)}</b><span class="tag ${i.kind==='npm'?'npm':'py'}">${i.kind}</span></div>
+      <div class="scard-top">${storeLogo(i)}<b>${esc(i.name)}</b><span class="tag ${i.kind==='npm'?'npm':'py'}">${i.kind}</span></div>
       <div class="scard-desc">${esc(i.desc)}</div>
       <div class="scard-cmd" title="${esc(i.program + ' ' + i.args.join(' '))}">${esc(cmd)}</div>
       <button class="primary" onclick="installStore(${js(i.id)}, this)">&#10515; Installer</button>
@@ -617,26 +983,60 @@ function renderStoreItems() {
 }
 async function installStore(id, btn) {
   btn.disabled = true; btn.textContent = '\u23f3 Installation\u2026';
+  const body = {action: 'install_store', id};
+  if (id === 'filesystem') {
+    // le dossier exposé est un choix EXPLICITE (jamais de chemin personnel par défaut)
+    const dir = prompt('Dossier à exposer au serveur Filesystem (chemin complet) :', '');
+    if (!dir || !dir.trim()) {
+      btn.disabled = false; btn.textContent = '\u23f3 Installer';
+      return;
+    }
+    body.args = ['-y', '@modelcontextprotocol/server-filesystem', dir.trim()];
+  }
   const r = await fetch('/api/action', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({action:'install_store', id})});
+    body: JSON.stringify(body)});
   const j = await r.json();
   if (j.ok) {
     btn.textContent = j.added ? (j.state === 'UP' ? '\u2713 Install\u00e9 et UP' : '\u2713 Install\u00e9 (d\u00e9marrage\u2026)') : 'D\u00e9j\u00e0 install\u00e9';
     await load();
   } else { btn.disabled = false; btn.textContent = 'R\u00e9essayer'; alert(j.error || 'erreur'); }
 }
-async function doImport() {
-  const box = document.getElementById('importBox');
-  const msg = document.getElementById('importMsg');
-  const r = await fetch('/api/action', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({action:'import_mcp', text: box.value})});
-  const j = await r.json();
-  if (j.ok) {
-    msg.textContent = j.added ? `\u2713 ${j.added} serveur(s) import\u00e9(s)` : 'd\u00e9j\u00e0 pr\u00e9sent';
-    if (j.added) { box.value = ''; await load(); }
-  } else msg.textContent = '\u2717 ' + (j.error || 'erreur');
-  setTimeout(() => msg.textContent = '', 5000);
-}
+
+/* ===== Barre latérale ajustable (largeur mémorisée) ===== */
+(function () {
+  const grip = document.getElementById('grip'), expl = document.getElementById('explorer');
+  const clamp = w => Math.min(520, Math.max(180, w));
+  try { const saved = +localStorage.getItem('mcc.explorer.w'); if (saved) expl.style.width = clamp(saved) + 'px'; } catch (e) {}
+  grip.addEventListener('mousedown', e => {
+    e.preventDefault();
+    grip.classList.add('drag');
+    const x0 = e.clientX, w0 = expl.getBoundingClientRect().width;
+    const mv = ev => { expl.style.width = clamp(w0 + ev.clientX - x0) + 'px'; };
+    const up = () => {
+      try { localStorage.setItem('mcc.explorer.w', String(Math.round(expl.getBoundingClientRect().width))); } catch (e) {}
+      grip.classList.remove('drag');
+      document.removeEventListener('mousemove', mv);
+      document.removeEventListener('mouseup', up);
+    };
+    document.addEventListener('mousemove', mv);
+    document.addEventListener('mouseup', up);
+  });
+})();
+
+/* ===== Contrôles de fenêtre (desktop Tauri uniquement : ni data-tauri-drag-region
+   ni __TAURI__ n'ont d'effet dans un navigateur classique, les boutons y restent masqués) ===== */
+(function () {
+  try {
+    const W = window.__TAURI__ && window.__TAURI__.window;
+    if (!W) return;
+    const tw = W.getCurrentWindow ? W.getCurrentWindow() : (W.getCurrent ? W.getCurrent() : null);
+    if (!tw) return;
+    document.getElementById('winCtrls').style.display = 'flex';
+    document.getElementById('wMin').onclick = () => tw.minimize();
+    document.getElementById('wMax').onclick = () => tw.toggleMaximize();
+    document.getElementById('wClose').onclick = () => tw.close();
+  } catch (e) { /* navigateur classique : rien à câbler */ }
+})();
 
 load();
 setInterval(load, 5000);

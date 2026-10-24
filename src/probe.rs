@@ -39,6 +39,11 @@ pub struct McpProbe {
     /// Langage inféré (stdio : la commande ; HTTP : en-têtes Server/X-Powered-By).
     /// La spec MCP n'expose PAS le langage dans serverInfo.
     pub lang: Option<String>,
+    /// Framework détecté par fingerprint — "litemcp" si le serveur répond
+    /// initialize avec la version 2026-07-28 SANS négocier (le probe demande
+    /// 2024-11-05, litemcp ignore la version demandée) ET que sa sonde
+    /// GET /health répond 200 « ok » (deux signatures documentées de litemcp).
+    pub framework: Option<String>,
     pub tools: Vec<ToolInfo>,
     pub latency_ms: u64,
     pub error: Option<String>,
@@ -57,6 +62,7 @@ impl McpProbe {
             sse: false,
             sse_endpoint: false,
             lang: None,
+            framework: None,
             tools: vec![],
             latency_ms: 0,
             error: Some(err),
@@ -121,25 +127,40 @@ pub fn kill_tree(pid: u32) {
 /// Tue le process qui ÉCOUTE réellement sur un port local (méthode du launcher
 /// MCP MONITOR v7.3) : `child.kill()` ne tue que le lanceur, pas le serveur
 /// détaché qu'il a spawné. netstat -ano → PIDs LISTENING → taskkill /F /PID.
+/// PIDs écoutant EXACTEMENT sur `port` (parse par colonne : ":3141" ne matche plus
+/// ":31410"), en excluant notre propre PID (on ne se suicide pas si l'id vise notre port).
+pub fn pids_listening_on(netstat_text: &str, port: u16) -> Vec<u32> {
+    let mut out: Vec<u32> = Vec::new();
+    for line in netstat_text.lines() {
+        let toks: Vec<&str> = line.split_whitespace().collect();
+        if toks.len() < 5 || !toks.contains(&"LISTENING") {
+            continue;
+        }
+        let Some(addr) = toks.get(1) else { continue };
+        if addr.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()) != Some(port) {
+            continue;
+        }
+        if let Some(pid) = toks.last().and_then(|t| t.parse::<u32>().ok()) {
+            if pid != std::process::id() && !out.contains(&pid) {
+                out.push(pid);
+            }
+        }
+    }
+    out
+}
+
 #[cfg(windows)]
 pub fn kill_port(port: u16) {
     let mut c = Command::new("netstat");
     if let Ok(out) = hidden(&mut c).args(["-ano"]).output() {
         let text = String::from_utf8_lossy(&out.stdout);
-        let needle = format!(":{}", port);
-        for line in text.lines() {
-            if line.contains("LISTENING") && line.contains(&needle) {
-                if let Some(pid) = line.split_whitespace().last() {
-                    if !pid.is_empty() && pid.chars().all(|c| c.is_ascii_digit()) {
-                        let mut t = Command::new("taskkill");
-                        let _ = hidden(&mut t)
-                            .args(["/F", "/PID", pid])
-                            .stdout(Stdio::null())
-                            .stderr(Stdio::null())
-                            .status();
-                    }
-                }
-            }
+        for pid in pids_listening_on(&text, port) {
+            let mut t = Command::new("taskkill");
+            let _ = hidden(&mut t)
+                .args(["/F", "/PID", &pid.to_string()])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
         }
     }
 }
@@ -442,6 +463,391 @@ pub fn sse_get(port: u16, path: &str, timeout_ms: u64) -> bool {
     sse_get_host("::1", port, path, timeout_ms) || sse_get_host("127.0.0.1", port, path, timeout_ms)
 }
 
+/// GET /health sur un hôte précis — vrai si 2xx avec un corps contenant « ok ».
+/// Sonde de vie documentée de litemcp ; second signal du fingerprint du framework.
+pub fn health_ok_host(host: &str, port: u16, timeout_ms: u64) -> bool {
+    let addr = match socket_addr(host, port) {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    let timeout = Duration::from_millis(timeout_ms);
+    let mut stream = match TcpStream::connect_timeout(&addr, timeout) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    stream.set_read_timeout(Some(timeout)).ok();
+    stream.set_write_timeout(Some(timeout)).ok();
+    let host_hdr = if host.contains(':') {
+        format!("[{}]:{}", host, port)
+    } else {
+        format!("{}:{}", host, port)
+    };
+    let req = format!(
+        "GET /health HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+        host_hdr
+    );
+    if stream.write_all(req.as_bytes()).is_err() {
+        return false;
+    }
+    let mut data = Vec::new();
+    let mut tmp = [0u8; 2048];
+    let deadline = Instant::now() + timeout;
+    loop {
+        let remain = deadline.saturating_duration_since(Instant::now());
+        if remain.is_zero() {
+            break;
+        }
+        stream.set_read_timeout(Some(remain)).ok();
+        match stream.read(&mut tmp) {
+            Ok(0) => break,
+            Ok(n) => data.extend_from_slice(&tmp[..n]),
+            Err(_) => break,
+        }
+    }
+    let sep = match find_sub(&data, b"\r\n\r\n") {
+        Some(p) => p,
+        None => return false,
+    };
+    let head = String::from_utf8_lossy(&data[..sep]).to_lowercase();
+    (head.starts_with("http/1.1 2") || head.starts_with("http/1.0 2"))
+        && String::from_utf8_lossy(&data[sep + 4..])
+            .to_lowercase()
+            .contains("ok")
+}
+
+/// Fingerprint du framework serveur (pur, testé) : litemcp répond initialize
+/// avec la version 2026-07-28 sans négocier la version demandée par le client
+/// ET expose GET /health → 200 « ok ». Les deux signatures à la fois écartent
+/// les serveurs qui partagent l'une ou l'autre (specs à jour, health endpoints
+/// génériques).
+fn detect_framework(protocol: Option<&str>, health: bool) -> Option<&'static str> {
+    if protocol == Some(crate::LITEMCP_PROTOCOL) && health {
+        Some("litemcp")
+    } else {
+        None
+    }
+}
+
+// ---------- découverte SSH d'une machine distante ----------
+
+/// Sanitize d'un hôte/utilisateur pour la ligne de commande ssh (anti-injection :
+/// ces valeurs arrivent de l'UI). Hôte : lettres/chiffres/point/tiret/deux-points
+/// (IPv6) ; utilisateur : lettres/chiffres/point/tiret/underscore.
+fn ssh_safe(s: &str) -> Option<String> {
+    let ok = !s.is_empty()
+        && s.len() <= 253
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':'));
+    if ok {
+        Some(s.to_string())
+    } else {
+        None
+    }
+}
+
+/// Ports système écartés de la découverte (écouteurs Windows/Linux sans MCP).
+const SSH_PORTS_EXCLUDES: &[u16] = &[
+    22, 53, 88, 135, 139, 389, 445, 464, 636, 2179, 3268, 3269, 3389, 5040, 5353, 5355, 5357, 5985,
+    47001,
+];
+
+/// Parse la sortie `netstat -ano | findstr LISTENING` (Windows) ou `ss -tln` /
+/// `netstat -tln` (Linux) en liste de ports en écoute, ports système écartés.
+pub fn parse_listening_ports(text: &str) -> Vec<u16> {
+    let mut ports = std::collections::BTreeSet::new();
+    for line in text.lines() {
+        let toks: Vec<&str> = line.split_whitespace().collect();
+        // Windows : "TCP    0.0.0.0:8080    0.0.0.0:0    LISTENING    1234"
+        if toks.len() >= 4 && toks.contains(&"LISTENING") {
+            if let Some(p) = toks[1]
+                .rsplit(':')
+                .next()
+                .and_then(|x| x.parse::<u16>().ok())
+            {
+                ports.insert(p);
+            }
+            continue;
+        }
+        // Linux : "LISTEN 0 128 0.0.0.0:8080 ..." ou "tcp LISTEN 0 128 *:8080 ..."
+        if toks.contains(&"LISTEN") {
+            for t in &toks {
+                if let Some((addr, port)) = t.rsplit_once(':') {
+                    if (addr.contains('.') || addr == "*" || addr.starts_with('['))
+                        && port.parse::<u16>().map(|p| p > 0).unwrap_or(false)
+                    {
+                        ports.insert(port.parse::<u16>().unwrap_or(0));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    ports
+        .into_iter()
+        .filter(|p| !SSH_PORTS_EXCLUDES.contains(p))
+        .collect()
+}
+
+/// CREATE_NO_WINDOW pour tout process utilitaire (ssh, powershell…) : aucune
+/// console ne doit s'ouvrir depuis une app GUI.
+pub fn probe_hidden_cmd(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = cmd;
+    }
+}
+
+/// Exécute une commande sur la machine distante via le client ssh système
+/// (aucune dépendance : ssh.exe/OpenSSH livré avec Windows). Auth par clé
+/// obligatoire : BatchMode interdit toute invite. Retourne stdout, ou l'erreur
+/// ssh en clair (avec indication) pour l'UI.
+fn ssh_exec(
+    host: &str,
+    user: &str,
+    remote_cmd: &str,
+    connect_timeout: u64,
+) -> Result<String, String> {
+    let host = ssh_safe(host).ok_or_else(|| "hôte invalide".to_string())?;
+    let user = ssh_safe(user).ok_or_else(|| "utilisateur SSH invalide".to_string())?;
+    let mut cmd = Command::new("ssh");
+    cmd.args([
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        &format!("ConnectTimeout={}", connect_timeout.clamp(2, 15)),
+        &format!("{user}@{host}"),
+        remote_cmd,
+    ]);
+    probe_hidden_cmd(&mut cmd);
+    let out = cmd
+        .output()
+        .map_err(|e| format!("client ssh introuvable ou injoignable : {e}"))?;
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    if !out.status.success() && stdout.trim().is_empty() {
+        let low = stderr.to_lowercase();
+        let hint = if low.contains("permission denied") || low.contains("publickey") {
+            " — auth refusée : ajoute ta clé publique sur la machine (authorized_keys), le mot de passe n'est pas possible en non-interactif"
+        } else if low.contains("could not resolve")
+            || low.contains("timed out")
+            || low.contains("connection refused")
+        {
+            " — machine injoignable"
+        } else {
+            ""
+        };
+        return Err(format!("ssh {user}@{host} : {}{}", stderr.trim(), hint));
+    }
+    Ok(stdout)
+}
+
+/// Liste les ports en écoute d'une machine distante (netstat/ss exécutés sur place).
+pub fn ssh_netstat(host: &str, user: &str, timeout_secs: u64) -> Result<Vec<u16>, String> {
+    let stdout = ssh_exec(
+        host,
+        user,
+        "netstat -ano | findstr LISTENING || ss -tln",
+        timeout_secs,
+    )?;
+    Ok(parse_listening_ports(&stdout))
+}
+
+/// Chemin MCP sanitisé (arrive de la config) : commence par /, aucun espace
+/// ni quote — il est injecté dans une commande distante.
+fn mcp_path_safe(path: &str) -> String {
+    let p = if path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("/{path}")
+    };
+    if !p.is_empty()
+        && p.len() <= 128
+        && p.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.' | '~'))
+    {
+        p
+    } else {
+        "/mcp".to_string()
+    }
+}
+
+/// Payload JSON-RPC d'un curl interne (aucune single-quote : protégé par '...').
+fn mcp_remote_payload(method: &str, id: u64) -> String {
+    let params = if method == "tools/list" {
+        json!({})
+    } else {
+        json!({
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "mcp-command-center", "version": env!("CARGO_PKG_VERSION")}
+        })
+    };
+    json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string()
+}
+
+/// Commande curl interne d'un appel MCP sur 127.0.0.1 (à exécuter SUR la machine).
+/// `hostport` peut contenir une expression shell SÛRE (${p} pour le batch) :
+/// l'URL est en quotes doubles, aucun $ autre que celui voulu (path sanitizé).
+fn mcp_remote_curl(hostport: &str, path: &str, payload: &str, curl_timeout: u64) -> String {
+    format!(
+        "curl -s -m {t} -X POST \"http://127.0.0.1:{hostport}{path}\" \
+         -H 'Content-Type: application/json' \
+         -H 'Accept: application/json, text/event-stream' \
+         -H 'MCP-Protocol-Version: 2024-11-05' \
+         -d '{payload}'",
+        t = curl_timeout.clamp(1, 15),
+        hostport = hostport,
+        path = mcp_path_safe(path),
+        payload = payload
+    )
+}
+
+pub const MCC_PORT_MARKER: &str = "__MCC_PORT_";
+
+/// Sonde par lot DEPUIS la machine distante : un seul exec ssh boucle sur les
+/// ports avec curl interne sur 127.0.0.1 (passe les binds localhost et ufw).
+/// Retourne les ports qui répondent à initialize avec un serverInfo + le résultat.
+pub fn ssh_probe_mcp_batch(
+    host: &str,
+    user: &str,
+    ports: &[u16],
+    path: &str,
+    curl_timeout: u64,
+) -> Result<Vec<(u16, Value)>, String> {
+    if ports.is_empty() {
+        return Ok(vec![]);
+    }
+    let path = mcp_path_safe(path);
+    let list = ports
+        .iter()
+        .map(|p| p.to_string())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let payload = mcp_remote_payload("initialize", 1);
+    let remote = format!(
+        "for p in {list}; do echo \"{MCC_PORT_MARKER}${{p}}__\"; {curl}; echo; done",
+        curl = mcp_remote_curl("${p}", &path, &payload, curl_timeout)
+    );
+    let out = ssh_exec(host, user, &remote, 8)?;
+    let mut results = Vec::new();
+    for seg in out.split(MCC_PORT_MARKER).skip(1) {
+        let Some((pstr, body)) = seg.split_once("__") else {
+            continue;
+        };
+        let Ok(port) = pstr.trim().parse::<u16>() else {
+            continue;
+        };
+        if let Some(v) = extract_json(body.as_bytes()) {
+            if v.get("result").and_then(|r| r.get("serverInfo")).is_some() {
+                results.push((port, v));
+            }
+        }
+    }
+    Ok(results)
+}
+
+/// Sonde COMPLÈTE d'un serveur MCP (initialize + tools/list) exécutée DEPUIS la
+/// machine distante : un seul exec ssh, les deux réponses séparées par un
+/// marqueur. Utilisé pour le poll des serveurs via_ssh — cf. Server.via_ssh.
+pub fn ssh_probe_server(
+    host: &str,
+    user: &str,
+    port: u16,
+    path: &str,
+    curl_timeout: u64,
+) -> McpProbe {
+    let t0 = Instant::now();
+    let path = mcp_path_safe(path);
+    let init = mcp_remote_payload("initialize", 1);
+    let tools = mcp_remote_payload("tools/list", 2);
+    // Certains serveurs (SDK officiels) attribuent un Mcp-Session-Id à
+    // l'initialize et REJETENT tools/list sans lui : en-têtes capturés (-D),
+    // session sanitisée (uuid) puis rejouée. AUCUNE double-quote dans la
+    // commande distante (l'échappement Windows ssh les mutilerait) : l'en-tête
+    // est toujours ajouté — vide quand le serveur n'en émet pas (ignoré).
+    let tmp = "/tmp/.mcc_session_$$";
+    let remote = format!(
+        "{init_curl} -D {tmp}; sid=$(grep -i mcp-session-id {tmp} | head -n 1 | tr -d '\\r' | sed 's/^[^:]*: *//' | tr -cd 'A-Za-z0-9-_' | head -c 100); \
+         rm -f {tmp}; echo __MCC_SEP__; {tools_curl} -H 'Mcp-Session-Id:'$sid; echo",
+        init_curl = mcp_remote_curl(&port.to_string(), &path, &init, curl_timeout),
+        tools_curl = mcp_remote_curl(&port.to_string(), &path, &tools, curl_timeout),
+        tmp = tmp,
+    );
+    let out = match ssh_exec(host, user, &remote, 8) {
+        Ok(o) => o,
+        Err(e) => return McpProbe::fail(e, true),
+    };
+    let latency = t0.elapsed().as_millis() as u64;
+    let (init_body, tools_body) = out.split_once("__MCC_SEP__").unwrap_or((out.as_str(), ""));
+    let Some(v) = extract_json(init_body.as_bytes()) else {
+        return McpProbe::fail("via ssh : pas de réponse initialize".to_string(), true);
+    };
+    let Some(res) = v.get("result") else {
+        return McpProbe::fail("via ssh : initialize rejeté".to_string(), true);
+    };
+    let si = res.get("serverInfo");
+    let name = si
+        .and_then(|s| s.get("name"))
+        .and_then(|x| x.as_str())
+        .map(String::from);
+    let version = si
+        .and_then(|s| s.get("version"))
+        .and_then(|x| x.as_str())
+        .map(String::from);
+    let protocol = res
+        .get("protocolVersion")
+        .and_then(|x| x.as_str())
+        .map(String::from);
+    let mut tools = Vec::new();
+    if let Some(tv) = extract_json(tools_body.as_bytes()) {
+        if let Some(arr) = tv
+            .get("result")
+            .and_then(|r| r.get("tools"))
+            .and_then(|t| t.as_array())
+        {
+            for t in arr {
+                tools.push(ToolInfo {
+                    name: t
+                        .get("name")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("?")
+                        .to_string(),
+                    desc: t
+                        .get("description")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .chars()
+                        .take(160)
+                        .collect(),
+                });
+            }
+        }
+    }
+    McpProbe {
+        mcp_up: true,
+        port_open: true,
+        pid: None,
+        host: Some(host.to_string()),
+        name,
+        version,
+        protocol,
+        sse: false,
+        sse_endpoint: false,
+        lang: None,
+        framework: None,
+        tools,
+        latency_ms: latency,
+        error: None,
+    }
+}
+
 /// POST JSON vers localhost (essaye ::1 puis 127.0.0.1), lit toute la réponse (gère chunked).
 /// Renvoie (host_utilisé, corps, transport SSE détecté).
 pub fn http_post(
@@ -452,7 +858,7 @@ pub fn http_post(
 ) -> Result<(String, Vec<u8>, RespHead), String> {
     let mut last_err = String::new();
     for host in ["::1", "127.0.0.1"] {
-        match http_post_host(host, port, path, body, timeout_ms) {
+        match http_post_host(host, port, path, body, timeout_ms, &[]) {
             Ok((b, h)) => return Ok((host.to_string(), b, h)),
             Err(e) => last_err = e,
         }
@@ -461,12 +867,14 @@ pub fn http_post(
 }
 
 /// POST JSON vers un hôte précis (localhost OU hôte du réseau local).
+/// `extra_headers` : en-têtes additionnels (ex. code d'accès pour la sonde de pairs).
 pub fn http_post_host(
     host: &str,
     port: u16,
     path: &str,
     body: &str,
     timeout_ms: u64,
+    extra_headers: &[(&str, &str)],
 ) -> Result<(Vec<u8>, RespHead), String> {
     let timeout = Duration::from_millis(timeout_ms);
     let mut last_err = String::new();
@@ -479,10 +887,24 @@ pub fn http_post_host(
             Ok(mut stream) => {
                 stream.set_read_timeout(Some(timeout)).ok();
                 stream.set_write_timeout(Some(timeout)).ok();
-                let req = format!(
-                    "POST {} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nMCP-Protocol-Version: 2024-11-05\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                    path, body.len(), body
+                // Host exact (le "localhost" historique casse les vhosts sur hôte distant)
+                let host_hdr = if host.contains(':') {
+                    format!("[{}]:{}", host, port)
+                } else {
+                    format!("{}:{}", host, port)
+                };
+                let mut req = format!(
+                    "POST {} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nMCP-Protocol-Version: 2024-11-05\r\n",
+                    path, host_hdr
                 );
+                for (n, v) in extra_headers {
+                    req.push_str(&format!("{}: {}\r\n", n, v));
+                }
+                req.push_str(&format!(
+                    "Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                ));
                 if let Err(e) = stream.write_all(req.as_bytes()) {
                     return Err(format!("{} write: {}", host, e));
                 }
@@ -689,8 +1111,23 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
     let sse = head.sse();
     let sse_path = if path == "/sse" { path } else { "/sse" };
     let sse_endpoint = sse_get_host(&host, port, sse_path, timeout_ms.clamp(500, 1200));
-    // 1) en-têtes Server/X-Powered-By ; 2) sinon le vrai process qui écoute le port
-    let lang = detect_lang_http(&head, name.as_deref()).or_else(|| port_owner_lang(port));
+    // Fingerprint litemcp : la sonde /health ne part que si l'initialize a
+    // répondu 2026-07-28 (requête émise : 2024-11-05) — aucune requête de plus
+    // pour les serveurs qui négocient normalement.
+    let framework = if protocol.as_deref() == Some(crate::LITEMCP_PROTOCOL) {
+        detect_framework(
+            protocol.as_deref(),
+            health_ok_host(&host, port, timeout_ms.clamp(400, 1200)),
+        )
+        .map(String::from)
+    } else {
+        None
+    };
+    // 1) en-têtes Server/X-Powered-By ; 2) sinon le vrai process qui écoute le port ;
+    // 3) sinon le framework (litemcp = lib Rust par définition)
+    let lang = detect_lang_http(&head, name.as_deref())
+        .or_else(|| port_owner_lang(port))
+        .or_else(|| framework.as_ref().map(|_| "rust".to_string()));
     let mut tools = Vec::new();
     if let Ok((tr, _, _)) = rpc_call(port, path, "tools/list", json!({}), 2, timeout_ms) {
         if let Some(arr) = tr.get("tools").and_then(|t| t.as_array()) {
@@ -723,6 +1160,7 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
         sse,
         sse_endpoint,
         lang,
+        framework,
         tools,
         latency_ms: latency,
         error: None,
@@ -893,6 +1331,7 @@ pub fn probe_stdio(
                 sse: false,
                 sse_endpoint: false,
                 lang: detect_lang_stdio(&program, args),
+                framework: None,
                 tools,
                 latency_ms: latency,
                 error: None,
@@ -917,6 +1356,7 @@ pub fn probe_stdio(
                 sse: false,
                 sse_endpoint: false,
                 lang: detect_lang_stdio(&program, args),
+                framework: None,
                 tools,
                 latency_ms: latency,
                 error: None,
@@ -937,7 +1377,7 @@ pub fn rpc_call_host(
     timeout_ms: u64,
 ) -> Result<(Value, RespHead), String> {
     let body = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string();
-    let (bytes, head) = http_post_host(host, port, path, &body, timeout_ms)?;
+    let (bytes, head) = http_post_host(host, port, path, &body, timeout_ms, &[])?;
     let v =
         extract_json(&bytes).ok_or_else(|| format!("réponse non JSON ({} octets)", bytes.len()))?;
     if let Some(err) = v.get("error") {
@@ -983,7 +1423,17 @@ pub fn probe_http_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> Mc
     let sse = head.sse();
     let sse_path = if path == "/sse" { path } else { "/sse" };
     let sse_endpoint = sse_get_host(host, port, sse_path, timeout_ms.clamp(500, 1200));
-    let lang = detect_lang_http(&head, name.as_deref());
+    let framework = if protocol.as_deref() == Some(crate::LITEMCP_PROTOCOL) {
+        detect_framework(
+            protocol.as_deref(),
+            health_ok_host(host, port, timeout_ms.clamp(400, 1200)),
+        )
+        .map(String::from)
+    } else {
+        None
+    };
+    let lang = detect_lang_http(&head, name.as_deref())
+        .or_else(|| framework.as_ref().map(|_| "rust".to_string()));
     let mut tools = Vec::new();
     if let Ok((tr, _)) = rpc_call_host(host, port, path, "tools/list", json!({}), 2, timeout_ms) {
         if let Some(arr) = tr.get("tools").and_then(|t| t.as_array()) {
@@ -1016,6 +1466,7 @@ pub fn probe_http_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> Mc
         sse,
         sse_endpoint,
         lang,
+        framework,
         tools,
         latency_ms: latency,
         error: None,
@@ -1030,8 +1481,13 @@ pub struct PeerProbe {
 }
 
 /// Sonde /api/state d'un command-center distant (cache de pairs).
-pub fn probe_peer(ip: &str, port: u16) -> PeerProbe {
-    let body = http_post_host(ip, port, "/api/state", "", 1200).map(|(b, _)| b);
+/// `access` : code d'accès API du pair (secret partagé — la même valeur côté
+/// émetteur et récepteur dans config.json). Sans lui, un pair en bind non-loopback refusela sonde.
+pub fn probe_peer(ip: &str, port: u16, access: Option<&str>) -> PeerProbe {
+    let extras: Vec<(&str, &str)> = access
+        .map(|a| vec![("X-MCC-Access", a)])
+        .unwrap_or_default();
+    let body = http_post_host(ip, port, "/api/state", "", 1200, &extras).map(|(b, _)| b);
     match body {
         Ok(bytes) => {
             // /api/state répond à tout POST : valider que c'est du JSON avec "servers"
@@ -1082,7 +1538,7 @@ pub fn arp_hosts(prefix: &str, self_ip: &str) -> Vec<String> {
     ips.into_iter().collect()
 }
 
-fn looks_like_ip(s: &str) -> bool {
+pub fn looks_like_ip(s: &str) -> bool {
     let parts: Vec<&str> = s.split('.').collect();
     if parts.len() != 4 {
         return false;
@@ -1230,6 +1686,167 @@ mod tests {
     }
 
     #[test]
+    fn detect_framework_exige_les_deux_signatures() {
+        // les deux signaux : protocol 2026-07-28 non négocié + /health « ok »
+        assert_eq!(
+            detect_framework(Some("2026-07-28"), true),
+            Some("litemcp"),
+            "les deux signatures = litemcp"
+        );
+        // un seul signal ne suffit pas (specs à jour ailleurs, /health génériques)
+        assert_eq!(detect_framework(Some("2026-07-28"), false), None);
+        assert_eq!(detect_framework(Some("2024-11-05"), true), None);
+        assert_eq!(detect_framework(None, true), None);
+    }
+
+    #[test]
+    fn parse_listening_ports_windows_linux_et_exclusions() {
+        // Windows netstat
+        let win = "\
+  TCP    0.0.0.0:8080          0.0.0.0:0              LISTENING   1234\r\n\
+  TCP    127.0.0.1:5091        0.0.0.0:0              LISTENING   5678\r\n\
+  TCP    0.0.0.0:135           0.0.0.0:0              LISTENING   999\r\n\
+  TCP    0.0.0.0:445           0.0.0.0:0              LISTENING   999\r\n\
+  UDP    0.0.0.0:5353          *:*                                999\r\n";
+        let mut p = parse_listening_ports(win);
+        p.sort();
+        assert_eq!(
+            p,
+            vec![5091, 8080],
+            "ports MCP gardés, système (135/445/5353) écartés"
+        );
+
+        // Linux ss -tln
+        let linux = "State  Recv-Q Send-Q Local Address:Port  Peer Address:Port\n\
+LISTEN  0      128        0.0.0.0:3099       0.0.0.0:*\n\
+LISTEN  0      128           [::]:22            [::]:*\n\
+LISTEN  0      128              *:3141             *:*";
+        let mut p2 = parse_listening_ports(linux);
+        p2.sort();
+        assert_eq!(
+            p2,
+            vec![3099, 3141],
+            "port 22 système écarté, ports MCP gardés"
+        );
+    }
+
+    #[test]
+    fn ssh_safe_rejete_les_injections() {
+        assert_eq!(ssh_safe("192.168.1.42").as_deref(), Some("192.168.1.42"));
+        assert_eq!(ssh_safe("mon-pc.local").as_deref(), Some("mon-pc.local"));
+        assert_eq!(ssh_safe("Deamon_1").as_deref(), Some("Deamon_1"));
+        assert_eq!(ssh_safe("::1").as_deref(), Some("::1"));
+        // injection classique : tout caractère hors liste est rejeté
+        assert_eq!(ssh_safe("x; rm -rf /"), None);
+        assert_eq!(ssh_safe("a$(reboot)"), None);
+        assert_eq!(ssh_safe("a b"), None);
+        assert_eq!(ssh_safe(""), None);
+        assert_eq!(ssh_safe("a\"b"), None);
+    }
+
+    #[test]
+    fn health_ok_detecte_la_sonde_litemcp_et_rejete_le_reste() {
+        // 1. sonde litemcp : 200 + corps « ok » → true
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        thread::spawn(move || {
+            if let Ok((mut s, _)) = l.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = s.read(&mut buf);
+                let resp = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
+                let _ = s.write_all(resp.as_bytes());
+            }
+        });
+        assert!(health_ok_host("127.0.0.1", port, 2000));
+
+        // 2. /health qui répond autre chose → false
+        let l2 = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port2 = l2.local_addr().unwrap().port();
+        thread::spawn(move || {
+            if let Ok((mut s, _)) = l2.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = s.read(&mut buf);
+                let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 15\r\nConnection: close\r\n\r\n{\"status\":\"up\"}";
+                let _ = s.write_all(resp.as_bytes());
+            }
+        });
+        assert!(
+            !health_ok_host("127.0.0.1", port2, 2000),
+            "un /health JSON sans « ok » ne doit pas passer"
+        );
+    }
+
+    #[test]
+    fn probe_http_fingerprint_litemcp() {
+        // Faux serveur litemcp : initialize répondu en 2026-07-28 (sans négocier),
+        // tools/list, et GET /health → 200 « ok ». Le probe doit poser
+        // framework = "litemcp" et inférer le langage rust.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        thread::spawn(move || {
+            let init = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2026-07-28\",\"serverInfo\":{\"name\":\"hello\",\"version\":\"0.1.0\"}}}";
+            let tools = "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[{\"name\":\"hello\",\"description\":\"Dit bonjour\"}]}}";
+            let mut pending: Vec<&str> = vec![init, tools];
+            for stream in listener.incoming() {
+                let mut stream = match stream {
+                    Ok(s) => s,
+                    Err(_) => return,
+                };
+                let mut buf = [0u8; 16384];
+                let n = match stream.read(&mut buf) {
+                    Ok(n) => n,
+                    Err(_) => continue,
+                };
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                if req.starts_with("GET /health") {
+                    let resp = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
+                    let _ = stream.write_all(resp.as_bytes());
+                    continue;
+                }
+                let Some(payload) = pending.first().copied() else {
+                    return;
+                };
+                if req.contains("\"method\"") {
+                    pending.remove(0);
+                }
+                let body = payload.as_bytes();
+                let head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ";
+                let _ = stream.write_all(
+                    format!("{}{}\r\nConnection: close\r\n\r\n", head, body.len()).as_bytes(),
+                );
+                let _ = stream.write_all(body);
+                let _ = stream.flush();
+            }
+        });
+        let p = probe_http(port, "/mcp", 5000);
+        assert!(p.mcp_up, "doit etre UP, erreur: {:?}", p.error);
+        assert_eq!(
+            p.framework.as_deref(),
+            Some("litemcp"),
+            "2026-07-28 non négocié + /health ok = litemcp"
+        );
+        assert_eq!(p.lang.as_deref(), Some("rust"), "litemcp = lib Rust");
+        assert_eq!(p.protocol.as_deref(), Some("2026-07-28"));
+    }
+
+    #[test]
+    fn probe_http_sans_sonde_health_pas_de_fingerprint() {
+        // protocol 2026-07-28 mais /health sans réponse (le faux serveur ignore
+        // les GET sans "method") : un seul signal → PAS de fingerprint.
+        let port = spawn_fake_http(vec![
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2026-07-28\",\"serverInfo\":{\"name\":\"x\",\"version\":\"1\"}}}"
+                .to_string(),
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[]}}".to_string(),
+        ]);
+        let p = probe_http(port, "/mcp", 5000);
+        assert!(p.mcp_up);
+        assert_eq!(
+            p.framework, None,
+            "sans /health « ok », pas de badge litemcp (un seul signal)"
+        );
+    }
+
+    #[test]
     fn probe_http_initialise_et_liste_les_tools() {
         let init = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2024-11-05\",\"serverInfo\":{\"name\":\"test-mcp\",\"version\":\"9.9.9\"}}}";
         let tools = "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[{\"name\":\"tool_a\",\"description\":\"premiere\"},{\"name\":\"tool_b\",\"description\":\"deuxieme\"}]}}";
@@ -1272,7 +1889,7 @@ mod tests {
                 let _ = s.write_all(resp.as_bytes());
             }
         });
-        let pr = probe_peer("127.0.0.1", port);
+        let pr = probe_peer("127.0.0.1", port, None);
         assert!(pr.alive, "un command-center doit être détecté comme pair");
         let servers = pr.servers.expect("servers doit être présent");
         assert_eq!(servers["stats"]["total"], serde_json::json!(7));
@@ -1295,7 +1912,7 @@ mod tests {
                 let _ = s.write_all(resp.as_bytes());
             }
         });
-        let pr = probe_peer("127.0.0.1", port);
+        let pr = probe_peer("127.0.0.1", port, None);
         assert!(!pr.alive, "un non-command-center ne doit pas être un pair");
         assert!(pr.servers.is_none());
     }
@@ -1308,5 +1925,32 @@ mod tests {
         let p = probe_http(port, "/mcp", 800);
         assert!(!p.mcp_up);
         assert!(!p.port_open);
+    }
+
+    #[test]
+    fn pids_listening_on_parse_par_colonne_exacte() {
+        // Régression audit : ":3141" matchait aussi ":31410" par sous-chaîne → taskkill du mauvais PID
+        let own = std::process::id().to_string();
+        let netstat = format!(
+            "  Proto  Adresse locale        Adresse distante  État        PID\r\n\
+             TCP    0.0.0.0:3141          0.0.0.0:0         LISTENING   1111\r\n\
+             TCP    0.0.0.0:31410         0.0.0.0:0         LISTENING   2222\r\n\
+             TCP    [::]:3141             [::]:0            LISTENING   3333\r\n\
+             TCP    127.0.0.1:5090        0.0.0.0:0         LISTENING   {}\r\n\
+             UDP    0.0.0.0:3141          *:*                             4444\r\n",
+            own
+        );
+        let mut pids = pids_listening_on(&netstat, 3141);
+        pids.sort();
+        assert_eq!(
+            pids,
+            vec![1111, 3333],
+            ":31410 ne doit pas matcher, ni la ligne UDP, ni notre propre PID"
+        );
+        assert_eq!(pids_listening_on(&netstat, 31410), vec![2222]);
+        assert!(
+            pids_listening_on(&netstat, 5090).is_empty(),
+            "notre propre PID est exclu (pas de suicide si l'id vise notre port UI)"
+        );
     }
 }

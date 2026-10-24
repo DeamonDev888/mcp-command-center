@@ -1,13 +1,36 @@
 # MCP Command Center
 
-<p align="center">
-  <img src="assets/banner.jpg" alt="MCP Command Center" width="100%" />
-</p>
-
 Command center en **Rust natif** (zéro dépendance réseau — std + serde_json uniquement) pour détecter,
 superviser et piloter les serveurs **MCP** : HTTP streamable, stdio, et découverte automatique par scan.
 
 ![UI](https://img.shields.io/badge/UI-web_int%C3%A9gr%C3%A9e-58a6ff) ![rust](https://img.shields.io/badge/rust-1.99-3fb950)
+
+## Aperçu
+
+<p align="center">
+  <img src="assets/explorateur.png" alt="Explorateur : serveurs locaux et distants (SSH), badges, glisser-déposer" width="340" />
+</p>
+<p align="center"><i>Explorateur — serveurs locaux et distants (SSH), badge framework, glisser-déposer = priorité, version affichée.</i></p>
+
+<p align="center">
+  <img src="assets/boutique.png" alt="Boutique : 64 MCP installables avec leurs logos officiels" width="88%" />
+</p>
+<p align="center"><i>Boutique — 64 MCP installables en un clic, logos officiels.</i></p>
+
+## Fonctionnalités principales
+
+| | |
+|---|---|
+| 🖥️ **Détection sur les autres machines** | Serveurs MCP des **autres ordinateurs du LAN**, **VPS** et **Docker** : scan réseau parallèle, découverte **SSH par clé** (netstat distant + sonde depuis la machine — passe les binds `localhost` et les pare-feux), badges `·LAN·SSH`, import en un clic depuis un pair command-center |
+| 🔎 **Détection multi-serveurs** | Scan de plage de ports au boot et à la demande (`::1` + `127.0.0.1`), fingerprint du framework (badge **LiteMCP**), état `UP`/`PORT-ONLY`/`DOWN`, latence, liste des tools, journal temps réel |
+| ↔️ **Glisser-déposer** | Réordonne les serveurs dans l'explorateur : **préférence d'affichage et priorité de sondage** (persisté, les serveurs en haut sont interrogés en premier) |
+| 🛒 **Boutique intégrée (64 MCP)** | Catalogue officiel + aitmpl + Glama + GitHub, **logos officiels**, installation `npx`/`uvx` en un clic |
+| ⏻ **Démarrage auto ON/OFF** | Bouton dans la barre de titre : lance (ou non) l'app au démarrage de l'OS — tray silencieux, serveurs supervisés sans fenêtre (registre Run / autostart XDG / LaunchAgent) |
+| 🏷️ **Version visible** | Badge `v0.7.0` permanent + vérification de mise à jour GitHub (badge ambre « ⬆ vX dispo » si une release plus récente existe) |
+
+> **Écosystème** : les serveurs écrits avec [**LiteMCP**](https://github.com/DeamonDev888/litemcp) — la lib MCP
+> stateless en Rust ([crates.io](https://crates.io/crates/litemcp)) — sont détectés et badgés nativement
+> par fingerprint (version non négociée + sonde `/health`).
 
 ## Lancer
 
@@ -16,11 +39,18 @@ start-command-center.bat
 ```
 → UI sur **http://127.0.0.1:5090** (passe au port suivant si occupé, jusqu'à +9).
 
+> **Sécurité (v0.6.6)** : le bind par défaut est `127.0.0.1` (UI locale seulement).
+> Pour ouvrir au LAN (`"ui_bind": "0.0.0.0"` dans config.json), un code d'accès API est
+> exigé sur `/api/*` — généré au premier boot et persisté dans `settings.api_access`
+> (ou fourni via la variable d'environnement `MCC_API_ACCESS`). L'UI l'embarque
+> automatiquement ; les scripts et les pairs doivent le présenter (header
+> `X-MCC-Access`). Pour la détection de pairs, mettre la même valeur des deux côtés.
+
 ## Ce que ça fait
 
 | Fonction | Détail |
 |---|---|
-| Détection HTTP | `initialize` + `tools/list` JSON-RPC sur `POST /mcp` — sonde **`::1` ET `127.0.0.1`** (les serveurs FastMCP locaux bindent en IPv6-only) |
+| Détection HTTP | `initialize` + `tools/list` JSON-RPC sur `POST /mcp` — sonde **`::1` ET `127.0.0.1`** (les serveurs FastMCP locaux bindent en IPv6-only). Fingerprint du **framework** : « LiteMCP » quand l'initialize est répondu en 2026-07-28 sans négocier **et** que `GET /health` répond « ok » (badge violet « glow » dans l'UI, langage Rust par déduction) |
 | Détection stdio | spawn + handshake JSON-RPC ligne-par-ligne sur stdin/stdout, liste les tools, maintient le process |
 | Découverte auto | scan de plage de ports au boot (3000-3200 par défaut) + à la demande — tout port qui répond `initialize` avec un `serverInfo` est ajouté |
 | 3 états | `UP` (MCP répond), `PORT-ONLY` (port bound mais pas de MCP = zombie), `DOWN` — le piège classique du moniteur binaire |
@@ -41,6 +71,7 @@ start-command-center.bat
 | debats | 3100 | DOWN | désactivé (launcher) |
 | NEWS_BTC | 3143 | DOWN | désactivé (launcher) |
 | NEWS | 3144 | DOWN | désactivé (launcher) |
+| LiteMCP (démo) | 8080 | UP | litemcp hello v0.1.0 — 3 tools, badge « LiteMCP » (fingerprint framework) |
 
 + tout ce qui est ajouté/manuellement ou découvert par scan (persisté dans `config.json`).
 
@@ -61,6 +92,10 @@ réponses maison (Content-Length + chunked), pas de dépendance réseau. Vue com
 | Async | Future sans exécuteur | ✅ event loop native | ✅ native | `asyncio` (stdlib) |
 
 ## API (pour scripts)
+
+> Hors loopback, chaque appel `/api/*` doit porter le code d'accès : en-tête
+> `X-MCC-Access: <code>` (ou `?access=<code>`). `POST /api/action` exige
+> `Content-Type: application/json`.
 
 ```
 GET  /api/state                 état complet + journal
@@ -112,8 +147,9 @@ curl -X POST -H "Content-Type: application/json" \
 | 4 | Timeout handshake stdio configurable par serveur | UX |
 | 5 | Connection pooling HTTP (réutiliser les sockets du poll) | latence |
 
-### Sécurité (avant tout usage hors machine perso)
-- L'API n'a AUCUNE auth : quiconque sur le LAN peut piloter tes serveurs (bind 0.0.0.0 par défaut, requis pour les pairs). P0 avant distribution.
-- Pas de rate-limit sur /api/action (spam possible).
--Les installs boutique exécutent npx/uvx sans sandbox.
+### Sécurité (état v0.6.6 — items P0 de l'audit traités)
+- Code d'accès API obligatoire hors loopback (généré au boot, persisté), bind par défaut `127.0.0.1`.
+- Anti CSRF / DNS-rebinding : `OPTIONS` 403, `Host`/`Origin` filtrés, `Content-Type: application/json` exigé sur `/api/action`, ACAO reflétée uniquement pour les origines autorisées.
+- `kill_port` par colonne exacte (plus de taskkill du mauvais PID), corps HTTP plafonné (2 Mo), connexions plafonnées (64).
+- Reste à faire : rate-limit fin sur `/api/action` ; les installs boutique exécutent npx/uvx sans sandbox (le dossier de Filesystem est demandé explicitement).
 

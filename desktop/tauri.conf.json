@@ -1,12 +1,13 @@
 {
     "$schema": "https://schema.tauri.app/config/2",
     "productName": "MCP Command Center",
-    "version": "0.6.5",
+    "version": "0.7.0",
     "identifier": "com.deamondev.mcp-command-center",
     "build": {
         "frontendDist": "../ui-dist"
     },
     "app": {
+        "withGlobalTauri": true,
         "security": {
             "csp": null
         },
@@ -15,6 +16,6 @@
     "bundle": {
         "active": true,
         "targets": ["nsis"],
-        "icon": ["icons/icon.ico", "icons/icon.png"]
+        "icon": ["icons/icon.ico", "icons/icon.icns", "icons/icon.png"]
     }
 }

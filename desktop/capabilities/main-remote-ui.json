@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-remote-ui",
+  "description": "Contrôles de fenêtre pour l'UI servie par le moteur embarqué (origine http locale, port 5090-5099) : drag de la barre de titre sans décorations + réduire/agrandir/fermer.",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:*", "http://localhost:*"]
+  },
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close"
+  ]
+}

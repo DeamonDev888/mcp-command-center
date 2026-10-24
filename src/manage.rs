@@ -1,7 +1,7 @@
 use crate::probe;
 use crate::types::{lockv, AppState, LogEntry, Origin, SState, Server, StartCmd, Transport};
 use serde_json::{json, Map, Value};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 
 const MAX_LOG: usize = 400;
@@ -57,6 +57,8 @@ fn default_servers() -> Vec<Server> {
             sse: false,
             sse_endpoint: false,
             lang: None,
+            framework: None,
+            via_ssh: false,
             tools: vec![],
             latency_ms: None,
             last_seen_ts: None,
@@ -95,29 +97,73 @@ fn default_servers() -> Vec<Server> {
         mk("seed-x", "X", 3142, true, "X"),
         mk("seed-news-btc", "NEWS_BTC", 3143, false, "NEWS_BTC"),
         mk("seed-news", "NEWS", 3144, false, "NEWS"),
+        // Démo LiteMCP (lib Rust MCP stateless) : binaire produit par
+        // `cargo build --release --example hello` du dépôt litemcp. Sert de
+        // banc d'essai du fingerprint framework (badge « LiteMCP ») — si le
+        // binaire manque, le mécanisme « 3 échecs → auto-restart off » s'applique.
+        Server {
+            id: "seed-litemcp".to_string(),
+            label: "LiteMCP (démo)".to_string(),
+            transport: Transport::Http {
+                host: None,
+                port: 8080,
+                path: "/mcp".to_string(),
+            },
+            origin: Origin::Seed,
+            enabled: true,
+            auto_restart: true,
+            state: SState::Down,
+            pid: None,
+            bound_host: None,
+            server_name: None,
+            version: None,
+            protocol: None,
+            sse: false,
+            sse_endpoint: false,
+            lang: None,
+            framework: None,
+            via_ssh: false,
+            tools: vec![],
+            latency_ms: None,
+            last_seen_ts: None,
+            last_error: None,
+            start_cmd: Some(StartCmd {
+                program: "C:/Users/Deamon/Desktop/litemcp/target/release/examples/hello.exe"
+                    .to_string(),
+                args: vec![],
+                workdir: Some("C:/Users/Deamon/Desktop/litemcp".to_string()),
+            }),
+            tools_disabled: vec![],
+        },
     ]
 }
 
 /// Résolution du chemin de config au runtime (voir main.rs) :
 /// 1. override explicite (MCC_CONFIG)
-/// 2. CARGO_MANIFEST_DIR/config.json s'il existe (dev local)
-/// 3. dossier de l'exe / config.json (release distribuée — le chemin compile-time
-///    du runner CI n'existe pas sur la machine cliente, sinon rien n'est persisté)
+/// 2. dossier de l'exe / config.json s'il existe (installé : l'app a SA config)
+/// 3. CARGO_MANIFEST_DIR/config.json s'il existe (dev local — l'exe de dev vit
+///    dans target/, l'installé à côté de sa config ; un exe installé ne doit
+///    JAMAIS réécrire la config du dossier de dev)
+/// 4. dossier de l'exe / config.json (premier boot d'une install fraîche)
 pub fn resolve_config_path(manifest_dir: &str, override_env: Option<String>) -> String {
     if let Some(p) = override_env {
         if !p.is_empty() {
             return p;
         }
     }
-    let dev_path = std::path::Path::new(manifest_dir).join("config.json");
-    if dev_path.exists() {
-        return dev_path.to_string_lossy().to_string();
-    }
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|e| e.parent().map(|d| d.to_path_buf()))
         .unwrap_or_else(|| std::path::PathBuf::from(manifest_dir));
-    exe_dir.join("config.json").to_string_lossy().to_string()
+    let exe_config = exe_dir.join("config.json");
+    if exe_config.exists() {
+        return exe_config.to_string_lossy().to_string();
+    }
+    let dev_path = std::path::Path::new(manifest_dir).join("config.json");
+    if dev_path.exists() {
+        return dev_path.to_string_lossy().to_string();
+    }
+    exe_config.to_string_lossy().to_string()
 }
 
 pub fn load_config(path: &str) -> (Vec<Server>, crate::types::Settings) {
@@ -170,6 +216,9 @@ pub fn load_config(path: &str) -> (Vec<Server>, crate::types::Settings) {
         }
     }
     let settings = parse_settings(&v, settings);
+    // « Retirer durablement » : les seeds explicitement retirés ne sont pas réinjectés
+    let removed: Vec<String> = settings.removed_seeds.clone();
+    servers.retain(|s| !(s.origin == Origin::Seed && removed.contains(&s.id)));
     (servers, settings)
 }
 
@@ -190,6 +239,9 @@ fn apply_json(srv: &mut Server, s: &Value) {
                     port: p as u16,
                     path: path.to_string(),
                 };
+                if let Some(v) = s.get("via_ssh").and_then(|x| x.as_bool()) {
+                    srv.via_ssh = v;
+                }
             }
         } else if t == "stdio" {
             let args: Vec<String> = s
@@ -278,6 +330,7 @@ fn from_json(s: &Value) -> Option<Server> {
         },
     };
     let enabled = s.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true);
+    let via_ssh = s.get("via_ssh").and_then(|x| x.as_bool()).unwrap_or(false);
     // commande de lancement optionnelle (HTTP lancé par le command center)
     let start_cmd = {
         let program = s
@@ -323,6 +376,8 @@ fn from_json(s: &Value) -> Option<Server> {
         sse: false,
         sse_endpoint: false,
         lang: None,
+        framework: None,
+        via_ssh,
         tools: vec![],
         latency_ms: None,
         last_seen_ts: None,
@@ -364,6 +419,48 @@ fn parse_settings(v: &Value, mut st: crate::types::Settings) -> crate::types::Se
                 st.network_ports = ports;
             }
         }
+        if let Some(x) = s.get("api_access").and_then(|x| x.as_str()) {
+            st.api_access = if x.is_empty() {
+                None
+            } else {
+                Some(x.to_string())
+            };
+        }
+        if let Some(arr) = s.get("allowed_origins").and_then(|x| x.as_array()) {
+            let o: Vec<String> = arr
+                .iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect();
+            if !o.is_empty() {
+                st.allowed_origins = o;
+            }
+        }
+        if let Some(arr) = s.get("removed_seeds").and_then(|x| x.as_array()) {
+            st.removed_seeds = arr
+                .iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect();
+        }
+        if let Some(x) = s.get("autostart").and_then(|x| x.as_bool()) {
+            st.autostart = x;
+        }
+        if let Some(arr) = s.get("server_order").and_then(|x| x.as_array()) {
+            st.server_order = arr
+                .iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect();
+        }
+        if let Some(arr) = s.get("ssh_hosts").and_then(|x| x.as_array()) {
+            st.ssh_hosts = arr
+                .iter()
+                .filter_map(|h| {
+                    Some(crate::types::SshHost {
+                        ip: h.get("ip")?.as_str()?.to_string(),
+                        user: h.get("user")?.as_str()?.to_string(),
+                    })
+                })
+                .collect();
+        }
     }
     st
 }
@@ -374,8 +471,10 @@ pub fn save_config(state: &AppState) {
     let settings = lockv(&state.settings).clone();
     let mut arr = Vec::new();
     for s in &servers {
-        // les serveurs découverts (scan local/réseau) ne sont PAS persistés : redécouverts au boot
-        if s.origin == Origin::Discovered {
+        // les serveurs découverts (scan local/réseau) ne sont PAS persistés :
+        // redécouverts au boot — SAUF les via_ssh : leur re-découverte exige une
+        // connexion SSH réussie, on garde donc le résultat.
+        if s.origin == Origin::Discovered && !s.via_ssh {
             continue;
         }
         let mut o = Map::new();
@@ -393,6 +492,9 @@ pub fn save_config(state: &AppState) {
                 }
                 o.insert("port".into(), json!(port));
                 o.insert("path".into(), json!(path));
+                if s.via_ssh {
+                    o.insert("via_ssh".into(), json!(true));
+                }
                 // commande de lancement (Start/Stop par le command center)
                 if let Some(c) = &s.start_cmd {
                     o.insert("program".into(), json!(c.program));
@@ -427,12 +529,40 @@ pub fn save_config(state: &AppState) {
             "ui_bind": settings.ui_bind,
             "network_enabled": settings.network_enabled,
             "network_ports": settings.network_ports,
+            "api_access": settings.api_access,
+            "allowed_origins": settings.allowed_origins,
+            "removed_seeds": settings.removed_seeds,
+            "server_order": settings.server_order,
+            "autostart": settings.autostart,
+            "ssh_hosts": settings
+                .ssh_hosts
+                .iter()
+                .map(|h| json!({"ip": h.ip, "user": h.user}))
+                .collect::<Vec<_>>(),
         }
     });
     let pretty = serde_json::to_string_pretty(&doc).unwrap_or_default();
     let tmp = format!("{}.tmp", state.config_path);
-    std::fs::write(&tmp, pretty).ok();
-    std::fs::rename(&tmp, &state.config_path).ok();
+    // Écriture atomique tmp+rename — les erreurs sont LOGUÉES (une écriture ratée
+    // silencieuse = ajout perdu au reboot sans aucun indice).
+    if let Err(e) = std::fs::write(&tmp, &pretty) {
+        add_log(
+            state,
+            "error",
+            &format!("config : écriture impossible ({}): {}", tmp, e),
+        );
+        return;
+    }
+    if let Err(e) = std::fs::rename(&tmp, &state.config_path) {
+        add_log(
+            state,
+            "error",
+            &format!(
+                "config : remplacement impossible ({}): {}",
+                state.config_path, e
+            ),
+        );
+    }
 }
 
 // ---------- boutique MCP (catalogue + import, porté de l'app Hermes desktop :
@@ -452,15 +582,11 @@ pub const STORE: &[StoreItem] = &[
     StoreItem {
         id: "filesystem",
         name: "Filesystem",
-        desc: "Lecture/écriture de fichiers dans un dossier autorisé",
+        desc: "Lecture/écriture de fichiers dans un dossier autorisé (dossier demandé à l'installation)",
         cat: "Fichiers",
         kind: "npm",
         program: "npx",
-        args: &[
-            "-y",
-            "@modelcontextprotocol/server-filesystem",
-            "C:/Users/Deamon",
-        ],
+        args: &["-y", "@modelcontextprotocol/server-filesystem"],
     },
     StoreItem {
         id: "gdrive",
@@ -579,11 +705,171 @@ pub const STORE: &[StoreItem] = &[
         program: "npx",
         args: &["-y", "@modelcontextprotocol/server-slack"],
     },
-];
+    StoreItem {
+        id: "playwright",
+        name: "Playwright",
+        desc: "Automatisation de navigateur moderne (Microsoft) : navigation, clics, screenshots, snapshots d'accessibilité",
+        cat: "Web",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "@playwright/mcp@latest"],
+    },
+    StoreItem {
+        id: "context7",
+        name: "Context7",
+        desc: "Documentation à jour des libs et frameworks injectée dans le contexte de l'agent (Upstash)",
+        cat: "Dev",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "@upstash/context7-mcp"],
+    },
+    StoreItem {
+        id: "duckduckgo",
+        name: "DuckDuckGo Search",
+        desc: "Recherche web DuckDuckGo sans clé API + extraction de contenu de pages",
+        cat: "Web",
+        kind: "python",
+        program: "uvx",
+        args: &["duckduckgo-mcp-server"],
+    },
+    StoreItem {
+        id: "kubernetes",
+        name: "Kubernetes",
+        desc: "Gestion d'un cluster k8s via kubectl (kubeconfig local requis)",
+        cat: "Dev",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "mcp-server-kubernetes"],
+    },
+    StoreItem {
+        id: "supabase",
+        name: "Supabase",
+        desc: "Bases, tables et edge functions Supabase (OAuth navigateur au premier probe, ou SUPABASE_ACCESS_TOKEN en env)",
+        cat: "Données",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "@supabase/mcp-server-supabase@latest"],
+    },
+    StoreItem {
+        id: "mongodb",
+        name: "MongoDB",
+        desc: "Requêtes et analyse MongoDB (MDB_MCP_CONNECTION_STRING requis en env)",
+        cat: "Données",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "mongodb-mcp-server"],
+    },
+    StoreItem {
+        id: "stripe",
+        name: "Stripe",
+        desc: "Paiements et clients Stripe (STRIPE_SECRET_KEY en env, ou --api-key en args)",
+        cat: "Données",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "@stripe/mcp", "--tools=all"],
+    },
+    StoreItem {
+        id: "notion",
+        name: "Notion",
+        desc: "API Notion officielle (env OPENAPI_MCP_HEADERS = JSON avec Authorization Bearer + Notion-Version)",
+        cat: "Données",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "@notionhq/mcp-server"],
+    },
+    StoreItem {
+        id: "firecrawl",
+        name: "Firecrawl",
+        desc: "Scraping et extraction web (FIRECRAWL_API_KEY en env ; mode sans clé disponible côté Firecrawl)",
+        cat: "Web",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "firecrawl-mcp"],
+    },
+    StoreItem {
+        id: "exa",
+        name: "Exa Search",
+        desc: "Recherche web sémantique (EXA_API_KEY requis en env)",
+        cat: "Web",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "exa-mcp-server"],
+    },
+    StoreItem {
+        id: "blender",
+        name: "Blender",
+        desc: "Pilote une session Blender vivante — addon BlenderMCP requis dans Blender (repo ahujasid/blender-mcp, pin du catalogue Hermes)",
+        cat: "Création",
+        kind: "python",
+        program: "uvx",
+        args: &["blender-mcp==1.6.4"],
+    },
+    StoreItem {
+        id: "figma",
+        name: "Figma (Framelink)",
+        desc: "Contexte design Figma pour générer du code (FIGMA_API_KEY requis en env) — l'officiel distant est OAuth/HTTPS, pas encore sondable ici",
+        cat: "Design",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "figma-developer-mcp", "--stdio"],
+    },
+    StoreItem {
+        id: "n8n",
+        name: "n8n",
+        desc: "Docs des nodes n8n hors de la boîte ; gestion d'instance via N8N_API_URL + N8N_API_KEY en env",
+        cat: "Automatisation",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "n8n-mcp"],
+    },
+    StoreItem {
+        id: "todoist",
+        name: "Todoist",
+        desc: "Tâches Todoist officiel (Doist) : projets, tâches, échéances (TODOIST_API_KEY requis en env)",
+        cat: "Productivité",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "@doist/todoist-mcp"],
+    },
+    StoreItem {
+        id: "taskmaster",
+        name: "Task Master",
+        desc: "Décompose une spec en tâches, gère les dépendances et délègue aux agents (task-master-ai ; ANTHROPIC_API_KEY requis en env)",
+        cat: "Productivité",
+        kind: "npm",
+        program: "npx",
+        args: &["-y", "--package=task-master-ai", "task-master-ai"],
+    },];
+
+/// Item de boutique par id — principal, puis aitmpl, puis glama.
+fn find_store_item(sid: &str) -> Option<&'static StoreItem> {
+    STORE
+        .iter()
+        .find(|s| s.id == sid)
+        .or_else(|| {
+            crate::store_aitmpl::STORE_AITMPL
+                .iter()
+                .find(|s| s.id == sid)
+        })
+        .or_else(|| crate::store_glama::STORE_GLAMA.iter().find(|s| s.id == sid))
+        .or_else(|| {
+            crate::store_github::STORE_GITHUB
+                .iter()
+                .find(|s| s.id == sid)
+        })
+}
+
+/// Tous les items (principal + aitmpl + glama).
+fn all_store_items() -> impl Iterator<Item = &'static StoreItem> {
+    STORE
+        .iter()
+        .chain(crate::store_aitmpl::STORE_AITMPL.iter())
+        .chain(crate::store_glama::STORE_GLAMA.iter())
+        .chain(crate::store_github::STORE_GITHUB.iter())
+}
 
 pub fn store_json() -> Value {
-    json!(STORE
-        .iter()
+    json!(all_store_items()
         .map(|s| json!({
             "id": s.id, "name": s.name, "desc": s.desc,
             "cat": s.cat, "kind": s.kind,
@@ -676,6 +962,8 @@ fn entry_to_server(id: String, name: &str, entry: &Value) -> Option<Server> {
             sse: false,
             sse_endpoint: false,
             lang: None,
+            framework: None,
+            via_ssh: false,
             tools: vec![],
             latency_ms: None,
             last_seen_ts: None,
@@ -706,6 +994,8 @@ fn entry_to_server(id: String, name: &str, entry: &Value) -> Option<Server> {
             sse: false,
             sse_endpoint: false,
             lang: None,
+            framework: None,
+            via_ssh: false,
             tools: vec![],
             latency_ms: None,
             last_seen_ts: None,
@@ -718,9 +1008,10 @@ fn entry_to_server(id: String, name: &str, entry: &Value) -> Option<Server> {
 }
 
 fn parse_url_parts(u: &str) -> Option<(String, u16, String)> {
-    let rest = u
-        .strip_prefix("https://")
-        .or_else(|| u.strip_prefix("http://"))?;
+    // TLS non supporté par ce client (std sans rustls) : une URL https finirait en
+    // sonde plaintext illisible et en DOWN permanent — on refuse proprement.
+    // (import_mcp_text renvoie un message clair pour https://)
+    let rest = u.strip_prefix("http://")?;
     let (hostport, path) = match rest.find('/') {
         Some(i) => (&rest[..i], rest[i..].to_string()),
         None => (rest, "/mcp".to_string()),
@@ -785,8 +1076,11 @@ pub fn import_mcp_text(state: &Arc<AppState>, raw: &str) -> Value {
         return push_imported(state, name, program, args);
     }
 
-    // 3. URL directe → serveur HTTP
-    if text.starts_with("http://") || text.starts_with("https://") {
+    // 3. URL directe → serveur HTTP (https refusé : pas de TLS dans ce client std)
+    if text.starts_with("https://") {
+        return json!({"ok": false, "error": "TLS non supporté : le command center ne sonde que du http:// (passez par un tunnel http local pour un endpoint https)"});
+    }
+    if text.starts_with("http://") {
         if let Some((host, port, path)) = parse_url_parts(text) {
             let name = name_from_url(&host);
             let id = format!("store-{}", name);
@@ -812,6 +1106,8 @@ pub fn import_mcp_text(state: &Arc<AppState>, raw: &str) -> Value {
                     sse: false,
                     sse_endpoint: false,
                     lang: None,
+                    framework: None,
+                    via_ssh: false,
                     tools: vec![],
                     latency_ms: None,
                     last_seen_ts: None,
@@ -883,6 +1179,8 @@ fn push_imported(state: &Arc<AppState>, name: String, program: String, args: Vec
         sse: false,
         sse_endpoint: false,
         lang: None,
+        framework: None,
+        via_ssh: false,
         tools: vec![],
         latency_ms: None,
         last_seen_ts: None,
@@ -922,9 +1220,442 @@ pub fn tools_actifs(s: &Server) -> usize {
 }
 
 pub fn poll_all(state: &Arc<AppState>) {
-    let ids: Vec<String> = lockv(&state.servers).iter().map(|s| s.id.clone()).collect();
+    // priorité : l'ordre choisi par glisser-déposer gouverne l'ordre de sondage
+    // (utile au boot où le premier cycle est séquentiel) — ids absents en dernier
+    let order = lockv(&state.settings).server_order.clone();
+    let mut ids: Vec<String> = lockv(&state.servers).iter().map(|s| s.id.clone()).collect();
+    ids.sort_by_key(|id| order.iter().position(|x| x == id).unwrap_or(usize::MAX));
     for id in ids {
         poll_one(state, &id);
+    }
+    save_cache(state);
+}
+
+// ---------- démarrage automatique avec l'OS (bouton ON/OFF de la barre de titre) ----------
+
+/// Clé/valeur du registre Run (Windows) ou fichiers autostart (Linux/macOS).
+const AUTOSTART_RUN_NAME: &str = "MCP Command Center";
+
+fn autostart_entry_args() -> String {
+    let exe = std::env::current_exe()
+        .map(|e| e.to_string_lossy().to_string())
+        .unwrap_or_default();
+    format!("\"{}\" --hidden", exe)
+}
+
+/// L'entrée de démarrage automatique existe-t-elle actuellement ?
+pub fn autostart_active() -> bool {
+    #[cfg(windows)]
+    {
+        let mut c = Command::new("reg");
+        probe::probe_hidden_cmd(&mut c);
+        c.args([
+            "query",
+            "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+            "/v",
+            AUTOSTART_RUN_NAME,
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        autostart_file_path().map(|p| p.exists()).unwrap_or(false)
+    }
+}
+
+/// Applique la préférence : crée ou supprime l'entrée de démarrage automatique.
+/// Windows : registre HKCU …\Run. Linux : ~/.config/autostart/*.desktop.
+/// macOS : ~/Library/LaunchAgents/*.plist.
+#[allow(unused_must_use)]
+pub fn apply_autostart(state: &Arc<AppState>, enable: bool) {
+    // les tests ne doivent JAMAIS toucher le registre/fichiers de l'OS réels
+    #[cfg(test)]
+    {
+        let _ = (state, enable);
+        return;
+    }
+    let args = autostart_entry_args();
+    #[cfg(windows)]
+    {
+        let root = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+        let mut c = Command::new("reg");
+        probe::probe_hidden_cmd(&mut c);
+        let status = if enable {
+            c.args([
+                "add",
+                root,
+                "/v",
+                AUTOSTART_RUN_NAME,
+                "/t",
+                "REG_SZ",
+                "/d",
+                &args,
+                "/f",
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+        } else {
+            c.args(["delete", root, "/v", AUTOSTART_RUN_NAME, "/f"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+        };
+        if status.map(|s| s.success()).unwrap_or(false) {
+            add_log(
+                state,
+                "info",
+                &format!(
+                    "[autostart] entrée de démarrage {}",
+                    if enable { "créée" } else { "supprimée" }
+                ),
+            );
+        } else {
+            add_log(
+                state,
+                "warn",
+                "[autostart] reg a échoué — l'entrée n'a pas changé",
+            );
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let Some(path) = autostart_file_path() else {
+            return;
+        };
+        if enable {
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir);
+            }
+            let exe = std::env::current_exe()
+                .map(|e| e.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let content = if path.extension().map(|e| e == "desktop").unwrap_or(false) {
+                format!(
+                    "[Desktop Entry]
+Type=Application
+Name=MCP Command Center
+Exec=\"{}\" --hidden
+Hidden=false
+X-GNOME-Autostart-enabled=true
+",
+                    exe
+                )
+            } else {
+                format!(
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
+<plist version=\"1.0\"><dict>
+<key>Label</key><string>com.deamondev.mcp-command-center</string>
+<key>ProgramArguments</key><array>
+<string>{}</string><string>--hidden</string>
+</array>
+<key>RunAtLoad</key><true/>
+</dict></plist>
+",
+                    exe
+                )
+            };
+            std::fs::write(&path, content);
+            add_log(state, "info", "[autostart] entrée de démarrage créée");
+        } else if path.exists() {
+            std::fs::remove_file(&path);
+            add_log(state, "info", "[autostart] entrée de démarrage supprimée");
+        }
+    }
+}
+
+/// Chemin du fichier autostart (Linux : XDG ; macOS : LaunchAgent). Windows :
+/// registre — None (géré par reg).
+#[cfg(not(windows))]
+fn autostart_file_path() -> Option<std::path::PathBuf> {
+    let home = std::env::var("HOME").ok()?;
+    #[cfg(target_os = "macos")]
+    {
+        Some(
+            std::path::PathBuf::from(home)
+                .join("Library/LaunchAgents/com.deamondev.mcp-command-center.plist"),
+        )
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Some(
+            std::path::PathBuf::from(home)
+                .join(".config/autostart/mcp-command-center-desktop.desktop"),
+        )
+    }
+}
+
+/// Au boot : aligne l'entrée sur la préférence persistée (créée au premier
+/// lancement — settings.autostart vaut true par défaut).
+pub fn sync_autostart_at_boot(state: &Arc<AppState>) {
+    let want = lockv(&state.settings).autostart;
+    if autostart_active() != want {
+        apply_autostart(state, want);
+    }
+}
+
+// ---------- vérification de mise à jour (release GitHub) ----------
+
+/// Comparaison numérique par segments : « 0.10.0 » > « 0.9.9 » (pas lexicographique).
+/// Retourne vrai si `latest` est STRICTEMENT plus récente que `current`.
+pub fn version_newer(latest: &str, current: &str) -> bool {
+    let parse = |v: &str| -> Vec<u64> {
+        v.trim()
+            .trim_start_matches('v')
+            .split('.')
+            .map(|p| p.trim().parse::<u64>().unwrap_or(0))
+            .collect()
+    };
+    let (a, b) = (parse(latest), parse(current));
+    for i in 0..a.len().max(b.len()) {
+        let (x, y) = (
+            a.get(i).copied().unwrap_or(0),
+            b.get(i).copied().unwrap_or(0),
+        );
+        if x != y {
+            return x > y;
+        }
+    }
+    false
+}
+
+/// Interroge la dernière release GitHub (client PowerShell système — le std
+/// Rust n'a pas de TLS). Résultat : `update_latest` = tag SI plus récent que
+/// l'installée ; silence total sinon (hors ligne, dépôt privé, échec réseau).
+#[allow(unused_must_use)]
+pub fn check_update(state: &Arc<AppState>) {
+    let mut cmd = Command::new("powershell");
+    cmd.args([
+        "-NoProfile",
+        "-Command",
+        "(Invoke-RestMethod -TimeoutSec 10 -Headers @{ 'User-Agent' = 'mcp-command-center' }           'https://api.github.com/repos/DeamonDev888/mcp-command-center/releases/latest').tag_name",
+    ]);
+    probe::probe_hidden_cmd(&mut cmd);
+    let Ok(out) = cmd.output() else {
+        return;
+    };
+    if !out.status.success() {
+        return;
+    }
+    let tag = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if tag.is_empty() || tag.len() > 30 {
+        return;
+    }
+    let current = env!("CARGO_PKG_VERSION");
+    if version_newer(&tag, current) {
+        let mut u = lockv(&state.update_latest);
+        if u.as_deref() != Some(tag.as_str()) {
+            *u = Some(tag.clone());
+            add_log(
+                state,
+                "info",
+                &format!(
+                    "mise à jour disponible : v{} (installée : v{}) — github.com/DeamonDev888/mcp-command-center/releases",
+                    tag, current
+                ),
+            );
+        }
+    }
+}
+
+// ---------- cache de démarrage (dernier état connu) ----------
+
+/// state-cache.json à côté du config.json.
+fn cache_path_of(config_path: &str) -> String {
+    std::path::Path::new(config_path)
+        .with_file_name("state-cache.json")
+        .to_string_lossy()
+        .to_string()
+}
+
+/// Dernier cache sérialisé (écriture skippée si inchangé — 1 cycle = 0 I/O).
+fn cache_last_slot() -> &'static std::sync::Mutex<Option<String>> {
+    static SLOT: std::sync::OnceLock<std::sync::Mutex<Option<String>>> = std::sync::OnceLock::new();
+    SLOT.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// Enregistre l'état courant (champs d'affichage : nom, version, tools, via_ssh…)
+/// dans le cache de démarrage. Écriture atomique, skippée si rien n'a changé.
+pub fn save_cache(state: &Arc<AppState>) {
+    if state.config_path.is_empty() {
+        return;
+    }
+    let path = cache_path_of(&state.config_path);
+    let servers = lockv(&state.servers);
+    let arr: Vec<Value> = servers
+        .iter()
+        .map(|s| {
+            json!({
+                "id": s.id, "state": s.state.as_str(),
+                "server_name": s.server_name, "version": s.version, "protocol": s.protocol,
+                "sse": s.sse, "sse_endpoint": s.sse_endpoint, "lang": s.lang,
+                "framework": s.framework, "via_ssh": s.via_ssh,
+                "latency_ms": s.latency_ms, "last_seen": s.last_seen_ts,
+                "last_error": s.last_error,
+                "tools": s.tools.iter()
+                    .map(|t| json!({"name": t.name, "desc": t.desc}))
+                    .collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    drop(servers);
+    let doc = json!({
+        "app": env!("CARGO_PKG_VERSION"),
+        "saved_at": crate::types::now_ts(),
+        "servers": arr,
+    });
+    let body = serde_json::to_string(&doc).unwrap_or_default();
+    {
+        let mut slot = cache_last_slot().lock().unwrap_or_else(|p| p.into_inner());
+        if slot.as_deref() == Some(body.as_str()) {
+            return;
+        }
+        *slot = Some(body.clone());
+    }
+    let tmp = format!("{}.tmp", path);
+    if let Err(e) = std::fs::write(&tmp, &body) {
+        add_log(
+            state,
+            "warn",
+            &format!("cache : écriture impossible ({}): {}", tmp, e),
+        );
+        return;
+    }
+    let _ = std::fs::rename(&tmp, &path);
+}
+
+/// Au boot, avant la première sonde : restaure les champs d'affichage des
+/// serveurs connus (par id, serveurs activés seulement) — l'UI est peuplée
+/// instantanément, les sondes confirment/corrigent en arrière-plan.
+pub fn load_cache(state: &Arc<AppState>) {
+    if state.config_path.is_empty() {
+        return;
+    }
+    let path = cache_path_of(&state.config_path);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    let Ok(v) = serde_json::from_str::<Value>(&text) else {
+        return;
+    };
+    let Some(arr) = v.get("servers").and_then(|x| x.as_array()) else {
+        return;
+    };
+    let mut applied = 0usize;
+    let mut servers = lockv(&state.servers);
+    for e in arr {
+        let Some(id) = e.get("id").and_then(|x| x.as_str()) else {
+            continue;
+        };
+        let Some(srv) = servers.iter_mut().find(|s| s.id == id) else {
+            continue;
+        };
+        if !srv.enabled {
+            continue;
+        }
+        srv.state = match e.get("state").and_then(|x| x.as_str()).unwrap_or("DOWN") {
+            "UP" => SState::Up,
+            "PORT-ONLY" => SState::PortOnly,
+            "DISABLED" => SState::Disabled,
+            _ => SState::Down,
+        };
+        let get_str = |k: &str| e.get(k).and_then(|x| x.as_str()).map(String::from);
+        srv.server_name = get_str("server_name").or(srv.server_name.take());
+        srv.version = get_str("version").or(srv.version.take());
+        srv.protocol = get_str("protocol").or(srv.protocol.take());
+        srv.sse = e.get("sse").and_then(|x| x.as_bool()).unwrap_or(srv.sse);
+        srv.sse_endpoint = e
+            .get("sse_endpoint")
+            .and_then(|x| x.as_bool())
+            .unwrap_or(srv.sse_endpoint);
+        srv.lang = get_str("lang").or(srv.lang.take());
+        srv.framework = get_str("framework").or(srv.framework.take());
+        srv.via_ssh = e
+            .get("via_ssh")
+            .and_then(|x| x.as_bool())
+            .unwrap_or(srv.via_ssh);
+        srv.latency_ms = e
+            .get("latency_ms")
+            .and_then(|x| x.as_u64())
+            .or(srv.latency_ms.take());
+        srv.last_seen_ts = e
+            .get("last_seen")
+            .and_then(|x| x.as_u64())
+            .or(srv.last_seen_ts.take());
+        srv.last_error = get_str("last_error").or(srv.last_error.take());
+        if let Some(tools) = e.get("tools").and_then(|x| x.as_array()) {
+            if srv.tools.is_empty() {
+                srv.tools = tools
+                    .iter()
+                    .filter_map(|t| {
+                        Some(crate::types::ToolInfo {
+                            name: t.get("name")?.as_str()?.to_string(),
+                            desc: t
+                                .get("desc")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                        })
+                    })
+                    .collect();
+            }
+        }
+        applied += 1;
+    }
+    drop(servers);
+    if applied > 0 {
+        add_log(
+            state,
+            "info",
+            &format!(
+                "cache de démarrage : {} serveur(s) restauré(s) — les sondes confirment en arrière-plan",
+                applied
+            ),
+        );
+    }
+}
+
+/// Filesystem : le dossier exposé doit être présent — il faut au moins les
+/// options + le package + UN chemin (le nom du package contient un « / », la
+/// longueur est donc le critère fiable), et le dernier arg doit ressembler à un chemin.
+fn filesystem_dossier_manquant(args: &[String]) -> bool {
+    args.len() < 3
+        || args
+            .last()
+            .map(|a| !a.contains('/') && !a.contains('\\'))
+            .unwrap_or(true)
+}
+
+/// Compte un échec de spawn auto pour l'id ; à partir de 3 échecs consécutifs,
+/// désactive l'auto-restart (sinon boucle infinie d'essais + warnings sur une
+/// machine cliente où les chemins des seeds n'existent pas).
+fn note_spawn_failure(state: &AppState, id: &str) {
+    let fails = {
+        let mut f = lockv(&state.spawn_fails);
+        let c = f.entry(id.to_string()).or_insert(0);
+        *c += 1;
+        *c
+    };
+    if fails >= 3 {
+        {
+            let mut servers = lockv(&state.servers);
+            if let Some(srv) = servers.iter_mut().find(|s| s.id == id) {
+                srv.auto_restart = false;
+            }
+        }
+        add_log(
+            state,
+            "warn",
+            &format!(
+                "[{}] auto-restart désactivé après {} échecs de démarrage consécutifs",
+                id, fails
+            ),
+        );
     }
 }
 
@@ -942,9 +1673,38 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
     }
     match transport {
         Transport::Http { host, port, path } => {
-            let mut res = match &host {
-                Some(h) => probe::probe_http_host(h, port, &path, 6000),
-                None => probe::probe_http(port, &path, 6000),
+            // serveurs via_ssh : la sonde tourne DEPUIS la machine (curl interne
+            // sur 127.0.0.1 via la connexion ssh) — l'extérieur est souvent
+            // bloqué (bind localhost, ufw)
+            let via_ssh = lockv(&state.servers)
+                .iter()
+                .find(|s| s.id == id)
+                .map(|s| s.via_ssh)
+                .unwrap_or(false);
+            let mut res = if via_ssh {
+                match &host {
+                    Some(h) => {
+                        let user = lockv(&state.settings)
+                            .ssh_hosts
+                            .iter()
+                            .find(|x| x.ip == *h)
+                            .map(|x| x.user.clone());
+                        match user {
+                            Some(u) => probe::ssh_probe_server(h, &u, port, &path, 6),
+                            None => probe::McpProbe::fail(
+                                "machine SSH non enregistrée — réenregistre-la dans Machines"
+                                    .to_string(),
+                                true,
+                            ),
+                        }
+                    }
+                    None => probe::McpProbe::fail("serveur via SSH sans hôte".to_string(), true),
+                }
+            } else {
+                match &host {
+                    Some(h) => probe::probe_http_host(h, port, &path, 6000),
+                    None => probe::probe_http(port, &path, 6000),
+                }
             };
             // Auto-start : serveur HTTP LOCAL éteint + commande de lancement configurée
             // (jamais pour un serveur distant, host.is_none() gate)
@@ -963,7 +1723,9 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                         .unwrap_or(false);
                     (can, alive)
                 };
-                if can_auto && !child_alive {
+                if can_auto && !child_alive && lockv(&state.spawning).insert(id.to_string()) {
+                    // garde posée : le poller et une action API ne peuvent pas
+                    // doubler le spawn du même serveur (course refresh vs poll)
                     let cmd = {
                         let servers = lockv(&state.servers);
                         servers
@@ -977,6 +1739,7 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                             Ok(h) => {
                                 let pid = h.child.id();
                                 lockv(&state.children).insert(id.to_string(), h);
+                                lockv(&state.spawn_fails).remove(id);
                                 {
                                     let mut servers = lockv(&state.servers);
                                     if let Some(srv) = servers.iter_mut().find(|s| s.id == id) {
@@ -1002,13 +1765,18 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                                 }
                                 res = res2;
                             }
-                            Err(e) => add_log(
-                                state,
-                                "warn",
-                                &format!("[{}] démarrage HTTP KO : {}", id, e),
-                            ),
+                            Err(e) => {
+                                note_spawn_failure(state, id);
+                                add_log(
+                                    state,
+                                    "warn",
+                                    &format!("[{}] démarrage HTTP KO : {}", id, e),
+                                )
+                            }
                         }
                     }
+                    // libère la garde anti-doublon quoi qu'il arrive
+                    lockv(&state.spawning).remove(id);
                 }
             }
             let mut servers = lockv(&state.servers);
@@ -1023,6 +1791,7 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                     srv.sse = res.sse;
                     srv.sse_endpoint = res.sse_endpoint;
                     srv.lang = res.lang.clone();
+                    srv.framework = res.framework.clone();
                     srv.tools = res.tools.clone();
                     srv.latency_ms = Some(res.latency_ms);
                     srv.last_seen_ts = Some(crate::types::now_ts());
@@ -1103,7 +1872,10 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                     srv.last_seen_ts = Some(crate::types::now_ts());
                 }
             } else if enabled && has_cmd {
-                // (re)démarrage auto avec handshake complet
+                // (re)démarrage auto avec handshake complet — même garde anti-doublon
+                if !lockv(&state.spawning).insert(id.to_string()) {
+                    return;
+                }
                 let cmd = {
                     let mut servers = lockv(&state.servers);
                     servers
@@ -1123,6 +1895,7 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                             if let Some(h) = handle {
                                 lockv(&state.children).insert(id.to_string(), h);
                             }
+                            lockv(&state.spawn_fails).remove(id);
                             let mut servers = lockv(&state.servers);
                             if let Some(srv) = servers.iter_mut().find(|s| s.id == id) {
                                 srv.state = SState::Up;
@@ -1133,6 +1906,7 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                                 srv.sse = p.sse;
                                 srv.sse_endpoint = p.sse_endpoint;
                                 srv.lang = p.lang.clone();
+                                srv.framework = p.framework.clone();
                                 srv.tools = p.tools.clone();
                                 srv.latency_ms = Some(p.latency_ms);
                                 srv.last_seen_ts = Some(crate::types::now_ts());
@@ -1159,10 +1933,13 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                                 srv.pid = None;
                             }
                             drop(servers);
+                            note_spawn_failure(state, id);
                             add_log(state, "warn", &format!("[{}] stdio KO : {}", id, e));
                         }
                     }
                 }
+                // libère la garde anti-doublon quoi qu'il arrive
+                lockv(&state.spawning).remove(id);
             } else {
                 let mut servers = lockv(&state.servers);
                 if let Some(srv) = servers.iter_mut().find(|s| s.id == id) {
@@ -1238,6 +2015,8 @@ pub fn scan_ports(state: &Arc<AppState>, range: Option<(u16, u16)>) {
                     sse: p.sse,
                     sse_endpoint: p.sse_endpoint,
                     lang: p.lang.clone(),
+                    framework: p.framework.clone(),
+                    via_ssh: false,
                     tools: p.tools,
                     latency_ms: Some(p.latency_ms),
                     last_seen_ts: Some(crate::types::now_ts()),
@@ -1320,23 +2099,26 @@ pub fn local_ips() -> Vec<String> {
     };
     if let Ok(o) = output {
         let text = String::from_utf8_lossy(&o.stdout).to_string();
-        // ne prendre que les lignes "IPv4" (exclut masques et lignes "Passerelle par défaut"/"Default Gateway")
-        // — le marqueur "ipv4" existe en FR ("Adresse IPv4") comme en EN ("IPv4 Address")
-        for line in text.lines() {
-            if !line.to_lowercase().contains("ipv4") {
-                continue;
+        if cfg!(windows) {
+            // ne prendre que les lignes "IPv4" (exclut masques et lignes "Passerelle par défaut"/"Default Gateway")
+            // — le marqueur "ipv4" existe en FR ("Adresse IPv4") comme en EN ("IPv4 Address")
+            for line in text.lines() {
+                if !line.to_lowercase().contains("ipv4") {
+                    continue;
+                }
+                for tok in line.split_whitespace() {
+                    let tok = tok.trim_end_matches(',').trim_start_matches('.');
+                    if crate::probe::looks_like_ip(tok) {
+                        ips.insert(tok.to_string());
+                    }
+                }
             }
-            for tok in line.split_whitespace() {
-                let tok = tok.trim_end_matches(',').trim_start_matches('.');
-                let parts: Vec<&str> = tok.split('.').collect();
-                let est_ip = parts.len() == 4
-                    && parts.iter().all(|p| {
-                        !p.is_empty()
-                            && p.len() <= 3
-                            && p.chars().all(|c| c.is_ascii_digit())
-                            && p.parse::<u8>().is_ok()
-                    });
-                if est_ip {
+        } else {
+            // `hostname -I` sort des IP brutes séparées par espaces — SANS marqueur
+            // "ipv4" : l'ancien parse rejetait tout et le fallback UDP ne renvoyait
+            // qu'une seule interface. On parse chaque token.
+            for tok in text.split_whitespace() {
+                if crate::probe::looks_like_ip(tok) {
                     ips.insert(tok.to_string());
                 }
             }
@@ -1440,6 +2222,8 @@ pub fn scan_network_range(
                             sse: p.sse,
                             sse_endpoint: p.sse_endpoint,
                             lang: p.lang.clone(),
+                            framework: p.framework.clone(),
+                            via_ssh: false,
                             tools: p.tools,
                             latency_ms: Some(p.latency_ms),
                             last_seen_ts: Some(crate::types::now_ts()),
@@ -1509,17 +2293,21 @@ pub fn discover_peers(state: &Arc<AppState>) {
 
     use std::sync::atomic::{AtomicU32, Ordering};
     let new_peers = std::sync::Arc::new(AtomicU32::new(0));
+    // secret partagé : la sonde de pairs présente NOTRE code d'accès (le pair doit
+    // avoir la même valeur dans son config.json pour accepter /api/state)
+    let access = lockv(&state.settings).api_access.clone();
     let mut handles = Vec::new();
     for ip in hosts {
         let ports = ports.clone();
         let state = state.clone();
         let new_peers = new_peers.clone();
+        let access = access.clone();
         handles.push(std::thread::spawn(move || {
             for port in &ports {
                 if *port == own_port {
                     continue;
                 } // ne jamais se sonder soi-même sur notre port
-                let pr = probe::probe_peer(&ip, *port);
+                let pr = probe::probe_peer(&ip, *port, access.as_deref());
                 if pr.alive {
                     if let Some(servers) = pr.servers {
                         let count = servers
@@ -1648,6 +2436,8 @@ pub fn import_peer(state: &Arc<AppState>, ip: &str) -> Value {
                 sse: false,
                 sse_endpoint: false,
                 lang: None,
+                framework: None,
+                via_ssh: false,
                 tools: vec![],
                 latency_ms: None,
                 last_seen_ts: None,
@@ -1669,6 +2459,129 @@ pub fn import_peer(state: &Arc<AppState>, ip: &str) -> Value {
         ),
     );
     json!({"ok": true, "added": added})
+}
+
+// ---------- découverte SSH d'une machine distante ----------
+
+/// Connexion SSH à une machine (client ssh système, auth par clé), netstat
+/// distant, puis sonde des ports DEPUIS LA MACHINE (curl interne sur
+/// 127.0.0.1 via la connexion ssh — passe les binds localhost et ufw) →
+/// import des serveurs MCP trouvés en mode via_ssh (pollés par SSH ensuite).
+pub fn ssh_discover(state: &Arc<AppState>, ip: &str, user: &str) -> Value {
+    add_log(
+        state,
+        "info",
+        &format!("[ssh] connexion à {user}@{ip} — netstat distant…"),
+    );
+    let ports = match probe::ssh_netstat(ip, user, 8) {
+        Ok(p) => p,
+        Err(e) => {
+            add_log(state, "warn", &e);
+            return json!({"ok": false, "error": e});
+        }
+    };
+    add_log(
+        state,
+        "info",
+        &format!(
+            "[ssh {ip}] {} port(s) en écoute (système écarté) — sonde MCP depuis la machine…",
+            ports.len()
+        ),
+    );
+    let found = match probe::ssh_probe_mcp_batch(ip, user, &ports, "/mcp", 4) {
+        Ok(f) => f,
+        Err(e) => {
+            add_log(state, "warn", &e);
+            return json!({"ok": false, "error": e});
+        }
+    };
+    let mut serveurs: Vec<Value> = Vec::new();
+    let mut imported = 0usize;
+    for (port, v) in &found {
+        let res = v.get("result").cloned().unwrap_or(json!({}));
+        let si = res.get("serverInfo").cloned().unwrap_or(json!({}));
+        let name = si
+            .get("name")
+            .and_then(|x| x.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| format!("{ip}:{port}"));
+        let version = si.get("version").and_then(|x| x.as_str()).map(String::from);
+        let id = format!("net-{ip}.{port}");
+        let mut servers = lockv(&state.servers);
+        if let Some(existing) = servers.iter_mut().find(|s| {
+            s.id == id
+                || matches!(&s.transport,
+                    Transport::Http { host: Some(h), port: sp, .. } if h == ip && sp == port)
+        }) {
+            // déjà connu : passe la sonde en interne (via_ssh) et rafraîchit
+            existing.via_ssh = true;
+            existing.state = SState::Up;
+            existing.server_name = si.get("name").and_then(|x| x.as_str()).map(String::from);
+            existing.version = version.clone();
+            existing.last_seen_ts = Some(crate::types::now_ts());
+            serveurs.push(json!({"port": port, "name": name, "imported": false}));
+            continue;
+        }
+        servers.push(Server {
+            id: id.clone(),
+            label: name.clone(),
+            transport: Transport::Http {
+                host: Some(ip.to_string()),
+                port: *port,
+                path: "/mcp".into(),
+            },
+            origin: Origin::Discovered,
+            enabled: true,
+            state: SState::Up,
+            auto_restart: true,
+            pid: None,
+            bound_host: Some(ip.to_string()),
+            server_name: si.get("name").and_then(|x| x.as_str()).map(String::from),
+            version: version.clone(),
+            protocol: res
+                .get("protocolVersion")
+                .and_then(|x| x.as_str())
+                .map(String::from),
+            sse: false,
+            sse_endpoint: false,
+            lang: None,
+            framework: None,
+            via_ssh: true,
+            tools: vec![],
+            latency_ms: None,
+            last_seen_ts: Some(crate::types::now_ts()),
+            last_error: None,
+            start_cmd: None,
+            tools_disabled: vec![],
+        });
+        drop(servers);
+        imported += 1;
+        serveurs.push(json!({"port": port, "name": name, "imported": true}));
+        add_log(
+            state,
+            "info",
+            &format!(
+                "[ssh {ip}] serveur MCP importé (via ssh) : {}:{} — {} {}",
+                ip,
+                port,
+                name,
+                version.as_deref().unwrap_or("")
+            ),
+        );
+    }
+    if !serveurs.is_empty() {
+        save_config(state);
+    }
+    add_log(
+        state,
+        "info",
+        &format!(
+            "[ssh {ip}] terminé : {} serveur(s) MCP trouvé(s), {} importé(s)",
+            serveurs.len(),
+            imported
+        ),
+    );
+    json!({"ok": true, "ports": ports.len(), "found": imported, "serveurs": serveurs})
 }
 
 // ---------- actions ----------
@@ -1879,6 +2792,8 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     sse: false,
                     sse_endpoint: false,
                     lang: None,
+                    framework: None,
+                    via_ssh: false,
                     tools: vec![],
                     latency_ms: None,
                     last_seen_ts: None,
@@ -1951,6 +2866,8 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     sse: false,
                     sse_endpoint: false,
                     lang: None,
+                    framework: None,
+                    via_ssh: false,
                     tools: vec![],
                     latency_ms: None,
                     last_seen_ts: None,
@@ -1976,6 +2893,12 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                 Some(i) => i,
                 None => return json!({"ok": false, "error": "id manquant"}),
             };
+            // durable = « Retirer durablement » sur un seed : l'id est consigné
+            // dans settings.removed_seeds pour ne pas être réinjecté au boot
+            let durable = req
+                .get("durable")
+                .and_then(|x| x.as_bool())
+                .unwrap_or(false);
             let mut children = lockv(&state.children);
             if let Some(h) = children.get_mut(&id) {
                 probe::kill_tree(h.child.id());
@@ -1989,14 +2912,28 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                 servers.retain(|s| s.id != id);
                 before != servers.len()
             };
+            if durable && removed {
+                let mut st = lockv(&state.settings);
+                if !st.removed_seeds.iter().any(|x| x == &id) {
+                    st.removed_seeds.push(id.clone());
+                }
+            }
+            if removed {
+                lockv(&state.settings).server_order.retain(|x| x != &id);
+            }
             save_config(state);
             add_log(
                 state,
                 "info",
                 &format!(
-                    "[-] serveur supprimé : {} ({})",
+                    "[-] serveur supprimé : {} ({}){}",
                     id,
-                    if removed { "ok" } else { "introuvable" }
+                    if removed { "ok" } else { "introuvable" },
+                    if durable && removed {
+                        " — retiré durablement (non réinjecté au boot)"
+                    } else {
+                        ""
+                    }
                 ),
             );
             json!({"ok": removed})
@@ -2035,6 +2972,117 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
         "discover_peers" => {
             discover_peers(state);
             json!({"ok": true})
+        }
+        "ssh_save" => {
+            let (ip, user) = match (
+                req.get("ip").and_then(|x| x.as_str()),
+                req.get("user").and_then(|x| x.as_str()),
+            ) {
+                (Some(i), Some(u)) if !i.trim().is_empty() && !u.trim().is_empty() => {
+                    (i.trim().to_string(), u.trim().to_string())
+                }
+                _ => return json!({"ok": false, "error": "ip et user requis"}),
+            };
+            let mut st = lockv(&state.settings);
+            if let Some(h) = st.ssh_hosts.iter_mut().find(|h| h.ip == ip) {
+                h.user = user;
+            } else {
+                st.ssh_hosts.push(crate::types::SshHost { ip, user });
+            }
+            drop(st);
+            save_config(state);
+            add_log(state, "info", "[machines] machine enregistrée");
+            json!({"ok": true})
+        }
+        "ssh_forget" => {
+            let ip = req
+                .get("ip")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            let removed = {
+                let mut st = lockv(&state.settings);
+                let before = st.ssh_hosts.len();
+                st.ssh_hosts.retain(|h| h.ip != ip);
+                before != st.ssh_hosts.len()
+            };
+            save_config(state);
+            json!({"ok": removed})
+        }
+        "reorder" => {
+            // glisser-déposer de l'explorateur : nouvel ordre d'affichage et de
+            // priorité de sondage. Ids inconnus filtrés, manquants ajoutés en fin.
+            let Some(ids) = req.get("ids").and_then(|x| x.as_array()) else {
+                return json!({"ok": false, "error": "ids requis"});
+            };
+            let mut new_order: Vec<String> = ids
+                .iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect();
+            let known: Vec<String> = {
+                let servers = lockv(&state.servers);
+                servers.iter().map(|s| s.id.clone()).collect()
+            };
+            new_order.retain(|id| known.contains(id));
+            for id in &known {
+                if !new_order.contains(id) {
+                    new_order.push(id.clone());
+                }
+            }
+            lockv(&state.settings).server_order = new_order.clone();
+            save_config(state);
+            add_log(
+                state,
+                "info",
+                &format!(
+                    "[ordre] {} serveur(s) réordonné(s) (préférence / priorité de sondage)",
+                    new_order.len()
+                ),
+            );
+            json!({"ok": true, "count": new_order.len()})
+        }
+        "set_autostart" => {
+            let enable = req.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true);
+            lockv(&state.settings).autostart = enable;
+            apply_autostart(state, enable);
+            save_config(state);
+            json!({"ok": true, "autostart": enable, "active": autostart_active()})
+        }
+        "ssh_discover" => {
+            let ip = req
+                .get("ip")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            // user : fourni par la requête, sinon la machine enregistrée
+            let user = req
+                .get("user")
+                .and_then(|x| x.as_str())
+                .map(|u| u.trim().to_string())
+                .filter(|u| !u.is_empty())
+                .or_else(|| {
+                    lockv(&state.settings)
+                        .ssh_hosts
+                        .iter()
+                        .find(|h| h.ip == ip)
+                        .map(|h| h.user.clone())
+                });
+            let Some(user) = user else {
+                return json!({"ok": false, "error": "utilisateur SSH requis (ou enregistre la machine)"});
+            };
+            if ip.is_empty() {
+                return json!({"ok": false, "error": "ip requise"});
+            }
+            // l'action peut prendre ~30 s (netstat distant + sonde des ports) :
+            // on la détache pour ne pas bloquer le serveur HTTP, l'UI suit via
+            // le journal et un rechargement d'état.
+            let st = state.clone();
+            let ip2 = ip.clone();
+            std::thread::spawn(move || {
+                ssh_discover(&st, &ip2, &user);
+            });
+            json!({"ok": true, "started": true, "note": "découverte SSH lancée — vois le journal, l'état se recharge"})
         }
         "import_peer" => {
             let ip = req.get("ip").and_then(|x| x.as_str()).unwrap_or("");
@@ -2087,20 +3135,35 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
         }
         "install_store" => {
             let sid = req.get("id").and_then(|x| x.as_str()).unwrap_or("");
-            match STORE.iter().find(|s| s.id == sid) {
+            match find_store_item(sid) {
                 Some(it) => {
+                    // args surchargés depuis la requête (ex. dossier du serveur Filesystem)
+                    let mut args: Vec<String> = match req.get("args").and_then(|x| x.as_array()) {
+                        Some(a) if !a.is_empty() => a
+                            .iter()
+                            .filter_map(|i| i.as_str().map(String::from))
+                            .collect(),
+                        _ => it.args.iter().map(|a| a.to_string()).collect(),
+                    };
+                    if args.is_empty() {
+                        args = it.args.iter().map(|a| a.to_string()).collect();
+                    }
+                    // Filesystem : le dossier exposé doit être choisi EXPLICITEMENT —
+                    // jamais un chemin personnel par défaut dans un binaire distribué.
+                    if it.id == "filesystem" && filesystem_dossier_manquant(&args) {
+                        return json!({"ok": false, "error": "précisez le dossier à exposer : {\"action\":\"install_store\",\"id\":\"filesystem\",\"args\":[\"-y\",\"@modelcontextprotocol/server-filesystem\",\"C:/chemin/autorisé\"]}"});
+                    }
                     let id = format!("store-{}", it.id);
                     let already = {
                         let mut servers = lockv(&state.servers);
                         let already = servers.iter().any(|s| s.id == id);
                         if !already {
-                            let args: Vec<String> = it.args.iter().map(|a| a.to_string()).collect();
                             servers.push(Server {
                                 id: id.clone(),
                                 label: it.name.to_string(),
                                 transport: Transport::Stdio {
                                     program: it.program.to_string(),
-                                    args,
+                                    args: args.clone(),
                                     workdir: None,
                                 },
                                 origin: Origin::Manual,
@@ -2115,13 +3178,15 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                                 sse: false,
                                 sse_endpoint: false,
                                 lang: None,
+                                framework: None,
+                                via_ssh: false,
                                 tools: vec![],
                                 latency_ms: None,
                                 last_seen_ts: None,
                                 last_error: None,
                                 start_cmd: Some(StartCmd {
                                     program: it.program.to_string(),
-                                    args: it.args.iter().map(|a| a.to_string()).collect(),
+                                    args,
                                     workdir: None,
                                 }),
                                 tools_disabled: vec![],
@@ -2180,7 +3245,7 @@ pub fn start_cmd_for(srv: &Server) -> Option<StartCmd> {
 
 // ---------- sérialisation UI ----------
 
-fn server_json(s: &Server) -> Value {
+fn server_json(s: &Server, managed: bool) -> Value {
     let (ttype, extra) = match &s.transport {
         Transport::Http { host, port, path } => {
             ("http", json!({"host": host, "port": port, "path": path}))
@@ -2208,15 +3273,40 @@ fn server_json(s: &Server) -> Value {
         "last_seen": s.last_seen_ts, "last_error": s.last_error,
         "can_start": s.start_cmd.is_some(), "auto_restart": s.auto_restart,
         "sse": s.sse, "sse_endpoint": s.sse_endpoint, "lang": s.lang,
+        "framework": s.framework,
+        "via_ssh": s.via_ssh,
+        // contrôle du process : maintenu par CE command center (children) ?
+        "managed": managed,
+        // commande de lancement (Start/Stop) — panneau Démarrage de l'UI
+        "start_cmd": s.start_cmd.as_ref().map(|c| json!({
+            "program": c.program, "args": c.args, "workdir": c.workdir,
+        })),
     })
 }
 
+/// Ids des process actuellement maintenus par le command center (copie —
+/// évite d'imbriquer le lock children sous le lock servers).
+fn managed_ids(state: &Arc<AppState>) -> std::collections::HashSet<String> {
+    lockv(&state.children).keys().cloned().collect()
+}
+
 pub fn state_json(state: &Arc<AppState>) -> Value {
+    let managed = managed_ids(state);
     let servers = lockv(&state.servers);
     let log = lockv(&state.log);
     let settings = lockv(&state.settings);
     let peers = lockv(&state.peers);
-    let list: Vec<Value> = servers.iter().map(server_json).collect();
+    // affichage : ordre préféré (glisser-déposer), non listés en dernier (stable)
+    let order = &settings.server_order;
+    let mut list: Vec<(usize, Value)> = servers
+        .iter()
+        .map(|s| {
+            let pos = order.iter().position(|x| x == &s.id).unwrap_or(usize::MAX);
+            (pos, server_json(s, managed.contains(&s.id)))
+        })
+        .collect();
+    list.sort_by_key(|(pos, _)| *pos);
+    let list: Vec<Value> = list.into_iter().map(|(_, v)| v).collect();
     let up = servers.iter().filter(|s| s.state == SState::Up).count();
     let total = servers.len();
     let tools: usize = servers.iter().map(tools_actifs).sum();
@@ -2230,13 +3320,19 @@ pub fn state_json(state: &Arc<AppState>) -> Value {
             })
         })
         .collect();
+    let latest = lockv(&state.update_latest).clone();
     json!({
         "servers": list, "log": logarr,
+        "latest_version": latest,
+        "update_available": latest.is_some(),
+        "autostart": settings.autostart,
         "stats": {"up": up, "total": total, "tools": tools},
         "settings": {"refresh_secs": settings.refresh_secs, "ui_port": settings.ui_port,
                      "scan_from": settings.scan_from, "scan_to": settings.scan_to,
                      "network_enabled": settings.network_enabled,
-                     "network_ports": settings.network_ports},
+                     "network_ports": settings.network_ports,
+                     "ssh_hosts": settings.ssh_hosts.iter().map(|h| json!({
+                         "ip": h.ip, "user": h.user})).collect::<Vec<_>>()},
         "peers": peers.values().map(|p| json!({
             "ip": p.ip, "ui_port": p.ui_port, "last_seen": p.last_seen,
             "stats": p.servers.get("stats"),
@@ -2246,10 +3342,11 @@ pub fn state_json(state: &Arc<AppState>) -> Value {
 }
 
 pub fn detail_json(state: &Arc<AppState>, id: &str) -> Value {
+    let managed = managed_ids(state);
     let servers = lockv(&state.servers);
     match servers.iter().find(|s| s.id == id) {
         Some(s) => {
-            let mut o = match server_json(s) {
+            let mut o = match server_json(s, managed.contains(&s.id)) {
                 Value::Object(o) => o,
                 _ => Map::new(),
             };
@@ -2277,6 +3374,41 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::Mutex;
 
+    #[test]
+    fn store_catalogue_sain() {
+        // ids uniques (install_store clé les serveurs sur "store-<id>"), kinds et programmes connus
+        let mut ids = std::collections::HashSet::new();
+        for it in all_store_items() {
+            assert!(
+                !it.id.is_empty() && !it.name.is_empty() && !it.desc.is_empty(),
+                "{}: champs vides",
+                it.id
+            );
+            assert!(ids.insert(it.id), "id store dupliqué : {}", it.id);
+            assert!(
+                it.kind == "npm" || it.kind == "python",
+                "{}: kind inconnu {}",
+                it.id,
+                it.kind
+            );
+            assert!(
+                it.program == "npx" || it.program == "uvx",
+                "{}: programme inconnu {}",
+                it.id,
+                it.program
+            );
+            assert!(!it.args.is_empty(), "{}: args vides", it.id);
+        }
+        assert!(
+            STORE.len() >= 29,
+            "le catalogue principal doit garder les 14 originaux + les populaires"
+        );
+        assert!(
+            !crate::store_aitmpl::STORE_AITMPL.is_empty(),
+            "le catalogue aitmpl ne doit pas être vide"
+        );
+    }
+
     fn tmp_config(nom: &str, contenu: Option<&str>) -> String {
         let dir = std::env::temp_dir().join("mcpcc_tests");
         std::fs::create_dir_all(&dir).unwrap();
@@ -2288,9 +3420,9 @@ mod tests {
     }
 
     #[test]
-    fn config_absente_renvoie_les_7_seeds() {
+    fn config_absente_renvoie_les_seeds() {
         let (servers, st) = load_config(&tmp_config("inexistant_aucune_chance.json", None));
-        assert_eq!(servers.len(), 7);
+        assert_eq!(servers.len(), 8);
         assert_eq!(servers[0].id, "seed-overmind");
         assert_eq!(st.refresh_secs, 15);
         for id in ["seed-debats", "seed-news-btc", "seed-news"] {
@@ -2298,9 +3430,298 @@ mod tests {
             assert!(!s.enabled, "{} doit etre desactive par defaut", id);
             assert_eq!(s.state, SState::Disabled);
         }
-        for id in ["seed-overmind", "seed-discord", "seed-postgresql", "seed-x"] {
+        for id in [
+            "seed-overmind",
+            "seed-discord",
+            "seed-postgresql",
+            "seed-x",
+            "seed-litemcp",
+        ] {
             assert!(servers.iter().find(|s| s.id == id).unwrap().enabled);
         }
+    }
+
+    #[test]
+    fn seed_retire_durablement_nest_pas_reinjecte() {
+        // « Retirer durablement » : settings.removed_seeds filtre les seeds
+        // réinjectés par défaut au chargement de la config
+        let cfg = "{\"settings\":{\"removed_seeds\":[\"seed-news\"]}}";
+        let (servers, st) = load_config(&tmp_config("cfg_seed_retire.json", Some(cfg)));
+        assert!(
+            servers.iter().all(|s| s.id != "seed-news"),
+            "seed-news retiré durablement ne doit pas être réinjecté"
+        );
+        assert!(
+            servers.iter().any(|s| s.id == "seed-litemcp"),
+            "les autres seeds restent"
+        );
+        assert_eq!(st.removed_seeds, vec!["seed-news".to_string()]);
+    }
+
+    #[test]
+    fn remove_durable_consigne_le_seed_dans_la_config() {
+        // Roundtrip complet : action API « remove durable » → config.json
+        // → rechargement : le seed n'est plus là
+        let path = tmp_config("cfg_remove_durable.json", None);
+        let state = Arc::new(AppState {
+            servers: Mutex::new(
+                default_servers()
+                    .into_iter()
+                    .filter(|s| s.id == "seed-news")
+                    .collect(),
+            ),
+            log: Mutex::new(VecDeque::new()),
+            settings: Mutex::new(Settings::default()),
+            children: Mutex::new(std::collections::HashMap::new()),
+            config_path: path.clone(),
+            peers: Mutex::new(std::collections::HashMap::new()),
+            allowed_origins: Mutex::new(Vec::new()),
+            allowed_hosts: Mutex::new(Vec::new()),
+            spawn_fails: Mutex::new(std::collections::HashMap::new()),
+            spawning: Mutex::new(std::collections::HashSet::new()),
+            update_latest: Mutex::new(None),
+        });
+        let j = handle_action(
+            &state,
+            "{\"action\":\"remove\",\"id\":\"seed-news\",\"durable\":true}",
+        );
+        assert_eq!(j["ok"], serde_json::json!(true));
+        let (servers, st) = load_config(&path);
+        assert!(
+            servers.iter().all(|s| s.id != "seed-news"),
+            "le seed ne doit pas revenir au rechargement"
+        );
+        assert_eq!(st.removed_seeds, vec!["seed-news".to_string()]);
+    }
+
+    #[test]
+    fn version_newer_compare_numeriquement() {
+        assert!(version_newer("0.7.1", "0.7.0"));
+        assert!(version_newer("v0.8.0", "0.7.9"), "préfixe v toléré");
+        assert!(
+            version_newer("0.10.0", "0.9.9"),
+            "numérique, pas lexicographique"
+        );
+        assert!(version_newer("1.0", "0.9.9"), "longueurs différentes");
+        assert!(
+            !version_newer("0.6.4", "0.7.0"),
+            "la release publiée est plus ancienne"
+        );
+        assert!(
+            !version_newer("0.7.0", "0.7.0"),
+            "égale = pas de mise à jour"
+        );
+        assert!(
+            !version_newer("abc", "0.7.0"),
+            "tag non numérique = pas plus récent"
+        );
+    }
+
+    #[test]
+    fn autostart_est_persiste_et_expose() {
+        let path = tmp_config(
+            "cfg_autostart.json",
+            Some("{\"settings\":{\"autostart\":false}}"),
+        );
+        let (_, st) = load_config(&path);
+        assert!(!st.autostart, "autostart: false lu depuis la config");
+        let state = test_state();
+        {
+            let mut s = lockv(&state.settings);
+            s.autostart = false;
+        }
+        let d = state_json(&state);
+        assert_eq!(d["autostart"], serde_json::json!(false));
+        // l'action reflète la valeur demandée — apply_autostart est neutralisé
+        // sous cfg(test) (jamais d'écriture OS depuis les tests)
+        let j = handle_action(&state, "{\"action\":\"set_autostart\",\"enabled\":true}");
+        assert_eq!(j["ok"], serde_json::json!(true));
+        assert!(lockv(&state.settings).autostart);
+        // NB : j["active"] reflète le registre/fichier RÉEL — non testé (effet OS)
+    }
+
+    #[test]
+    fn reorder_fixe_l_ordre_d_affichage_et_de_sondage() {
+        let path = tmp_config("cfg_reorder.json", None);
+        let mk = |ids: &[&str]| {
+            Arc::new(AppState {
+                servers: Mutex::new(
+                    ids.iter()
+                        .map(|id| Server {
+                            id: id.to_string(),
+                            label: id.to_string(),
+                            transport: Transport::Http {
+                                host: None,
+                                port: 1,
+                                path: "/mcp".into(),
+                            },
+                            origin: Origin::Seed,
+                            enabled: true,
+                            auto_restart: false,
+                            state: SState::Down,
+                            pid: None,
+                            bound_host: None,
+                            server_name: None,
+                            version: None,
+                            protocol: None,
+                            sse: false,
+                            sse_endpoint: false,
+                            lang: None,
+                            framework: None,
+                            via_ssh: false,
+                            tools: vec![],
+                            latency_ms: None,
+                            last_seen_ts: None,
+                            last_error: None,
+                            start_cmd: None,
+                            tools_disabled: vec![],
+                        })
+                        .collect(),
+                ),
+                log: Mutex::new(VecDeque::new()),
+                settings: Mutex::new(Settings::default()),
+                children: Mutex::new(std::collections::HashMap::new()),
+                config_path: path.clone(),
+                peers: Mutex::new(std::collections::HashMap::new()),
+                allowed_origins: Mutex::new(Vec::new()),
+                allowed_hosts: Mutex::new(Vec::new()),
+                spawn_fails: Mutex::new(std::collections::HashMap::new()),
+                spawning: Mutex::new(std::collections::HashSet::new()),
+                update_latest: Mutex::new(None),
+            })
+        };
+        let state = mk(&["a", "b", "c"]);
+        // 1. reorder avec ids inconnus filtrés + ordre appliqué
+        let j = handle_action(
+            &state,
+            "{\"action\":\"reorder\",\"ids\":[\"c\",\"zzz\",\"b\"]}",
+        );
+        assert_eq!(j["ok"], serde_json::json!(true));
+        assert_eq!(
+            lockv(&state.settings).server_order,
+            vec!["c".to_string(), "b".to_string(), "a".to_string()],
+            "inconnu filtré, manquant (a) ajouté en fin"
+        );
+        // 2. l'affichage suit l'ordre
+        let d = state_json(&state);
+        let ids: Vec<String> = d["servers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["id"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(ids, vec!["c", "b", "a"]);
+        // 3. remove purge l'ordre
+        handle_action(&state, "{\"action\":\"remove\",\"id\":\"c\"}");
+        assert_eq!(
+            lockv(&state.settings).server_order,
+            vec!["b".to_string(), "a".to_string()]
+        );
+    }
+
+    #[test]
+    fn server_order_est_persiste_et_recharge() {
+        let path = tmp_config(
+            "cfg_ordre.json",
+            Some("{\"settings\":{\"server_order\":[\"b\",\"a\"]}}"),
+        );
+        let (_, st) = load_config(&path);
+        assert_eq!(st.server_order, vec!["b".to_string(), "a".to_string()]);
+    }
+
+    #[test]
+    fn cache_roundtrip_restaure_le_dernier_etat() {
+        let path = tmp_config("cfg_cache.json", None);
+        let mk = |state_etat: SState, tools: bool| {
+            Arc::new(AppState {
+                servers: Mutex::new(vec![Server {
+                    id: "seed-overmind".into(),
+                    label: "Overmind".into(),
+                    transport: Transport::Http {
+                        host: None,
+                        port: 3099,
+                        path: "/mcp".into(),
+                    },
+                    origin: Origin::Seed,
+                    enabled: true,
+                    auto_restart: true,
+                    state: state_etat,
+                    pid: None,
+                    bound_host: Some("127.0.0.1".into()),
+                    server_name: if tools {
+                        Some("OverMind-MCP".into())
+                    } else {
+                        None
+                    },
+                    version: if tools { Some("3.10.5".into()) } else { None },
+                    protocol: None,
+                    sse: false,
+                    sse_endpoint: false,
+                    lang: Some("node".into()),
+                    framework: None,
+                    via_ssh: false,
+                    tools: if tools {
+                        vec![
+                            crate::types::ToolInfo {
+                                name: "a".into(),
+                                desc: "premier".into(),
+                            },
+                            crate::types::ToolInfo {
+                                name: "b".into(),
+                                desc: String::new(),
+                            },
+                        ]
+                    } else {
+                        vec![]
+                    },
+                    latency_ms: if tools { Some(3) } else { None },
+                    last_seen_ts: if tools { Some(1_700_000_000) } else { None },
+                    last_error: None,
+                    start_cmd: None,
+                    tools_disabled: vec![],
+                }]),
+                log: Mutex::new(VecDeque::new()),
+                settings: Mutex::new(Settings::default()),
+                children: Mutex::new(std::collections::HashMap::new()),
+                config_path: path.clone(),
+                peers: Mutex::new(std::collections::HashMap::new()),
+                allowed_origins: Mutex::new(Vec::new()),
+                allowed_hosts: Mutex::new(Vec::new()),
+                spawn_fails: Mutex::new(std::collections::HashMap::new()),
+                spawning: Mutex::new(std::collections::HashSet::new()),
+                update_latest: Mutex::new(None),
+            })
+        };
+        // 1. état riche -> cache
+        save_cache(&mk(SState::Up, true));
+        // 2. nouvel état vide (comme au boot) -> load
+        let fresh = mk(SState::Down, false);
+        load_cache(&fresh);
+        let s = lockv(&fresh.servers).first().unwrap().clone();
+        assert_eq!(
+            s.state,
+            SState::Up,
+            "l'état UP est restauré avant la première sonde"
+        );
+        assert_eq!(s.server_name.as_deref(), Some("OverMind-MCP"));
+        assert_eq!(s.version.as_deref(), Some("3.10.5"));
+        assert_eq!(s.tools.len(), 2);
+        assert_eq!(s.tools[0].name, "a");
+        assert_eq!(s.latency_ms, Some(3));
+        assert_eq!(s.last_seen_ts, Some(1_700_000_000));
+        // 3. serveur désactivé : le cache ne le touche pas
+        let dis = mk(SState::Down, false);
+        {
+            let mut sv = lockv(&dis.servers);
+            sv.first_mut().unwrap().enabled = false;
+        }
+        load_cache(&dis);
+        let s2 = lockv(&dis.servers).first().unwrap().clone();
+        assert_eq!(
+            s2.state,
+            SState::Down,
+            "serveur désactivé non restauré en UP"
+        );
     }
 
     #[test]
@@ -2311,21 +3732,36 @@ mod tests {
                 .start_cmd
                 .as_ref()
                 .unwrap_or_else(|| panic!("{} doit avoir une start_cmd", s.id));
-            assert_eq!(cmd.program, "node");
-            assert!(
-                cmd.args
-                    .first()
-                    .map(|a| a.ends_with("/bin/launch.cjs"))
-                    .unwrap_or(false),
-                "{} doit lancer son bin/launch.cjs",
-                s.id
-            );
+            if s.id == "seed-litemcp" {
+                // démo litemcp : binaire Rust release, pas un launcher node
+                assert!(
+                    cmd.program
+                        .ends_with("/litemcp/target/release/examples/hello.exe"),
+                    "seed-litemcp doit lancer hello.exe, pas {}",
+                    cmd.program
+                );
+            } else {
+                assert_eq!(cmd.program, "node");
+                assert!(
+                    cmd.args
+                        .first()
+                        .map(|a| a.ends_with("/bin/launch.cjs"))
+                        .unwrap_or(false),
+                    "{} doit lancer son bin/launch.cjs",
+                    s.id
+                );
+            }
             assert!(cmd.workdir.is_some(), "{} doit avoir un workdir", s.id);
         }
         let ov = servers.iter().find(|s| s.id == "seed-overmind").unwrap();
         let cmd = ov.start_cmd.as_ref().unwrap();
         assert!(cmd.args[0].ends_with("/Workflow/bin/launch.cjs"));
         assert!(cmd.workdir.as_deref().unwrap().ends_with("/Workflow"));
+        let lm = servers.iter().find(|s| s.id == "seed-litemcp").unwrap();
+        assert!(
+            matches!(&lm.transport, Transport::Http { port: 8080, .. }),
+            "seed-litemcp doit viser le port 8080"
+        );
     }
 
     #[test]
@@ -2376,6 +3812,11 @@ mod tests {
             settings: Mutex::new(Settings::default()),
             children: Mutex::new(std::collections::HashMap::new()),
             peers: Mutex::new(std::collections::HashMap::new()),
+            allowed_origins: Mutex::new(Vec::new()),
+            allowed_hosts: Mutex::new(Vec::new()),
+            spawn_fails: Mutex::new(std::collections::HashMap::new()),
+            spawning: Mutex::new(std::collections::HashSet::new()),
+            update_latest: Mutex::new(None),
             config_path: path.clone(),
         };
         {
@@ -2400,6 +3841,8 @@ mod tests {
                 sse: false,
                 sse_endpoint: false,
                 lang: None,
+                framework: None,
+                via_ssh: false,
                 tools: vec![],
                 latency_ms: Some(3),
                 last_seen_ts: Some(1),
@@ -2465,6 +3908,8 @@ mod tests {
                 sse: false,
                 sse_endpoint: false,
                 lang: None,
+                framework: None,
+                via_ssh: false,
                 tools: vec![
                     crate::types::ToolInfo {
                         name: "a".into(),
@@ -2485,6 +3930,11 @@ mod tests {
             settings: Mutex::new(Settings::default()),
             children: Mutex::new(std::collections::HashMap::new()),
             peers: Mutex::new(std::collections::HashMap::new()),
+            allowed_origins: Mutex::new(Vec::new()),
+            allowed_hosts: Mutex::new(Vec::new()),
+            spawn_fails: Mutex::new(std::collections::HashMap::new()),
+            spawning: Mutex::new(std::collections::HashSet::new()),
+            update_latest: Mutex::new(None),
             config_path: String::new(),
         };
         let arc = Arc::new(state);
@@ -2524,6 +3974,8 @@ mod tests {
                 sse: false,
                 sse_endpoint: false,
                 lang: None,
+                framework: None,
+                via_ssh: false,
                 tools: vec![
                     crate::types::ToolInfo {
                         name: "a".into(),
@@ -2548,6 +4000,11 @@ mod tests {
             settings: Mutex::new(Settings::default()),
             children: Mutex::new(std::collections::HashMap::new()),
             peers: Mutex::new(std::collections::HashMap::new()),
+            allowed_origins: Mutex::new(Vec::new()),
+            allowed_hosts: Mutex::new(Vec::new()),
+            spawn_fails: Mutex::new(std::collections::HashMap::new()),
+            spawning: Mutex::new(std::collections::HashSet::new()),
+            update_latest: Mutex::new(None),
             config_path: String::new(),
         };
         let servers = lockv(&state.servers);
@@ -2578,6 +4035,8 @@ mod tests {
                     sse: false,
                     sse_endpoint: false,
                     lang: None,
+                    framework: None,
+                    via_ssh: false,
                     tools: vec![crate::types::ToolInfo {
                         name: "t".into(),
                         desc: String::new(),
@@ -2608,6 +4067,8 @@ mod tests {
                     sse: false,
                     sse_endpoint: false,
                     lang: None,
+                    framework: None,
+                    via_ssh: false,
                     tools: vec![],
                     latency_ms: None,
                     last_seen_ts: None,
@@ -2620,6 +4081,11 @@ mod tests {
             settings: Mutex::new(Settings::default()),
             children: Mutex::new(std::collections::HashMap::new()),
             peers: Mutex::new(std::collections::HashMap::new()),
+            allowed_origins: Mutex::new(Vec::new()),
+            allowed_hosts: Mutex::new(Vec::new()),
+            spawn_fails: Mutex::new(std::collections::HashMap::new()),
+            spawning: Mutex::new(std::collections::HashSet::new()),
+            update_latest: Mutex::new(None),
             config_path: String::new(),
         };
         let j = state_json(&Arc::new(state));
@@ -2641,6 +4107,11 @@ mod tests {
             children: Mutex::new(std::collections::HashMap::new()),
             config_path: String::new(),
             peers: Mutex::new(std::collections::HashMap::new()),
+            allowed_origins: Mutex::new(Vec::new()),
+            allowed_hosts: Mutex::new(Vec::new()),
+            spawn_fails: Mutex::new(std::collections::HashMap::new()),
+            spawning: Mutex::new(std::collections::HashSet::new()),
+            update_latest: Mutex::new(None),
         })
     }
 
@@ -2670,8 +4141,8 @@ mod tests {
     #[test]
     fn import_mcp_texte_reconnait_tout() {
         let state = test_state();
-        // URL
-        let j = import_mcp_text(&state, "https://mcp.linear.app/mcp");
+        // URL (http : https est refusé explicitement, pas de TLS dans ce client)
+        let j = import_mcp_text(&state, "http://mcp.linear.app/mcp");
         assert_eq!(j["ok"], json!(true));
         // commande claude
         let j2 = import_mcp_text(&state, "claude mcp add monserveur npx -y pkg");
@@ -2688,6 +4159,57 @@ mod tests {
         assert!(servers
             .iter()
             .any(|s| s.id.starts_with("store-filesystem-")));
+    }
+
+    #[test]
+    fn import_https_est_refuse_avec_message_clair() {
+        // Régression audit : une URL https finissait en sonde plaintext illisible (DOWN permanent)
+        let state = test_state();
+        let j = import_mcp_text(&state, "https://mcp.linear.app/mcp");
+        assert_eq!(j["ok"], json!(false));
+        assert!(j["error"].as_str().unwrap().contains("TLS"));
+        assert!(lockv(&state.servers).is_empty());
+    }
+
+    #[test]
+    fn install_store_filesystem_exige_un_dossier_explicite() {
+        // Régression audit : le catalogue embarquait C:/Users/<user> en dur (profil entier exposé)
+        let state = test_state();
+        // sans args → refus AVANT tout spawn (poll_one jamais atteint)
+        let j = handle_action(&state, r#"{"action":"install_store","id":"filesystem"}"#);
+        assert_eq!(j["ok"], json!(false));
+        assert!(lockv(&state.servers).is_empty());
+        // critère pur : le nom du package contient un « / » — seule la LONGUEUR protège
+        let pkg = "-y".to_string();
+        let nm = "@modelcontextprotocol/server-filesystem".to_string();
+        assert!(filesystem_dossier_manquant(&[pkg.clone(), nm.clone()]));
+        assert!(!filesystem_dossier_manquant(&[
+            pkg,
+            nm,
+            "C:/data".to_string()
+        ]));
+        assert!(filesystem_dossier_manquant(&[
+            "-y".to_string(),
+            "@modelcontextprotocol/server-filesystem".to_string(),
+            "relatif-sans-separateur".to_string()
+        ]));
+    }
+
+    #[test]
+    fn settings_defaut_loopback_et_api_access_lu_de_la_config() {
+        // Régression audit : le bind par défaut 0.0.0.0 rendait l'API contrôlable du LAN
+        let (_, st) = load_config(&tmp_config("cfg_defaut_audit.json", None));
+        assert_eq!(st.ui_bind, "127.0.0.1");
+        assert!(st.api_access.is_none());
+        assert!(st.allowed_origins.is_empty());
+        let cfg = r#"{"servers":[],"settings":{"ui_bind":"0.0.0.0","api_access":"valeur-partagee-pair","allowed_origins":["http://mon-host.local:5090"]}}"#;
+        let (_, st2) = load_config(&tmp_config("cfg_access.json", Some(cfg)));
+        assert_eq!(st2.ui_bind, "0.0.0.0");
+        assert_eq!(st2.api_access.as_deref(), Some("valeur-partagee-pair"));
+        assert_eq!(
+            st2.allowed_origins,
+            vec!["http://mon-host.local:5090".to_string()]
+        );
     }
 
     #[test]
@@ -2830,6 +4352,11 @@ mod tests {
             children: Mutex::new(std::collections::HashMap::new()),
             config_path: path.clone(),
             peers: Mutex::new(std::collections::HashMap::new()),
+            allowed_origins: Mutex::new(Vec::new()),
+            allowed_hosts: Mutex::new(Vec::new()),
+            spawn_fails: Mutex::new(std::collections::HashMap::new()),
+            spawning: Mutex::new(std::collections::HashSet::new()),
+            update_latest: Mutex::new(None),
         };
         save_config(&state);
         let (servers2, _) = load_config(&path);

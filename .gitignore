@@ -1,7 +1,23 @@
 /target
 config.json
+state-cache.json
 *.log
 *.tmp
 .tmp
 
 desktop/gen/
+
+# artefacts e2e (captures de pages rendues — contiennent des données internes)
+ui-e2e-*
+
+# audit/projets annexes
+pauvre-router-audit/
+.zwork/
+
+# parasites Windows (mauvais redirect `> nul` sous Git Bash)
+nul
+
+# scripts de patch one-shot (appliqués puis obsolètes)
+patch_*.py
+store_patch.py
+scripts/patch_*.py
