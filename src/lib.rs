@@ -251,7 +251,14 @@ fn reason_phrase(status: u16) -> &'static str {
     }
 }
 
-pub fn run_headless() -> String {
+/// Résultat de `run_headless` : l'URL de l'UI, et si un moteur TOURNAIT DÉJÀ
+/// (instance unique — cf. la logique de reconnexion dans run_headless).
+pub struct RunOutcome {
+    pub url: String,
+    pub reused: bool,
+}
+
+pub fn run_headless() -> RunOutcome {
     let config_path =
         manage::resolve_config_path(env!("CARGO_MANIFEST_DIR"), std::env::var("MCC_CONFIG").ok());
     let (servers, settings) = manage::load_config(&config_path);
@@ -271,11 +278,6 @@ pub fn run_headless() -> String {
     // cache de démarrage : restaure le dernier état connu AVANT la première
     // sonde — l'UI est peuplée instantanément, les sondes corrigent ensuite
     manage::load_cache(&state);
-    manage::add_log(
-        &state,
-        "info",
-        &format!("mcp-command-center v{} démarré", env!("CARGO_PKG_VERSION")),
-    );
 
     let mut ui_port = settings.ui_port;
     let ui_bind = settings.ui_bind.clone();
@@ -283,10 +285,29 @@ pub fn run_headless() -> String {
         match TcpListener::bind((ui_bind.as_str(), ui_port)) {
             Ok(l) => break l,
             Err(_) => {
+                // port occupé : si un AUTRE moteur command-center y tourne déjà,
+                // on s'y RECONNECTE au lieu d'en lancer un second (instance
+                // unique — deux moteurs sur la même config se disputeraient les
+                // spawns, réécriraient config.json et doublerraient les scans).
+                // Occupant étranger → port suivant (comportement historique).
+                for _ in 0..2 {
+                    if let Some(url) = probe::command_center_ui_at(ui_port) {
+                        manage::add_log(
+                            &state,
+                            "info",
+                            &format!(
+                                "moteur déjà en cours sur {} — réutilisé : aucun second moteur lancé (sondes, autostart et scan restent à l'instance existante)",
+                                url
+                            ),
+                        );
+                        return RunOutcome { url, reused: true };
+                    }
+                    thread::sleep(Duration::from_millis(250));
+                }
                 manage::add_log(
                     &state,
                     "warn",
-                    &format!("port {} occupé, essai {}", ui_port, ui_port + 1),
+                    &format!("port {} occupé (étranger), essai {}", ui_port, ui_port + 1),
                 );
                 ui_port += 1;
                 if ui_port > settings.ui_port + 9 {
@@ -300,6 +321,11 @@ pub fn run_headless() -> String {
             }
         }
     };
+    manage::add_log(
+        &state,
+        "info",
+        &format!("mcp-command-center v{} démarré", env!("CARGO_PKG_VERSION")),
+    );
     {
         let mut st = lockv(&state.settings);
         st.ui_port = ui_port;
@@ -428,7 +454,10 @@ pub fn run_headless() -> String {
             }
         }
     });
-    ui_url
+    RunOutcome {
+        url: ui_url,
+        reused: false,
+    }
 }
 
 /// Bloque le thread courant indéfiniment (mode CLI headless).

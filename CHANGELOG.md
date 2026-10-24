@@ -1,3 +1,13 @@
+## [0.7.2] — Instance unique (reconnexion au moteur existant) + partie HTTP invisible
+
+### Ajouté
+- **Instance unique renforcée — « ça se reconnecte » au lieu d'ouvrir un autre** : au lancement, si un moteur command-center répond déjà sur le port UI voulu (détection par `GET /api/hello`, retry ×2), le nouveau process s'y **reconnecte** et n'en lance PAS un second — plus de moteurs jumeaux sur 5091/5092 qui se disputaient les spawns auto, réécrivaient le config.json et doublaient les scans. Le port saute au suivant UNIQUEMENT si l'occupant est un logiciel étranger (comportement historique conservé). Desktop relancé → `tauri_plugin_single_instance` réaffiche/focalise la fenêtre existante (y compris depuis le tray) ; headless relancé alors qu'un moteur vit (desktop OU headless) → message « un moteur tourne déjà sur … — rien à lancer » et sortie propre. Testé : deux instances successives sur le même port → une seule écoute.
+- **Journal disque `mcc.log`** (à côté du config.json, rotation à 512 Ko → `mcc.log.old`) : la partie HTTP tourne parfois sans AUCUNE console (autostart `--hidden`, fenêtre masquée dans le tray) — sans fichier, aucun support ni historique possible (point noté depuis l'audit v0.6.3). Horodatage UTC lisible (`iso_utc`, algorithme civil_from_days, testé contre dates connues dont 29/02 et siècles).
+
+### Modifié
+- **Partie HTTP invisible** : le binaire headless lancé avec `--hidden` (cas autostart) **masque sa fenêtre console** (`GetConsoleWindow` + `ShowWindow(SW_HIDE)`, sans crate externe) — plus aucune fenêtre ne s'ouvre au boot de l'OS. Lancé à la main sans flag : la console de dev reste (journal live). Le desktop reste fenêtré sans console (`windows_subsystem = "windows"` en release).
+- Le headless annonce le journal disque à son démarrage.
+
 ## [0.7.1] — Audit 2026-10-24 : auth réelle (login UI + preuve de pair HMAC), hygiène
 
 ### Sécurité

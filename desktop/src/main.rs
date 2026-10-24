@@ -18,7 +18,11 @@ use tauri::{
 };
 
 fn main() {
-    let ui_url = mcp_command_center::run_headless();
+    // Instance unique garantie à deux niveaux : (1) tauri_plugin_single_instance
+    // ci-dessous réaffiche la fenêtre existante si le desktop est relancé ;
+    // (2) run_headless se RECONNECTE à un moteur déjà en cours (headless ou
+    // desktop) au lieu d'en lancer un second — un seul processus supervise.
+    let ui_url = mcp_command_center::run_headless().url;
     // lancé au boot de Windows (entrée autostart) → pas de fenêtre, tray seulement
     let hidden = std::env::args().any(|a| a == "--hidden");
 

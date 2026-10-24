@@ -37,7 +37,12 @@ superviser et piloter les serveurs **MCP** : HTTP streamable, stdio, et découve
 ```
 start-command-center.bat
 ```
-→ UI sur **http://127.0.0.1:5090** (passe au port suivant si occupé, jusqu'à +9).
+→ UI sur **http://127.0.0.1:5090** (passe au port suivant si occupé par un logiciel étranger, jusqu'à +9).
+
+> **Instance unique (v0.7.2)** : si un moteur command-center tourne déjà (desktop ou
+> headless, en arrière-plan), un nouveau lancement **s'y reconnecte** au lieu d'en
+> lancer un second — un seul processus supervise les serveurs. Le journal complet
+> vit dans `mcc.log` (à côté du config.json) même quand rien n'est affiché à l'écran.
 
 > **Sécurité (v0.7.1)** : le bind par défaut est `127.0.0.1` (UI locale seulement).
 > Pour ouvrir au LAN (`"ui_bind": "0.0.0.0"` dans config.json), un code d'accès API est

@@ -2,6 +2,7 @@
 config.json
 state-cache.json
 *.log
+*.log.old
 *.tmp
 .tmp
 

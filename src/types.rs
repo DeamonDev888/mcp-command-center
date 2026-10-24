@@ -10,6 +10,26 @@ pub fn now_ts() -> u64 {
         .unwrap_or(0)
 }
 
+/// Époque Unix → "YYYY-MM-DD HH:MM:SS" UTC (sans dépendance chrono ;
+/// algorithme civil_from_days de H. Hinnant — testé contre des dates connues).
+/// Sert au journal disque : la partie HTTP tourne parfois sans aucune console.
+pub fn iso_utc(ts: u64) -> String {
+    let days = (ts / 86_400) as i64;
+    let secs = ts % 86_400;
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    let (h, mi, s) = (secs / 3600, (secs % 3600) / 60, secs % 60);
+    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", y, m, d, h, mi, s)
+}
+
 pub fn lockv<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
@@ -214,4 +234,20 @@ pub struct AppState {
     /// (badge « mise à jour disponible »). None = à jour ou vérification
     /// impossible (hors ligne, dépôt privé).
     pub update_latest: Mutex<Option<String>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::iso_utc;
+
+    #[test]
+    fn iso_utc_dates_connues() {
+        assert_eq!(iso_utc(0), "1970-01-01 00:00:00");
+        assert_eq!(iso_utc(1), "1970-01-01 00:00:01");
+        assert_eq!(iso_utc(86_399), "1970-01-01 23:59:59");
+        assert_eq!(iso_utc(1_700_000_000), "2023-11-14 22:13:20");
+        // 29 février (bissextile) et passage de siècle
+        assert_eq!(iso_utc(951_782_400), "2000-02-29 00:00:00");
+        assert_eq!(iso_utc(4_102_444_800), "2100-01-01 00:00:00");
+    }
 }

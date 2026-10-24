@@ -1727,6 +1727,28 @@ pub fn looks_like_ip(s: &str) -> bool {
     })
 }
 
+/// Un moteur command-center tourne-t-il déjà sur CE port local (127.0.0.1/::1) ?
+/// Retourne l'URL de son UI. Utilisé par run_headless pour se RECONNECTER à un
+/// moteur existant au lieu d'en lancer un second — deux moteurs sur la même
+/// config se disputeraient les spawns et réécriraient le config.json en boucle.
+pub fn command_center_ui_at(port: u16) -> Option<String> {
+    for host in ["127.0.0.1", "::1"] {
+        if let Ok((bytes, _)) = http_get_host(host, port, "/api/hello", 800) {
+            if let Ok(v) = serde_json::from_slice::<Value>(&bytes) {
+                if v.get("app").and_then(|x| x.as_str()) == Some("mcp-command-center") {
+                    let h = if host.contains(':') {
+                        format!("[{}]:{}", host, port)
+                    } else {
+                        format!("{}:{}", host, port)
+                    };
+                    return Some(format!("http://{}", h));
+                }
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2172,5 +2194,63 @@ LISTEN  0      128              *:3141             *:*";
             pids_listening_on_ss(&ss, 5090).is_empty(),
             "notre propre PID est exclu (pas de suicide)"
         );
+    }
+
+    #[test]
+    fn command_center_ui_at_detecte_le_moteur_et_rejete_les_etrangers() {
+        // un command-center (hello avec app=mcp-command-center) → Some(url)
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        thread::spawn(move || {
+            for stream in l.incoming() {
+                let Ok(mut s) = stream else { return };
+                let mut buf = [0u8; 4096];
+                let _ = s.read(&mut buf);
+                let req = String::from_utf8_lossy(&buf).to_string();
+                let body = if req.starts_with("GET /api/hello") {
+                    r#"{"app":"mcp-command-center","version":"0.7.2","nonce":"aa"}"#.to_string()
+                } else {
+                    String::new()
+                };
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = s.write_all(resp.as_bytes());
+            }
+        });
+        assert!(
+            command_center_ui_at(port).is_some(),
+            "un moteur command-center doit être détecté (reconnexion au lieu d'un second)"
+        );
+
+        // un occupant étranger (autre logiciel HTTP) → None
+        let l2 = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port2 = l2.local_addr().unwrap().port();
+        thread::spawn(move || {
+            for stream in l2.incoming() {
+                let Ok(mut s) = stream else { return };
+                let mut buf = [0u8; 4096];
+                let _ = s.read(&mut buf);
+                let body = "<html>une autre application</html>";
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = s.write_all(resp.as_bytes());
+            }
+        });
+        assert!(
+            command_center_ui_at(port2).is_none(),
+            "un non-command-center ne doit pas être pris pour un moteur"
+        );
+
+        // rien n'écoute → None (rapide, sans panic)
+        let l3 = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port3 = l3.local_addr().unwrap().port();
+        drop(l3);
+        assert!(command_center_ui_at(port3).is_none());
     }
 }
