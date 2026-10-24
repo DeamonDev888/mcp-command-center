@@ -1,6 +1,6 @@
 [package]
 name = "mcp-command-center-desktop"
-version = "0.7.4"
+version = "0.7.5"
 edition = "2021"
 description = "MCP Command Center — fenêtre native OS"
 

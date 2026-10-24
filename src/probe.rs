@@ -737,6 +737,33 @@ pub fn ssh_netstat(host: &str, user: &str, timeout_secs: u64) -> Result<Vec<u16>
     Ok(parse_listening_ports(&stdout))
 }
 
+/// Ports TCP en écoute SUR CETTE machine (toutes interfaces), ports système
+/// écartés — la source de la découverte locale : l'OS sait déjà ce qui écoute,
+/// le scan au boot n'a plus à deviner une plage (un serveur sur 8787 restait
+/// invisible avec scan_from/scan_to = 3000-3200).
+pub fn local_listening_ports() -> Vec<u16> {
+    let out = if cfg!(windows) {
+        let mut c = Command::new("netstat");
+        hidden(&mut c).args(["-ano"]).output()
+    } else {
+        // ss (iproute2) d'abord, netstat -tln en repli (même format addr:port)
+        let mut c = Command::new("ss");
+        probe_hidden_cmd(&mut c);
+        match c.args(["-tln"]).output() {
+            Ok(o) if o.status.success() => Ok(o),
+            _ => {
+                let mut c2 = Command::new("netstat");
+                probe_hidden_cmd(&mut c2);
+                c2.args(["-tln"]).output()
+            }
+        }
+    };
+    match out {
+        Ok(o) => parse_listening_ports(&String::from_utf8_lossy(&o.stdout)),
+        Err(_) => Vec::new(),
+    }
+}
+
 /// Chemin MCP sanitisé (arrive de la config) : commence par /, aucun espace
 /// ni quote — il est injecté dans une commande distante.
 fn mcp_path_safe(path: &str) -> String {

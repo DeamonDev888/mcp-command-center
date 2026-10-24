@@ -2119,6 +2119,124 @@ pub fn scan_ports(state: &Arc<AppState>, range: Option<(u16, u16)>) {
     );
 }
 
+/// Découverte locale — candidats = ports en écoute MOINS les serveurs locaux
+/// déjà connus et notre propre port UI. Pur, testé.
+fn discovery_candidates(ports: &[u16], known_local: &[u16], own_ui: u16) -> Vec<u16> {
+    ports
+        .iter()
+        .copied()
+        .filter(|p| *p != own_ui && !known_local.contains(p))
+        .collect()
+}
+
+/// AUTO-SCAN (boot + bouton ⟳) : sonde TOUS les ports en écoute de la machine
+/// — netstat/ss, l'OS sait déjà ce qui écoute, aucune plage à deviner. Un
+/// serveur sur 8787 est trouvé même avec scan_from/scan_to = 3000-3200 (le cas
+/// qui rendait des serveurs invisibles). Les répondeurs deviennent des serveurs
+/// découverts (non persistés : re-découverts à chaque boot, comme le range scan).
+#[allow(unused_must_use)]
+pub fn scan_listening(state: &Arc<AppState>) {
+    let ports = probe::local_listening_ports();
+    let own_ui = lockv(&state.settings).ui_port;
+    let known_local: Vec<u16> = lockv(&state.servers)
+        .iter()
+        .filter_map(|s| match &s.transport {
+            Transport::Http { host, port, .. }
+                if host.as_deref().map(crate::is_loopback_bind).unwrap_or(true) =>
+            {
+                Some(*port)
+            }
+            _ => None,
+        })
+        .collect();
+    let candidates = discovery_candidates(&ports, &known_local, own_ui);
+    add_log(
+        state,
+        "info",
+        &format!(
+            "scan local : {} port(s) en écoute, {} inconnu(s) à sonder (tous ports — aucune plage)",
+            ports.len(),
+            candidates.len()
+        ),
+    );
+    let mut found = 0u32;
+    // sondes PARALLÈLES : un service silencieux (ports RPC Windows & co)
+    // encaisse la connexion sans jamais répondre et coûte son timeout entier
+    // (4 s) — en séquentiel, une trentaine de ports bavards paralysait la
+    // découverte des minutes durant. Ajouts sérialisés ensuite (verrou servers).
+    let handles: Vec<_> = candidates
+        .into_iter()
+        .map(|port| std::thread::spawn(move || (port, probe::probe_http(port, "/mcp", 4000))))
+        .collect();
+    for h in handles {
+        let (port, p) = match h.join() {
+            Ok(x) => x,
+            Err(_) => continue,
+        };
+        if !p.mcp_up {
+            continue;
+        }
+        let id = format!("disc-{}", port);
+        let mut servers = lockv(&state.servers);
+        if servers.iter().any(|s| {
+            s.id == id
+                || matches!(&s.transport,
+                    Transport::Http { host, port: sp, .. }
+                    if *sp == port
+                        && host.as_deref().map(crate::is_loopback_bind).unwrap_or(true))
+        }) {
+            continue;
+        }
+        let label = p.name.clone().unwrap_or_else(|| format!("port-{}", port));
+        servers.push(Server {
+            id: id.clone(),
+            label,
+            transport: Transport::Http {
+                host: None,
+                port,
+                path: "/mcp".into(),
+            },
+            origin: Origin::Discovered,
+            enabled: true,
+            state: SState::Up,
+            auto_restart: true,
+            pid: p.pid,
+            bound_host: p.host.clone(),
+            server_name: p.name.clone(),
+            version: p.version.clone(),
+            protocol: p.protocol.clone(),
+            sse: p.sse,
+            sse_endpoint: p.sse_endpoint,
+            lang: p.lang.clone(),
+            framework: p.framework.clone(),
+            via_ssh: false,
+            tools: p.tools,
+            latency_ms: Some(p.latency_ms),
+            last_seen_ts: Some(crate::types::now_ts()),
+            last_error: None,
+            start_cmd: None,
+            tools_disabled: vec![],
+        });
+        drop(servers);
+        found += 1;
+        add_log(
+            state,
+            "info",
+            &format!(
+                "[scan] serveur MCP découvert sur port {} : {} v{}",
+                port,
+                p.name.as_deref().unwrap_or("?"),
+                p.version.as_deref().unwrap_or("?")
+            ),
+        );
+    }
+    add_log(
+        state,
+        "info",
+        &format!("scan local terminé : {} nouveau(x) serveur(s) MCP", found),
+    );
+}
+
 // ---------- scan réseau local (MCP distants) ----------
 
 #[allow(unused_must_use)]
@@ -3045,6 +3163,11 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
         }
         "discover_peers" => {
             discover_peers(state);
+            json!({"ok": true})
+        }
+        // découverte locale à la demande (bouton ⟳ de l'UI) : tous ports en écoute
+        "discover" => {
+            scan_listening(state);
             json!({"ok": true})
         }
         "ssh_save" => {
@@ -4184,6 +4307,17 @@ mod tests {
             spawning: Mutex::new(std::collections::HashSet::new()),
             update_latest: Mutex::new(None),
         })
+    }
+
+    #[test]
+    fn discovery_candidates_exclut_connus_et_port_ui() {
+        // ports en écoute : 5433/3000 déjà connus, 5090 = notre UI, 8787 = nouveau
+        let ports = vec![3000, 5090, 5433, 8787];
+        let known = vec![3000, 5433];
+        assert_eq!(discovery_candidates(&ports, &known, 5090), vec![8787]);
+        // notre propre port UI n'est jamais sonder, même inconnu
+        assert!(discovery_candidates(&[5090], &[], 5090).is_empty());
+        assert!(discovery_candidates(&[], &known, 5090).is_empty());
     }
 
     #[test]

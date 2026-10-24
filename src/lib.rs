@@ -413,12 +413,14 @@ pub fn run_headless() -> RunOutcome {
             thread::sleep(Duration::from_secs(secs));
         });
     }
-    // scan de découverte peu après le boot
+    // AUTO-SCAN au boot : tous les ports en écoute de la machine (netstat/ss),
+    // plus de plage à deviner — un serveur MCP sur n'importe quel port (8787
+    // compris) est découvert même si scan_from/scan_to ne le couvre pas.
     {
         let st = state.clone();
         thread::spawn(move || {
             thread::sleep(Duration::from_millis(1200));
-            manage::scan_ports(&st, None);
+            manage::scan_listening(&st);
         });
     }
     // démarrage automatique : aligne le registre/fichier sur la préférence

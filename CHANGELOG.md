@@ -1,3 +1,12 @@
+## [0.7.5] — Auto-scan au démarrage sur TOUS les ports en écoute + bouton ⟳ qui découvre
+
+### Corrigé
+- **Pourquoi un serveur sur 8787 restait invisible** : la découverte au boot ne couvrait que la plage `scan_from..scan_to` (3000-3200 par défaut) et le bouton ⟳ ne faisait que re-sonder les serveurs déjà connus — aucun des deux ne pouvait voir un port hors plage.
+
+### Ajouté
+- **Auto-scan au démarrage, tous ports confondus** : au boot, l'app lit les ports TCP en écoute de la machine directement depuis l'OS (`netstat -ano` / `ss -tln` + repli `netstat -tln`, parse existant, ports système écartés) et ne sonde que ces ports-là avec `/mcp` — plus aucune plage à deviner, un serveur MCP sur n'importe quel port est trouvé en quelques secondes. La plage `scan_from/scan_to` reste disponible via le bouton 🔍 et l'action `scan` (plage explicite), et pour le scan réseau.
+- **Bouton ⟳ fonctionnel** : il re-sonde les serveurs connus ET lance la découverte (action `discover`) en parallèle — un seul clic actualise tout et fait apparaître les nouveaux serveurs.
+
 ## [0.7.4] — Plus jamais de code pour l'usage local
 
 ### Modifié

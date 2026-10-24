@@ -275,7 +275,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
     <button onclick="doScanNet()">&#127760; Scan r&eacute;seau</button>
     <button onclick="openMachineDlg()">🖥️ Machines</button>
     <button onclick="openStore()">&#128722; Boutique</button>
-    <button onclick="refreshAll()">&#8635;</button>
+    <button onclick="refreshAll()" title="Re-sonder tous les serveurs connus et d&eacute;couvrir les nouveaux (tous ports en &eacute;coute)">&#8635;</button>
   </div>
   <div id="winCtrls">
     <button class="wbtn" id="wMin" title="R&eacute;duire">&#x2500;</button>
@@ -884,11 +884,15 @@ async function doScanNet() {
 }
 
 async function refreshAll() {
-  // audit F7 : parallélisé — les sondes partent en vol, un seul rechargement d'état à la fin
+  // Re-sonde les serveurs connus ET découvre les nouveaux (tous ports en
+  // écoute — action discover) en parallèle, un seul rechargement d'état à la fin.
   const ids = state.servers.filter(s => s.enabled).map(s => s.id);
-  await Promise.all(ids.map(id =>
+  const jobs = ids.map(id =>
     fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({action: 'refresh', id})}).catch(() => {})));
+      body: JSON.stringify({action: 'refresh', id})}).catch(() => {}));
+  jobs.push(fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'discover'})}).catch(() => {}));
+  await Promise.all(jobs);
   await load();
 }
 

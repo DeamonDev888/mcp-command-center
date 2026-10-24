@@ -22,7 +22,7 @@ superviser et piloter les serveurs **MCP** : HTTP streamable, stdio, et découve
 | | |
 |---|---|
 | 🖥️ **Détection sur les autres machines** | Serveurs MCP des **autres ordinateurs du LAN**, **VPS** et **Docker** : scan réseau parallèle, découverte **SSH par clé** (netstat distant + sonde depuis la machine — passe les binds `localhost` et les pare-feux), badges `·LAN·SSH`, import en un clic depuis un pair command-center |
-| 🔎 **Détection multi-serveurs** | Scan de plage de ports au boot et à la demande (`::1` + `127.0.0.1`), fingerprint du framework (badge **LiteMCP**), état `UP`/`PORT-ONLY`/`DOWN`, latence, liste des tools, journal temps réel |
+| 🔎 **Détection multi-serveurs** | Auto-scan au démarrage : **tous les ports en écoute** de la machine (lus depuis l'OS — aucune plage à configurer) ; bouton ⟳ = re-sonde + découvre, 🔍 = scan d'une plage précise. Fingerprint du framework (badge **LiteMCP**), état `UP`/`PORT-ONLY`/`DOWN`, latence, liste des tools, journal temps réel |
 | ↔️ **Glisser-déposer** | Réordonne les serveurs dans l'explorateur : **préférence d'affichage et priorité de sondage** (persisté, les serveurs en haut sont interrogés en premier) |
 | 🛒 **Boutique intégrée (64 MCP)** | Catalogue officiel + aitmpl + Glama + GitHub, **logos officiels**, installation `npx`/`uvx` en un clic |
 | ⏻ **Démarrage auto ON/OFF** | Bouton dans la barre de titre : lance (ou non) l'app au démarrage de l'OS — tray silencieux, serveurs supervisés sans fenêtre (registre Run / autostart XDG / LaunchAgent) |
@@ -60,7 +60,7 @@ start-command-center.bat
 |---|---|
 | Détection HTTP | `initialize` + `tools/list` JSON-RPC sur `POST /mcp` — sonde **`::1` ET `127.0.0.1`** (les serveurs FastMCP locaux bindent en IPv6-only). Fingerprint du **framework** : « LiteMCP » quand l'initialize est répondu en 2026-07-28 sans négocier **et** que `GET /health` répond « ok » (badge violet « glow » dans l'UI, langage Rust par déduction) |
 | Détection stdio | spawn + handshake JSON-RPC ligne-par-ligne sur stdin/stdout, liste les tools, maintient le process |
-| Découverte auto | scan de plage de ports au boot (3000-3200 par défaut) + à la demande — tout port qui répond `initialize` avec un `serverInfo` est ajouté |
+| Découverte auto | au boot : **tous les ports TCP en écoute** (netstat/ss — plus de plage à deviner) ; à la demande (⟳ et 🔍) — tout port qui répond `initialize` avec un `serverInfo` est ajouté |
 | 3 états | `UP` (MCP répond), `PORT-ONLY` (port bound mais pas de MCP = zombie), `DOWN` — le piège classique du moniteur binaire |
 | Pilote Start/Stop | lance/arrête les serveurs stdio **et** les HTTP/HTTPS avec commande de lancement (auto-restart au boot/crash par flag `auto_restart`) |
 | Persistance | `config.json` (serveurs + réglages), rechargé et re-sondé au démarrage |
