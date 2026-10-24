@@ -1,3 +1,4 @@
+pub mod crypto;
 pub mod logos;
 pub mod manage;
 pub mod probe;
@@ -20,6 +21,11 @@ use std::time::Duration;
 const MAX_BODY: usize = 2 * 1024 * 1024;
 /// Connexions simultanées max (un thread par connexion : au-delà on refuse net).
 const MAX_CONNS: usize = 64;
+/// CSP de la page UI (servie en en-tête HTTP par CE serveur — le webview Tauri
+/// charge une URL externe, la config `csp` de tauri.conf.json ne s'y applique
+/// pas). Scripts/styles inline autorisés (page mono-fichier) ; tout le reste
+/// verrouillé : une XSS future ne peut ni charger de code externe ni exfiltrer.
+const UI_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 /// Version de spec annoncée par litemcp — premier signal du fingerprint :
 /// litemcp répond initialize avec 2026-07-28 même quand le client demande
@@ -40,16 +46,76 @@ pub fn is_loopback_bind(s: &str) -> bool {
     matches!(s, "127.0.0.1" | "localhost" | "::1" | "[::1]")
 }
 
-/// Code d'accès aléatoire 128 bits (hex) — pas de dépendance crypto : RandomState
-/// est semé aléatoirement par process, deux tirages suffisent pour un secret LAN.
-fn generate_access() -> String {
+/// Hex aléatoire de `words` × 64 bits — pas de dépendance crypto : RandomState
+/// est semé aléatoirement par process (OS entropy). Suffisant pour un secret LAN
+/// et pour les nonces à usage unique.
+fn random_hex(words: usize) -> String {
     use std::hash::{BuildHasher, Hasher};
-    let mut out = String::with_capacity(32);
-    for _ in 0..2 {
+    let mut out = String::with_capacity(words * 16);
+    for _ in 0..words {
         let h = std::collections::hash_map::RandomState::new().build_hasher();
         out.push_str(&format!("{:016x}", h.finish()));
     }
     out
+}
+
+/// Code d'accès aléatoire 128 bits (hex).
+fn generate_access() -> String {
+    random_hex(2)
+}
+
+// ---------- preuve de pair (audit 2026-10-24 S-B) ----------
+//
+// Avant : discover_peers envoyait NOTRE code d'accès en clair (X-MCC-Access) à
+// toutes les cibles sondées du LAN — n'importe quel hôte à l'écoute récupérait
+// le secret. Désormais : le sondeur récupère un nonce à usage unique sur
+// GET /api/hello (préauthentifié, aucune donnée) et signe ce nonce avec le code
+// (HMAC-SHA256, cf. crypto.rs). Le pair vérifie la signature avec SA copie du
+// code : un observateur réseau ne récupère qu'une preuve morte après usage.
+
+/// Nonces émis par GET /api/hello → expiration (usage unique + TTL court).
+fn hello_nonces_slot() -> &'static std::sync::Mutex<std::collections::HashMap<String, u64>> {
+    static SLOT: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, u64>>> =
+        std::sync::OnceLock::new();
+    SLOT.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+const HELLO_NONCE_TTL: u64 = 120;
+const HELLO_NONCE_MAX: usize = 1024;
+
+fn issue_hello_nonce() -> String {
+    let mut slot = hello_nonces_slot()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let now = crate::types::now_ts();
+    slot.retain(|_, exp| *exp > now);
+    if slot.len() >= HELLO_NONCE_MAX {
+        slot.clear(); // inondation : on repart à zéro (les preuves en vol expireront)
+    }
+    let nonce = random_hex(4);
+    slot.insert(nonce.clone(), now + HELLO_NONCE_TTL);
+    nonce
+}
+
+/// Vérifie une preuve de pair : le nonce doit avoir été émis par NOUS (et pas
+/// encore consommé), et le HMAC doit correspondre à NOTRE code d'accès.
+fn verify_proof(nonce: &str, proof: &str, api_access: &str) -> bool {
+    if nonce.len() != 64 || !nonce.chars().all(|c| c.is_ascii_hexdigit()) {
+        return false;
+    }
+    let issued = hello_nonces_slot()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .remove(nonce)
+        .is_some();
+    if !issued {
+        return false;
+    }
+    let expected = crate::crypto::hmac_sha256_hex(
+        api_access.as_bytes(),
+        format!("mcc-proof-v1:{}", nonce).as_bytes(),
+    );
+    expected == proof
 }
 
 /// Extrait un paramètre de query d'un chemin (ex. access= pour /api/detail).
@@ -70,7 +136,9 @@ fn query_param(path: &str, name: &str) -> Option<String> {
 /// - OPTIONS → 403 : les préflights CORS meurent ici, aucun cross-site ne passe ;
 /// - Host hors liste → 403 (anti DNS-rebinding : un domaine rebindexé n'est pas le nôtre) ;
 /// - Origin hors liste → 403 (anti CSRF cross-site) ;
-/// - /api/* hors loopback → 401 sans le bon code (header X-MCC-Access ou ?access=) ;
+/// - /api/* hors loopback → 401 sans le bon code (header X-MCC-Access ou ?access=),
+///   SAUF /api/hello (nonce de préauthentification, aucune donnée) et SAUF si une
+///   preuve de pair valide a déjà été vérifiée (proof_ok, cf. verify_proof) ;
 /// - POST /api/action → 415 si Content-Type ≠ application/json (bloque les POST
 ///   « simples » text/plain des sites web, qui s'exécutent sans préflight).
 ///
@@ -100,6 +168,7 @@ fn origin_host(o: &str) -> String {
     host_only_of(r)
 }
 
+#[allow(clippy::too_many_arguments)] // signature pur/testable, les 8 paramètres sont utiles
 pub fn check_access(
     require_access: bool,
     api_access: Option<&str>,
@@ -108,6 +177,7 @@ pub fn check_access(
     method: &str,
     path: &str,
     headers: &[(String, String)],
+    proof_ok: bool,
 ) -> Result<(), (u16, &'static str)> {
     if method == "OPTIONS" {
         return Err((403, "Forbidden"));
@@ -138,7 +208,10 @@ pub fn check_access(
         }
     }
     let bare_path = path.split('?').next().unwrap_or("");
-    if require_access && bare_path.starts_with("/api") {
+    // /api/hello est PRÉ-authentifié : il ne délivre qu'un nonce à usage unique,
+    // aucune donnée — c'est l'amorce de la preuve de pair (cf. verify_proof).
+    let is_hello = bare_path == "/api/hello";
+    if require_access && bare_path.starts_with("/api") && !is_hello && !proof_ok {
         let hdr = headers
             .iter()
             .find(|(n, _)| n == "x-mcc-access")
@@ -447,7 +520,7 @@ pub fn handle_conn(mut stream: TcpStream, state: Arc<AppState>) {
     }
     body.truncate(content_length.min(MAX_BODY));
 
-    // contrôle d'accès (token/Origin/Host/Content-Type) puis routage
+    // contrôle d'accès (preuve de pair/token/Origin/Host/Content-Type) puis routage
     let (loopback_bind, api_access) = {
         let st = lockv(&state.settings);
         (is_loopback_bind(&st.ui_bind), st.api_access.clone())
@@ -456,6 +529,22 @@ pub fn handle_conn(mut stream: TcpStream, state: Arc<AppState>) {
         lockv(&state.allowed_hosts).clone(),
         lockv(&state.allowed_origins).clone(),
     );
+    // preuve de pair : X-MCC-Nonce + X-MCC-Proof (HMAC du nonce avec le code
+    // partagé) authentifie sans que le code n'ait jamais voyagé en clair
+    let proof_ok = {
+        let nonce = headers
+            .iter()
+            .find(|(n, _)| n == "x-mcc-nonce")
+            .map(|(_, v)| v.as_str());
+        let proof = headers
+            .iter()
+            .find(|(n, _)| n == "x-mcc-proof")
+            .map(|(_, v)| v.as_str());
+        match (nonce, proof, api_access.as_deref()) {
+            (Some(n), Some(p), Some(code)) if !code.is_empty() => verify_proof(n, p, code),
+            _ => false,
+        }
+    };
     let gated = check_access(
         !loopback_bind,
         api_access.as_deref(),
@@ -464,6 +553,7 @@ pub fn handle_conn(mut stream: TcpStream, state: Arc<AppState>) {
         &method,
         &path,
         &headers,
+        proof_ok,
     );
     let (status, ctype, payload) = match gated {
         Err((code, reason)) => {
@@ -475,12 +565,18 @@ pub fn handle_conn(mut stream: TcpStream, state: Arc<AppState>) {
     // ACAO dynamique : on reflète UNIQUEMENT une origine autorisée (jamais *),
     // sinon aucun site tiers ne peut lire nos réponses (/api/state inclu).
     let mut resp = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n",
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nX-Content-Type-Options: nosniff\r\n",
         status,
         reason_phrase(status),
         ctype,
         payload.len()
     );
+    // CSP sur la page UI : la page est mono-fichier inline, mais une XSS future
+    // ne doit ni charger du code externe ni exfiltrer (connect-src 'self').
+    // ipc: / http://ipc.localhost = transport IPC du shell Tauri (desktop).
+    if ctype.starts_with("text/html") {
+        resp.push_str(&format!("Content-Security-Policy: {}\r\n", UI_CSP));
+    }
     if let Some((_, o)) = headers.iter().find(|(n, _)| n == "origin") {
         if allowed_origins.iter().any(|a| a == o) {
             resp.push_str(&format!("Access-Control-Allow-Origin: {}\r\n", o));
@@ -499,15 +595,21 @@ pub fn route(
     body: &[u8],
 ) -> (u16, &'static str, Vec<u8>) {
     if method == "GET" && (path == "/" || path.starts_with("/?")) {
-        // le code d'accès est injecté dans la page (même origine) : vide en bind loopback
-        let access = lockv(&state.settings)
-            .api_access
-            .clone()
-            .unwrap_or_default();
-        let html = ui::INDEX_HTML
-            .replace("__MCC_ACCESS__", &access)
-            .replace("__MCC_VERSION__", env!("CARGO_PKG_VERSION"));
+        // SÉCURITÉ (audit 2026-10-24) : le code d'accès n'est PLUS injecté dans la
+        // page — quiconque joint le port pouvait le lire sur / et contourner toute
+        // l'auth. L'UI le demande à l'utilisateur (login), le garde en localStorage
+        // et le présente sur chaque appel /api/* (bind loopback : jamais demandé).
+        let html = ui::INDEX_HTML.replace("__MCC_VERSION__", env!("CARGO_PKG_VERSION"));
         return (200, "text/html; charset=utf-8", html.into_bytes());
+    }
+    if method == "GET" && path == "/api/hello" {
+        // amorce de la preuve de pair : identité + nonce à usage unique, aucun secret
+        let j = serde_json::json!({
+            "app": "mcp-command-center",
+            "version": env!("CARGO_PKG_VERSION"),
+            "nonce": issue_hello_nonce(),
+        });
+        return (200, "application/json", j.to_string().into_bytes());
     }
     if (method == "GET" || method == "POST") && path == "/api/state" {
         let j = manage::state_json(state);
@@ -596,6 +698,7 @@ mod tests {
             "OPTIONS",
             "/api/action",
             &[("host".into(), "127.0.0.1:5090".into())],
+            false,
         );
         assert_eq!(r, Err((403, "Forbidden")));
     }
@@ -616,6 +719,7 @@ mod tests {
             "GET",
             "/api/state",
             &hs(&[("host", "evil.example.com:5090")]),
+            false,
         );
         assert_eq!(r, Err((403, "Forbidden")));
         // host autorisé, avec ou sans port, IPv6 entre crochets
@@ -628,6 +732,7 @@ mod tests {
                 "GET",
                 "/api/state",
                 &hs(&[("host", h)]),
+                false,
             );
             assert!(r2.is_ok(), "host {} doit passer", h);
         }
@@ -648,6 +753,7 @@ mod tests {
                 ("host", "127.0.0.1:5090"),
                 ("origin", "https://malveille.example"),
             ]),
+            false,
         );
         assert_eq!(r, Err((403, "Forbidden")));
         let ok = check_access(
@@ -661,6 +767,7 @@ mod tests {
                 ("host", "127.0.0.1:5090"),
                 ("origin", "http://127.0.0.1:5090"),
             ]),
+            false,
         );
         assert!(ok.is_ok());
     }
@@ -679,6 +786,7 @@ mod tests {
             "GET",
             "/api/state",
             &hs(base),
+            false,
         );
         assert_eq!(r, Err((401, "Unauthorized")));
         // mauvais code → 401
@@ -690,6 +798,7 @@ mod tests {
             "GET",
             "/api/state",
             &hs(&[("host", "127.0.0.1:5090"), ("x-mcc-access", "zzz")]),
+            false,
         );
         assert_eq!(r, Err((401, "Unauthorized")));
         // bon code (header) → OK ; bon code (?access=) → OK
@@ -700,7 +809,8 @@ mod tests {
             &origins,
             "GET",
             "/api/state",
-            &hs(&[("host", "127.0.0.1:5090"), ("x-mcc-access", "abc")])
+            &hs(&[("host", "127.0.0.1:5090"), ("x-mcc-access", "abc")]),
+            false,
         )
         .is_ok());
         assert!(check_access(
@@ -710,7 +820,8 @@ mod tests {
             &origins,
             "GET",
             "/api/detail?id=x&access=abc",
-            &hs(base)
+            &hs(base),
+            false,
         )
         .is_ok());
         // loopback (require_access=false) : aucun code requis
@@ -721,7 +832,8 @@ mod tests {
             &origins,
             "GET",
             "/api/state",
-            &hs(base)
+            &hs(base),
+            false,
         )
         .is_ok());
     }
@@ -739,6 +851,7 @@ mod tests {
             "POST",
             "/api/action",
             &hs(&[("host", "127.0.0.1:5090"), ("content-type", "text/plain")]),
+            false,
         );
         assert_eq!(r, Err((415, "Unsupported Media Type")));
         // application/json (+paramètres) → OK ; absent → 415
@@ -752,7 +865,8 @@ mod tests {
             &hs(&[
                 ("host", "127.0.0.1:5090"),
                 ("content-type", "application/json; charset=utf-8")
-            ])
+            ]),
+            false,
         )
         .is_ok());
         assert_eq!(
@@ -763,7 +877,8 @@ mod tests {
                 &origins,
                 "POST",
                 "/api/action",
-                &hs(&[("host", "127.0.0.1:5090")])
+                &hs(&[("host", "127.0.0.1:5090")]),
+                false,
             ),
             Err((415, "Unsupported Media Type"))
         );
@@ -775,7 +890,8 @@ mod tests {
             &origins,
             "GET",
             "/api/state",
-            &hs(&[("host", "127.0.0.1:5090")])
+            &hs(&[("host", "127.0.0.1:5090")]),
+            false,
         )
         .is_ok());
     }
@@ -828,5 +944,124 @@ mod tests {
     fn find_sub_cas_limites() {
         assert_eq!(find_sub(b"\r\n\r\n", b"\r\n\r\n"), Some(0));
         assert_eq!(find_sub(&[13u8, 10u8], b"\r\n\r\n"), None);
+    }
+
+    #[test]
+    fn check_access_hello_preauth_et_proof_remplace_le_code() {
+        let hosts = vec!["127.0.0.1".to_string()];
+        let origins = vec![];
+        let base = &[("host", "127.0.0.1:5090")] as &[(&str, &str)];
+        // /api/hello est pré-authentifié (nonce seulement) même hors loopback
+        assert!(check_access(
+            true,
+            Some("abc"),
+            &hosts,
+            &origins,
+            "GET",
+            "/api/hello",
+            &hs(base),
+            false
+        )
+        .is_ok());
+        // une preuve de pair valide authentifie /api/state sans code en clair
+        assert!(check_access(
+            true,
+            Some("abc"),
+            &hosts,
+            &origins,
+            "GET",
+            "/api/state",
+            &hs(base),
+            true
+        )
+        .is_ok());
+        // sans preuve ni code → 401 inchangé
+        assert_eq!(
+            check_access(
+                true,
+                Some("abc"),
+                &hosts,
+                &origins,
+                "GET",
+                "/api/state",
+                &hs(base),
+                false
+            ),
+            Err((401, "Unauthorized"))
+        );
+    }
+
+    #[test]
+    fn nonce_hello_usage_unique_et_verif_proof() {
+        let nonce = issue_hello_nonce();
+        assert_eq!(nonce.len(), 64);
+        let proof = crate::crypto::hmac_sha256_hex(
+            b"code-partage",
+            format!("mcc-proof-v1:{nonce}").as_bytes(),
+        );
+        assert!(verify_proof(&nonce, &proof, "code-partage"));
+        // usage unique : la même preuve ne repasse pas
+        assert!(!verify_proof(&nonce, &proof, "code-partage"));
+        // mauvais code partagé → rejet (et le nonce est consommé par le 1er essai)
+        let nonce2 = issue_hello_nonce();
+        let proof2 = crate::crypto::hmac_sha256_hex(
+            b"code-partage",
+            format!("mcc-proof-v1:{nonce2}").as_bytes(),
+        );
+        assert!(!verify_proof(&nonce2, &proof2, "autre-code"));
+        // nonce inconnu / format invalide → rejet sans panique
+        assert!(!verify_proof("inconnu", "00", "code-partage"));
+        assert!(!verify_proof(&"a".repeat(64), &proof, "code-partage"));
+    }
+
+    fn test_state_with_access(code: Option<&str>) -> std::sync::Arc<crate::types::AppState> {
+        std::sync::Arc::new(crate::types::AppState {
+            servers: Mutex::new(vec![]),
+            log: Mutex::new(std::collections::VecDeque::new()),
+            settings: Mutex::new(crate::types::Settings {
+                api_access: code.map(String::from),
+                ..crate::types::Settings::default()
+            }),
+            children: Mutex::new(std::collections::HashMap::new()),
+            config_path: String::new(),
+            peers: Mutex::new(std::collections::HashMap::new()),
+            allowed_origins: Mutex::new(vec![]),
+            allowed_hosts: Mutex::new(vec!["127.0.0.1".to_string()]),
+            spawn_fails: Mutex::new(std::collections::HashMap::new()),
+            spawning: Mutex::new(std::collections::HashSet::new()),
+            update_latest: Mutex::new(None),
+        })
+    }
+
+    #[test]
+    fn route_racine_ne_revele_jamais_le_code_acces() {
+        // Régression P0 (audit 2026-10-24) : la page / embarquait le code d'accès,
+        // quiconque joint le port le lisait et contournait toute l'auth API.
+        let state = test_state_with_access(Some("code-secret-123"));
+        let (status, ctype, body) = route(&state, "GET", "/", b"");
+        assert_eq!(status, 200);
+        assert!(ctype.starts_with("text/html"));
+        let html = String::from_utf8_lossy(&body).to_string();
+        assert!(
+            !html.contains("code-secret-123"),
+            "la page / ne doit PAS contenir le code d'accès"
+        );
+        assert!(
+            html.contains("loginDlg"),
+            "la page doit proposer le déverrouillage (loginDlg)"
+        );
+    }
+
+    #[test]
+    fn route_api_hello_renvoie_un_nonce_sans_secret() {
+        let state = test_state_with_access(Some("code-secret-123"));
+        let (status, ctype, body) = route(&state, "GET", "/api/hello", b"");
+        assert_eq!(status, 200);
+        assert!(ctype.starts_with("application/json"));
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["app"], "mcp-command-center");
+        assert_eq!(v["nonce"].as_str().unwrap().len(), 64);
+        let text = String::from_utf8_lossy(&body).to_string();
+        assert!(!text.contains("code-secret-123"), "aucun secret dans hello");
     }
 }

@@ -1067,9 +1067,10 @@ pub fn import_mcp_text(state: &Arc<AppState>, raw: &str) -> Value {
         }
     }
 
-    // 2. `claude mcp add <name> <cmd> [args...]`
+    // 2. `claude mcp add <name> <cmd> [args...]` — 5 tokens minimum (nom + programme),
+    //    sinon un « claude mcp add » tronqué paniquait sur toks[3]/toks[4] (audit 2026-10-24)
     let toks: Vec<&str> = text.split_whitespace().collect();
-    if toks.len() >= 3 && toks[0] == "claude" && toks[1] == "mcp" && toks[2] == "add" {
+    if toks.len() >= 5 && toks[0] == "claude" && toks[1] == "mcp" && toks[2] == "add" {
         let name = toks[3].to_string();
         let program = toks[4].to_string();
         let args: Vec<String> = toks[5..].iter().map(|s| s.to_string()).collect();
@@ -1236,6 +1237,9 @@ pub fn poll_all(state: &Arc<AppState>) {
 /// Clé/valeur du registre Run (Windows) ou fichiers autostart (Linux/macOS).
 const AUTOSTART_RUN_NAME: &str = "MCP Command Center";
 
+/// Arguments de l'entrée de démarrage automatique (compilé hors tests seulement :
+/// en build test le corps réel est neutralisé, la fonction deviendrait du code mort).
+#[cfg(not(test))]
 fn autostart_entry_args() -> String {
     let exe = std::env::current_exe()
         .map(|e| e.to_string_lossy().to_string())
@@ -1270,14 +1274,22 @@ pub fn autostart_active() -> bool {
 /// Applique la préférence : crée ou supprime l'entrée de démarrage automatique.
 /// Windows : registre HKCU …\Run. Linux : ~/.config/autostart/*.desktop.
 /// macOS : ~/Library/LaunchAgents/*.plist.
-#[allow(unused_must_use)]
 pub fn apply_autostart(state: &Arc<AppState>, enable: bool) {
     // les tests ne doivent JAMAIS toucher le registre/fichiers de l'OS réels
     #[cfg(test)]
     {
         let _ = (state, enable);
-        return;
     }
+    // corps réel séparé : le garde cfg(test) ne laisse rien d'inatteignable
+    // (l'ancien `return` en build test déclenchait unreachable_code — clippy)
+    #[cfg(not(test))]
+    apply_autostart_os(state, enable);
+}
+
+/// Corps réel de l'alignement autostart (compilé hors tests seulement).
+#[cfg(not(test))]
+#[allow(unused_must_use)]
+fn apply_autostart_os(state: &Arc<AppState>, enable: bool) {
     let args = autostart_entry_args();
     #[cfg(windows)]
     {
@@ -1424,11 +1436,32 @@ pub fn version_newer(latest: &str, current: &str) -> bool {
     false
 }
 
-/// Interroge la dernière release GitHub (client PowerShell système — le std
-/// Rust n'a pas de TLS). Résultat : `update_latest` = tag SI plus récent que
-/// l'installée ; silence total sinon (hors ligne, dépôt privé, échec réseau).
-#[allow(unused_must_use)]
-pub fn check_update(state: &Arc<AppState>) {
+/// Interroge la dernière release GitHub. `curl` d'abord (léger, présent sur
+/// macOS/Linux/Windows 10+) avec repli PowerShell — l'ancien code n'utilisait
+/// QUE PowerShell : la vérification était silencieusement inopérante partout
+/// ailleurs (audit 2026-10-24). Retourne le tag, ou None (hors ligne, échec).
+fn github_latest_tag() -> Option<String> {
+    let mut c = Command::new("curl");
+    probe::probe_hidden_cmd(&mut c);
+    if let Ok(out) = c
+        .args([
+            "-fsSL",
+            "-m",
+            "10",
+            "-H",
+            "User-Agent: mcp-command-center",
+            "https://api.github.com/repos/DeamonDev888/mcp-command-center/releases/latest",
+        ])
+        .output()
+    {
+        if out.status.success() {
+            if let Ok(v) = serde_json::from_slice::<Value>(&out.stdout) {
+                if let Some(tag) = v.get("tag_name").and_then(|x| x.as_str()) {
+                    return Some(tag.to_string());
+                }
+            }
+        }
+    }
     let mut cmd = Command::new("powershell");
     cmd.args([
         "-NoProfile",
@@ -1437,15 +1470,25 @@ pub fn check_update(state: &Arc<AppState>) {
     ]);
     probe::probe_hidden_cmd(&mut cmd);
     let Ok(out) = cmd.output() else {
-        return;
+        return None;
     };
     if !out.status.success() {
-        return;
+        return None;
     }
     let tag = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if tag.is_empty() || tag.len() > 30 {
-        return;
+        return None;
     }
+    Some(tag)
+}
+
+/// Vérifie la dernière release GitHub : `update_latest` = tag SI plus récent que
+/// l'installée ; silence total sinon (hors ligne, dépôt privé, échec réseau).
+#[allow(unused_must_use)]
+pub fn check_update(state: &Arc<AppState>) {
+    let Some(tag) = github_latest_tag() else {
+        return;
+    };
     let current = env!("CARGO_PKG_VERSION");
     if version_newer(&tag, current) {
         let mut u = lockv(&state.update_latest);
@@ -4096,9 +4139,6 @@ mod tests {
         assert_eq!(j["servers"][1]["origin"], serde_json::json!("seed"));
     }
 
-    #[test]
-    fn test_state_helper() {}
-
     fn test_state() -> Arc<AppState> {
         Arc::new(AppState {
             servers: Mutex::new(vec![]),
@@ -4159,6 +4199,22 @@ mod tests {
         assert!(servers
             .iter()
             .any(|s| s.id.starts_with("store-filesystem-")));
+    }
+
+    #[test]
+    fn import_mcp_texte_court_ne_panique_pas() {
+        // Régression audit 2026-10-24 : « claude mcp add » (3-4 tokens) indexait
+        // toks[3]/toks[4] → panic du thread HTTP, aucune réponse au client.
+        let state = test_state();
+        for texte in ["claude mcp add", "claude mcp add monserveur"] {
+            let j = import_mcp_text(&state, texte);
+            assert_eq!(
+                j["ok"],
+                json!(false),
+                "'{texte}' doit être refusé proprement (pas de panic)"
+            );
+        }
+        assert!(lockv(&state.servers).is_empty());
     }
 
     #[test]

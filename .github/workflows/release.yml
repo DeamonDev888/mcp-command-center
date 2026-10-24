@@ -6,8 +6,9 @@ on:
       - "v*"
   workflow_dispatch:
 
+# contenu write réservé au job release — build/desktop n'en ont pas besoin
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -33,21 +34,21 @@ jobs:
             artifact: mcp-command-center-macos-x86_64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (épinglé SHA — supply-chain)
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable (épinglé SHA)
         with:
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2 (épinglé SHA)
         with:
           key: ${{ matrix.target }}
 
       - name: Tests
         run: cargo test --release -p mcp-command-center
 
-      - name: Clippy (strict)
-        run: cargo clippy --release -p mcp-command-center -- -D warnings
+      - name: Clippy (strict, tous les targets)
+        run: cargo clippy --release -p mcp-command-center --all-targets -- -D warnings
 
       - name: Build
         run: cargo build --release -p mcp-command-center --target ${{ matrix.target }}
@@ -63,7 +64,7 @@ jobs:
           cp "target/${{ matrix.target }}/release/mcp-command-center${EXT}" "$FILE"
           echo "FILE=$FILE" >> "$GITHUB_ENV"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4 (épinglé SHA)
         with:
           name: ${{ matrix.artifact }}
           path: ${{ env.FILE }}
@@ -89,7 +90,7 @@ jobs:
             artifact: mcp-command-center-desktop-macos-x86_64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (épinglé SHA)
 
       - name: Dépendances système (Linux — WebKitGTK)
         if: runner.os == 'Linux'
@@ -100,11 +101,11 @@ jobs:
             libxdo-dev libssl-dev libayatana-appindicator3-dev \
             librsvg2-dev libgtk-3-dev
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable (épinglé SHA)
         with:
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2 (épinglé SHA)
         with:
           key: desktop-${{ matrix.target }}
 
@@ -122,7 +123,7 @@ jobs:
           cp "target/${{ matrix.target }}/release/mcp-command-center-desktop${EXT}" "$FILE"
           echo "FILE=$FILE" >> "$GITHUB_ENV"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4 (épinglé SHA)
         with:
           name: ${{ matrix.artifact }}
           path: ${{ env.FILE }}
@@ -132,10 +133,12 @@ jobs:
     needs: [build, desktop]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write # seule étape qui crée la release GitHub
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (épinglé SHA)
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4 (épinglé SHA)
         with:
           merge-multiple: true
           path: dist
@@ -144,7 +147,7 @@ jobs:
         run: python3 scripts/extract_notes.py > notes.md
 
       - name: Créer la release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 (épinglé SHA)
         with:
           name: ${{ github.ref_name }}
           body_path: notes.md

@@ -165,8 +165,78 @@ pub fn kill_port(port: u16) {
     }
 }
 
+/// Parse la sortie `ss -tlnp` : PIDs (notre propre PID exclu) des listeners sur
+/// `port` EXACT. Format : `LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* users:(("node",pid=1234,fd=20))`
+pub fn pids_listening_on_ss(text: &str, port: u16) -> Vec<u32> {
+    let mut out: Vec<u32> = Vec::new();
+    for line in text.lines() {
+        if !line.contains("LISTEN") {
+            continue;
+        }
+        let on_port = line.split_whitespace().any(|t| {
+            t.rsplit_once(':')
+                .map(|(_, p)| p.parse::<u16>() == Ok(port))
+                .unwrap_or(false)
+        });
+        if !on_port {
+            continue;
+        }
+        for tok in line.split_whitespace() {
+            for seg in tok.split(',') {
+                if let Some(pid) = seg.strip_prefix("pid=") {
+                    if let Ok(pid) = pid.trim_end_matches(')').parse::<u32>() {
+                        if pid != std::process::id() && !out.contains(&pid) {
+                            out.push(pid);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Unix : tue le process qui ÉCOUTE réellement sur un port (parité Windows).
+/// 1) `ss -tlnp` (iproute2) — sans privilèges, seuls les process de l'utilisateur
+/// sont visibles ; 2) repli `lsof -ti :PORT -sTCP:LISTEN` (macOS).
 #[cfg(not(windows))]
-pub fn kill_port(_port: u16) {}
+pub fn kill_port(port: u16) {
+    let mut c = Command::new("ss");
+    probe_hidden_cmd(&mut c);
+    if let Ok(out) = c.args(["-tlnp"]).output() {
+        let text = String::from_utf8_lossy(&out.stdout);
+        let pids = pids_listening_on_ss(&text, port);
+        if !pids.is_empty() {
+            for pid in pids {
+                kill_pid_unix(pid);
+            }
+            return;
+        }
+    }
+    let mut c = Command::new("lsof");
+    probe_hidden_cmd(&mut c);
+    if let Ok(out) = c
+        .args(["-ti", &format!(":{}", port), "-sTCP:LISTEN"])
+        .output()
+    {
+        if out.status.success() {
+            for line in String::from_utf8_lossy(&out.stdout).lines() {
+                if let Ok(pid) = line.trim().parse::<u32>() {
+                    if pid != std::process::id() {
+                        kill_pid_unix(pid);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn kill_pid_unix(pid: u32) {
+    let mut c = Command::new("kill");
+    probe_hidden_cmd(&mut c);
+    let _ = c.arg("-9").arg(pid.to_string()).status();
+}
 
 /// Spawn un process serveur (HTTP/HTTPS lancé par le command center) sans handshake
 /// JSON-RPC : le probe HTTP classique fera le handshake. stdout/stderr nullés
@@ -446,6 +516,9 @@ pub fn sse_get_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> bool 
                 if find_sub(&data, b"event:").is_some() {
                     break;
                 }
+                if data.len() > MAX_PROBE_READ_SMALL {
+                    break;
+                }
             }
             Err(_) => break,
         }
@@ -500,7 +573,12 @@ pub fn health_ok_host(host: &str, port: u16, timeout_ms: u64) -> bool {
         stream.set_read_timeout(Some(remain)).ok();
         match stream.read(&mut tmp) {
             Ok(0) => break,
-            Ok(n) => data.extend_from_slice(&tmp[..n]),
+            Ok(n) => {
+                data.extend_from_slice(&tmp[..n]);
+                if data.len() > MAX_PROBE_READ_SMALL {
+                    break;
+                }
+            }
             Err(_) => break,
         }
     }
@@ -866,13 +944,50 @@ pub fn http_post(
     Err(last_err)
 }
 
+/// Cap mémoire d'une réponse de sonde : un serveur LAN rapide ne doit pas pouvoir
+/// gonfler la RAM pendant la fenêtre de timeout (audit 2026-10-24 — le parseur
+/// d'entrée HTTP était capé, pas le client).
+const MAX_PROBE_READ: usize = 2 * 1024 * 1024;
+/// Cap des sondes qui ne lisent que le début d'un flux (SSE, /health).
+const MAX_PROBE_READ_SMALL: usize = 256 * 1024;
+
 /// POST JSON vers un hôte précis (localhost OU hôte du réseau local).
-/// `extra_headers` : en-têtes additionnels (ex. code d'accès pour la sonde de pairs).
+/// `extra_headers` : en-têtes additionnels (preuve de pair pour /api/state).
 pub fn http_post_host(
     host: &str,
     port: u16,
     path: &str,
     body: &str,
+    timeout_ms: u64,
+    extra_headers: &[(&str, &str)],
+) -> Result<(Vec<u8>, RespHead), String> {
+    http_request(
+        "POST",
+        host,
+        port,
+        path,
+        Some(body),
+        timeout_ms,
+        extra_headers,
+    )
+}
+
+/// GET HTTP vers un hôte précis — préauthentification des pairs (/api/hello).
+pub fn http_get_host(
+    host: &str,
+    port: u16,
+    path: &str,
+    timeout_ms: u64,
+) -> Result<(Vec<u8>, RespHead), String> {
+    http_request("GET", host, port, path, None, timeout_ms, &[])
+}
+
+fn http_request(
+    method: &str,
+    host: &str,
+    port: u16,
+    path: &str,
+    body: Option<&str>,
     timeout_ms: u64,
     extra_headers: &[(&str, &str)],
 ) -> Result<(Vec<u8>, RespHead), String> {
@@ -893,18 +1008,34 @@ pub fn http_post_host(
                 } else {
                     format!("{}:{}", host, port)
                 };
+                // path sans CR/LF ni espace : il est placé tel quel dans la ligne de
+                // requête — un path configuré ne doit pas pouvoir injecter d'en-têtes
+                let path = if !path.is_empty() && path.chars().all(|c| !c.is_control() && c != ' ')
+                {
+                    path
+                } else {
+                    "/mcp"
+                };
                 let mut req = format!(
-                    "POST {} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nMCP-Protocol-Version: 2024-11-05\r\n",
-                    path, host_hdr
+                    "{} {} HTTP/1.1\r\nHost: {}\r\nAccept: application/json, text/event-stream\r\n",
+                    method, path, host_hdr
                 );
+                if body.is_some() {
+                    req.push_str(
+                        "Content-Type: application/json\r\nMCP-Protocol-Version: 2024-11-05\r\n",
+                    );
+                }
                 for (n, v) in extra_headers {
                     req.push_str(&format!("{}: {}\r\n", n, v));
                 }
-                req.push_str(&format!(
-                    "Content-Length: {}\r\nConnection: close\r\n\r\n{}",
-                    body.len(),
-                    body
-                ));
+                match body {
+                    Some(b) => req.push_str(&format!(
+                        "Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        b.len(),
+                        b
+                    )),
+                    None => req.push_str("Connection: close\r\n\r\n"),
+                }
                 if let Err(e) = stream.write_all(req.as_bytes()) {
                     return Err(format!("{} write: {}", host, e));
                 }
@@ -947,7 +1078,12 @@ pub fn http_post_host(
                     stream.set_read_timeout(Some(remain)).ok();
                     match stream.read(&mut tmp) {
                         Ok(0) => break,
-                        Ok(n) => data.extend_from_slice(&tmp[..n]),
+                        Ok(n) => {
+                            data.extend_from_slice(&tmp[..n]);
+                            if data.len() > MAX_PROBE_READ {
+                                break; // cap mémoire, le parse des octets reçus décidera
+                            }
+                        }
                         Err(e) => {
                             if data.is_empty() {
                                 last_err = format!("{} read: {}", host, e);
@@ -1481,13 +1617,53 @@ pub struct PeerProbe {
 }
 
 /// Sonde /api/state d'un command-center distant (cache de pairs).
-/// `access` : code d'accès API du pair (secret partagé — la même valeur côté
-/// émetteur et récepteur dans config.json). Sans lui, un pair en bind non-loopback refusela sonde.
+/// `access` : code d'accès API partagé (même valeur des deux côtés).
+///
+/// SÉCURITÉ (audit 2026-10-24) : le code n'est plus envoyé en clair à la cible —
+/// il était diffusé à toutes les cibles sondées du LAN. Déroulé en deux phases :
+/// 1. GET /api/hello (préauth) → un command-center répond avec un nonce à usage unique ;
+/// 2. POST /api/state avec X-MCC-Nonce + X-MCC-Proof = HMAC-SHA256(code, nonce)
+///    (cf. crypto.rs) — un observateur réseau ne récupère qu'une preuve morte.
+///
+/// Un pair en bind loopback accepte aussi la sonde sans preuve (pas de garde).
 pub fn probe_peer(ip: &str, port: u16, access: Option<&str>) -> PeerProbe {
-    let extras: Vec<(&str, &str)> = access
-        .map(|a| vec![("X-MCC-Access", a)])
-        .unwrap_or_default();
-    let body = http_post_host(ip, port, "/api/state", "", 1200, &extras).map(|(b, _)| b);
+    let nonce: Option<String> = match http_get_host(ip, port, "/api/hello", 1200) {
+        Ok((bytes, _)) => match serde_json::from_slice::<Value>(&bytes) {
+            Ok(v) if v.get("app").and_then(|x| x.as_str()) == Some("mcp-command-center") => {
+                v.get("nonce").and_then(|x| x.as_str()).map(String::from)
+            }
+            _ => {
+                return PeerProbe {
+                    alive: false,
+                    servers: None,
+                }
+            }
+        },
+        Err(_) => {
+            return PeerProbe {
+                alive: false,
+                servers: None,
+            }
+        }
+    };
+    let extras: Vec<(String, String)> = match (access, nonce) {
+        (Some(code), Some(n)) if !code.is_empty() => vec![
+            ("X-MCC-Nonce".to_string(), n.clone()),
+            (
+                "X-MCC-Proof".to_string(),
+                crate::crypto::hmac_sha256_hex(
+                    code.as_bytes(),
+                    format!("mcc-proof-v1:{}", n).as_bytes(),
+                ),
+            ),
+        ],
+        _ => Vec::new(),
+    };
+    let extra_refs: Vec<(&str, &str)> = extras
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let body = http_post_host(ip, port, "/api/state", "", 1200, &extra_refs).map(|(b, _)| b);
     match body {
         Ok(bytes) => {
             // /api/state répond à tout POST : valider que c'est du JSON avec "servers"
@@ -1876,16 +2052,33 @@ LISTEN  0      128              *:3141             *:*";
 
     #[test]
     fn probe_peer_accepte_le_format_api_state() {
-        // contrat : un command-center distant répond /api/state avec "servers" + "stats"
+        // contrat (deux phases, audit 2026-10-24) : /api/hello donne un nonce,
+        // puis /api/state (avec ou sans preuve selon le code disponible) répond
+        // "servers" + "stats". Le nonce doit être UNIQUEMENT utilisé, jamais un secret.
         let corps = r#"{"servers":[{"id":"seed-overmind","label":"Overmind","transport":"http","transport_info":{"host":null,"port":3099,"path":"/mcp"},"enabled":true,"state":"UP","server_name":"OverMind-MCP","version":"3.10.5","tools_count":16}],"log":[],"stats":{"up":4,"total":7,"tools":59},"settings":{"refresh_secs":15}}"#;
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let corps = corps.to_string();
         thread::spawn(move || {
-            if let Ok((mut s, _)) = listener.accept() {
+            for stream in listener.incoming() {
+                let Ok(mut s) = stream else { return };
                 let mut buf = [0u8; 8192];
                 let _ = s.read(&mut buf);
-                let resp = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", corps.len(), corps);
+                let req = String::from_utf8_lossy(&buf).to_string();
+                let resp = if req.starts_with("GET /api/hello") {
+                    let body = r#"{"app":"mcp-command-center","version":"0.7.1","nonce":"aabbccdd00112233aabbccdd00112233aabbccdd00112233aabbccdd00112233"}"#;
+                    format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body)
+                } else if req.starts_with("POST /api/state") {
+                    // aucun code en clair ne doit transiter : seulement nonce + preuve
+                    assert!(
+                        !req.contains("X-MCC-Access:"),
+                        "le code d'accès ne doit JAMAIS être envoyé au pair"
+                    );
+                    format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", corps.len(), corps)
+                } else {
+                    "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                        .to_string()
+                };
                 let _ = s.write_all(resp.as_bytes());
             }
         });
@@ -1951,6 +2144,33 @@ LISTEN  0      128              *:3141             *:*";
         assert!(
             pids_listening_on(&netstat, 5090).is_empty(),
             "notre propre PID est exclu (pas de suicide si l'id vise notre port UI)"
+        );
+    }
+
+    #[test]
+    fn pids_listening_on_ss_parse_par_colonne_exacte() {
+        // Régression audit : kill_port était un no-op sur unix — parse ss -tlnp
+        // par port exact, propre PID exclu (même contrat que pids_listening_on).
+        let own = std::process::id().to_string();
+        let ss = format!(
+            "State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n\
+             LISTEN 0      128          0.0.0.0:3141       0.0.0.0:*    users:((\"node\",pid=1111,fd=20))\n\
+             LISTEN 0      128        [::]:3141            [::]:*       users:((\"python3\",pid=2222,fd=19))\n\
+             LISTEN 0      128          0.0.0.0:31410      0.0.0.0:*    users:((\"node\",pid=3333,fd=18))\n\
+             LISTEN 0      128        127.0.0.1:5090       0.0.0.0:*    users:((\"mcp-command-center\",pid={},fd=12))\n",
+            own
+        );
+        let mut pids = pids_listening_on_ss(&ss, 3141);
+        pids.sort();
+        assert_eq!(
+            pids,
+            vec![1111, 2222],
+            ":31410 ne doit pas matcher, notre propre PID exclu"
+        );
+        assert_eq!(pids_listening_on_ss(&ss, 31410), vec![3333]);
+        assert!(
+            pids_listening_on_ss(&ss, 5090).is_empty(),
+            "notre propre PID est exclu (pas de suicide)"
         );
     }
 }

@@ -379,18 +379,66 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
   </div>
 </dialog>
 
+<dialog id="loginDlg">
+  <div class="dlg-head">
+    <h2>&#128274; Acc&egrave;s prot&eacute;g&eacute;</h2>
+  </div>
+  <div class="dlg-body">
+    <div class="conf-note">Cette UI est expos&eacute;e au r&eacute;seau : saisis le <b>code d'acc&egrave;s API</b>
+    du serveur (<b>settings.api_access</b> de son config.json, ou variable <b>MCC_API_ACCESS</b>).
+    Il reste dans ce navigateur uniquement — le serveur ne l'envoie jamais dans la page.</div>
+    <form onsubmit="return loginSubmit(event)">
+      <label>Code d'acc&egrave;s</label>
+      <input id="loginCode" type="password" autocomplete="off" placeholder="code d'acc&egrave;s">
+      <div id="loginMsg" class="machine-msg"></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:6px">
+        <button type="submit" class="primary">D&eacute;verrouiller</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
 <script>
-/* Code d'accès API injecté par le serveur (__MCC_ACCESS__ remplacé au rendu de "/")
-   — vide en bind loopback (aucun code requis). Toute requête /api/ l'embarque. */
-const MCC_ACCESS = '__MCC_ACCESS__';
+/* Code d'accès API : demandé à l'utilisateur (dialogue de déverrouillage) puis
+   gardé en localStorage — JAMAIS injecté par le serveur dans la page (audit
+   2026-10-24 : quiconque joint le port lisait le code sur / et contournait
+   toute l'auth). En bind loopback aucun code n'est requis : le dialogue
+   n'apparaît jamais. Chaque requête /api/ présente le code (X-MCC-Access) ;
+   un 401 rouvre le dialogue (code tourné ou faux). */
+const accessCode = () => { try { return localStorage.getItem('mcc.access') || ''; } catch (e) { return ''; } };
 const MCC_VERSION = '__MCC_VERSION__';
 const _mccFetch = window.fetch.bind(window);
-window.fetch = (url, opts = {}) => {
-  if (typeof url === 'string' && url.startsWith('/api/') && MCC_ACCESS) {
-    opts.headers = Object.assign({}, opts.headers || {}, {'X-MCC-Access': MCC_ACCESS});
+window.fetch = async (url, opts = {}) => {
+  const isApi = typeof url === 'string' && url.startsWith('/api/');
+  const code = accessCode();
+  if (isApi && code) {
+    opts.headers = Object.assign({}, opts.headers || {}, {'X-MCC-Access': code});
   }
-  return _mccFetch(url, opts);
+  const r = await _mccFetch(url, opts);
+  if (isApi && r.status === 401) showLogin();
+  return r;
 };
+function showLogin() {
+  const d = document.getElementById('loginDlg');
+  if (d && !d.open) { d.showModal(); document.getElementById('loginCode').focus(); }
+}
+async function loginSubmit(ev) {
+  ev.preventDefault();
+  const code = document.getElementById('loginCode').value.trim();
+  const msg = document.getElementById('loginMsg');
+  // fetch brut (pas l'intercepteur) : pas de boucle 401 pendant la vérif
+  const r = await _mccFetch('/api/state', {headers: code ? {'X-MCC-Access': code} : {}});
+  if (r.ok) {
+    try { localStorage.setItem('mcc.access', code); } catch (e) {}
+    msg.textContent = '';
+    document.getElementById('loginCode').value = '';
+    document.getElementById('loginDlg').close();
+    load();
+  } else {
+    msg.textContent = '\u2717 code refus\u00e9 — voir settings.api_access du config.json du serveur';
+  }
+  return false;
+}
 
 let state = null;
 let selectedId = null;

@@ -24,4 +24,4 @@ require('http').createServer((req, res) => {
       res.end();
     });
   } else { res.writeHead(404); res.end('not found'); }
-}).listen(port, '::', () => console.log(`fake-http-mcp sur [::1]:${port}`));
+}).listen(port, '::1', () => console.log(`fake-http-mcp sur [::1]:${port}`));

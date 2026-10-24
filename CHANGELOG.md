@@ -1,3 +1,20 @@
+## [0.7.1] — Audit 2026-10-24 : auth réelle (login UI + preuve de pair HMAC), hygiène
+
+### Sécurité
+- **P0 — le code d'accès n'est plus servi par la page `/`** : l'UI embarquait le code d'accès API en clair (placeholder `__MCC_ACCESS__`) — quiconque pouvait joindre le port le lisait sur la page d'accueil et contournait toute l'auth `/api/*` (y compris `add` stdio = exécution de commande arbitraire). Le code est désormais demandé à l'utilisateur par un dialogue de déverrouillage, gardé en `localStorage` et présenté à chaque appel `/api/*` ; un 401 rouvre le dialogue (code tourné ou faux). En bind loopback, rien ne change (aucun code requis). Test de non-régression : `/` ne contient jamais le secret.
+- **P1 — la découverte de pairs ne diffuse plus le code d'accès** : `discover_peers` envoyait NOTRE code en clair (`X-MCC-Access`) à toutes les cibles sondées du LAN — tout hôte à l'écoute sur 5090/5091 récupérait le secret sans le demander. Protocole en deux phases : `GET /api/hello` (préauthentifié, nonce à usage unique, aucune donnée) puis `POST /api/state` avec `X-MCC-Nonce` + `X-MCC-Proof` = HMAC-SHA256(code, nonce). Nouveau module `crypto.rs` (SHA-256/HMAC en std pur, zéro dépendance, validés contre les vecteurs NIST/RFC 4231). NB : les pairs doivent être ≥ 0.7.1.
+- **Rotation du code d'accès + purge des artefacts qui le contenaient** : l'ancien code traînait en clair dans des captures e2e non gitignorées (`ui-e2e-*`, supprimées). `.gitignore` couvre désormais `state-cache.json`, `ui-e2e-*`, `pauvre-router-audit/`, `nul`, `patch_*.py` ; fixtures de test neutralisées (IP de documentation `192.0.2.10` au lieu du LAN réel).
+- **CSP sur la page UI** (en-tête `Content-Security-Policy` servi par le core — le `csp` de tauri.conf.json ne s'applique pas aux URL externes chargées par le webview) : scripts/styles inline uniquement (page mono-fichier), `connect-src 'self'`, aucune frame — une XSS future ne peut ni charger de code externe ni exfiltrer. `X-Content-Type-Options: nosniff` sur toutes les réponses. Capability desktop resserrée aux ports 5090-5099 (plus de wildcard `:*` tous ports) et `csp` posé aussi dans tauri.conf (page de repli locale).
+- **CI durcie** : actions GitHub épinglées par SHA de tag (checkout, toolchain, rust-cache, upload/download-artifact, gh-release), `contents: write` réservé au job release, clippy strict `--all-targets`, et nouveau workflow **CI sur chaque push/PR** (fmt + tests + clippy) — avant, les tests ne tournaient qu'au push de tag.
+
+### Corrigé
+- **Panic HTTP sur import tronqué** : `import_mcp` avec `claude mcp add` (3-4 tokens) indexait `toks[3]`/`toks[4]` → panic du thread, aucune réponse au client. Borne `≥ 5 tokens` + test de non-régression.
+- **`kill_port` porté sur Linux/macOS** (no-op depuis v0.6.3 alors que le desktop est distribué sur 4 OS) : parse `ss -tlnp` par port exact (propre PID exclu, testé) + repli `lsof -sTCP:LISTEN`.
+- **Vérification de mise à jour sur les trois OS** : elle ne passait QUE par PowerShell (silencieusement inopérante sur Linux/macOS) — `curl` d'abord, PowerShell en repli.
+- **Caps mémoire sur les sondes sortantes** : lectures de réponses plafonnées (2 Mo JSON-RPC, 256 Ko SSE//health) — un serveur LAN rapide ne peut plus gonfler la RAM pendant la fenêtre de timeout.
+- **Path de sonde sanitizé** côté client : aucun CR/LF ni espace dans la ligne de requête (injection d'en-tête impossible même avec un path configuré malveillant).
+- **Divers** : warning clippy `unreachable_code` éliminé (corps autostart séparé du garde `cfg(test)`), test vide supprimé, fixture `examples/test-http-server.js` rebondie sur `[::1]` (elle écoutait sur toutes les interfaces, contrairement à son commentaire), `start-command-center.bat` vérifie le build avant de lancer, fichiers one-shot de dev supprimés de la racine.
+
 ## [0.7.0] — Support LiteMCP : fingerprint du framework + badge « glow HTTPS »
 
 ### Ajouté

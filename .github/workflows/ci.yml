@@ -1,0 +1,39 @@
+name: CI
+
+# L'audit 2026-10-19/P3 notait que tests+clippy ne tournaient qu'au push de tag :
+# ici, chaque push/PR est vérifié (fmt + tests + clippy strict tous targets).
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  core:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (épinglé SHA)
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable (épinglé SHA)
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2 (épinglé SHA)
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Tests
+        run: cargo test
+
+      - name: Clippy (strict, tous les targets)
+        run: cargo clippy --all-targets -- -D warnings

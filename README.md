@@ -26,7 +26,7 @@ superviser et piloter les serveurs **MCP** : HTTP streamable, stdio, et découve
 | ↔️ **Glisser-déposer** | Réordonne les serveurs dans l'explorateur : **préférence d'affichage et priorité de sondage** (persisté, les serveurs en haut sont interrogés en premier) |
 | 🛒 **Boutique intégrée (64 MCP)** | Catalogue officiel + aitmpl + Glama + GitHub, **logos officiels**, installation `npx`/`uvx` en un clic |
 | ⏻ **Démarrage auto ON/OFF** | Bouton dans la barre de titre : lance (ou non) l'app au démarrage de l'OS — tray silencieux, serveurs supervisés sans fenêtre (registre Run / autostart XDG / LaunchAgent) |
-| 🏷️ **Version visible** | Badge `v0.7.0` permanent + vérification de mise à jour GitHub (badge ambre « ⬆ vX dispo » si une release plus récente existe) |
+| 🏷️ **Version visible** | Badge `v0.7.1` permanent + vérification de mise à jour GitHub (badge ambre « ⬆ vX dispo » si une release plus récente existe) |
 
 > **Écosystème** : les serveurs écrits avec [**LiteMCP**](https://github.com/DeamonDev888/litemcp) — la lib MCP
 > stateless en Rust ([crates.io](https://crates.io/crates/litemcp)) — sont détectés et badgés nativement
@@ -39,12 +39,16 @@ start-command-center.bat
 ```
 → UI sur **http://127.0.0.1:5090** (passe au port suivant si occupé, jusqu'à +9).
 
-> **Sécurité (v0.6.6)** : le bind par défaut est `127.0.0.1` (UI locale seulement).
+> **Sécurité (v0.7.1)** : le bind par défaut est `127.0.0.1` (UI locale seulement).
 > Pour ouvrir au LAN (`"ui_bind": "0.0.0.0"` dans config.json), un code d'accès API est
 > exigé sur `/api/*` — généré au premier boot et persisté dans `settings.api_access`
-> (ou fourni via la variable d'environnement `MCC_API_ACCESS`). L'UI l'embarque
-> automatiquement ; les scripts et les pairs doivent le présenter (header
-> `X-MCC-Access`). Pour la détection de pairs, mettre la même valeur des deux côtés.
+> (ou fourni via la variable d'environnement `MCC_API_ACCESS`). Le code n'est **jamais
+> envoyé dans la page** : l'UI le demande dans un dialogue de déverrouillage, le garde
+> dans le localStorage du navigateur et le présente à chaque appel (header
+> `X-MCC-Access`). Les scripts présentent le même header ; les **pairs** command-center
+> prouvent qu'ils connaissent le code sans le transmettre (`GET /api/hello` → nonce à
+> usage unique, puis `X-MCC-Proof` = HMAC-SHA256 du nonce avec le code — mettre la même
+> valeur des deux côtés). La page est servie avec une CSP stricte.
 
 ## Ce que ça fait
 
@@ -147,9 +151,12 @@ curl -X POST -H "Content-Type: application/json" \
 | 4 | Timeout handshake stdio configurable par serveur | UX |
 | 5 | Connection pooling HTTP (réutiliser les sockets du poll) | latence |
 
-### Sécurité (état v0.6.6 — items P0 de l'audit traités)
-- Code d'accès API obligatoire hors loopback (généré au boot, persisté), bind par défaut `127.0.0.1`.
+### Sécurité (état v0.7.1 — audit 2026-10-24 traité)
+- Code d'accès API obligatoire hors loopback (généré au boot, persisté), bind par défaut `127.0.0.1`, et **jamais exposé par la page `/`** : dialogue de déverrouillage UI + `localStorage` (v0.6.6 l'injectait dans la page — quiconque joint le port le lisait).
+- Pairs command-center authentifiés **par preuve, pas par secret** : `GET /api/hello` (nonce à usage unique) puis `X-MCC-Proof` = HMAC-SHA256 du nonce avec le code (`crypto.rs`, std pur, vecteurs NIST/RFC testés) — plus aucun envoi du code en clair sur le LAN.
 - Anti CSRF / DNS-rebinding : `OPTIONS` 403, `Host`/`Origin` filtrés, `Content-Type: application/json` exigé sur `/api/action`, ACAO reflétée uniquement pour les origines autorisées.
-- `kill_port` par colonne exacte (plus de taskkill du mauvais PID), corps HTTP plafonné (2 Mo), connexions plafonnées (64).
+- Page UI servie avec **CSP stricte** + `nosniff` ; capability desktop restreinte aux ports 5090-5099.
+- Caps mémoire des deux côtés : requêtes entrantes (2 Mo, 64 connexions) **et réponses des sondes sortantes** (2 Mo / 256 Ko).
+- `kill_port` par colonne exacte et porté sur Linux/macOS (`ss -tlnp` + `lsof`), imports `claude mcp add` bornés (plus de panic), vérification de mise à jour via `curl` sur les trois OS.
 - Reste à faire : rate-limit fin sur `/api/action` ; les installs boutique exécutent npx/uvx sans sandbox (le dossier de Filesystem est demandé explicitement).
 
