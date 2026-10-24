@@ -60,7 +60,11 @@ button:disabled{opacity:.35;cursor:not-allowed}
 #explorer{width:280px;flex-shrink:0;background:var(--sidebar);border-right:1px solid var(--border);
   display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden}
 .sec-label{font:10px var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.9px;
-  color:var(--t4);padding:14px 16px 6px;user-select:none}
+  color:var(--t4);padding:14px 16px 6px;user-select:none;display:flex;align-items:center;justify-content:space-between;gap:6px}
+.sec-label select{width:auto;flex-shrink:0;background:var(--chrome);border:1px solid var(--border);border-radius:6px;
+  color:var(--t3);font:10px var(--mono);padding:2px 3px;cursor:pointer;text-transform:none;letter-spacing:0}
+.sec-label select:hover{color:var(--accent);border-color:var(--accent)}
+.sec-label select:focus{outline:none}
 .srow{padding:7px 10px 7px 14px;margin:1px 8px;border-radius:8px;cursor:pointer;position:relative;
   border:1px solid transparent;transition:background .1s}
 .srow:hover{background:var(--hover)}
@@ -282,7 +286,17 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
 
 <div id="main">
   <aside id="explorer">
-    <div class="sec-label" title="Glisser-déposer une ligne pour r&eacute;ordonner : pr&eacute;f&eacute;rence d'affichage et priorit&eacute; de sondage">Serveurs MCP &middot; glisser = priorit&eacute;</div>
+    <div class="sec-label" title="Glisser-déposer une ligne pour r&eacute;ordonner (pr&eacute;f&eacute;rence d'affichage et priorit&eacute; de sondage) — ou reclasser via le menu : l'ordre appliqué est persisté">
+      <span>Serveurs MCP</span>
+      <select id="sortSel" onchange="applySort(this.value)" title="Reclasser les serveurs — « manuel » rend l'ordre pos&eacute; au glisser-déposer avant le tri">
+        <option value="manuel">⇅ manuel</option>
+        <option value="az">A→Z</option>
+        <option value="etat">état</option>
+        <option value="port">port</option>
+        <option value="latence">latence</option>
+        <option value="tools">tools</option>
+      </select>
+    </div>
     <div id="srvList"></div>
     <div class="sec-label">Machines &amp; pairs</div>
     <div id="peerList"></div>
@@ -599,13 +613,58 @@ function rowDrop(ev) {
   const moved = dragId;
   dragId = null;
   if (!moved || row.dataset.id === moved) return;
+  // le glisser-déposer reprend la main : le menu de tri revient sur « manuel »
+  manualOrder = null;
+  const sel = document.getElementById('sortSel');
+  if (sel) sel.value = 'manuel';
   // nouvel ordre = ids visibles, la ligne déplacée réinsérée au-dessus/en dessous
   const ids = [...document.querySelectorAll('#srvList .srow')]
     .map(r => r.dataset.id).filter(x => x !== moved);
   const at = ids.indexOf(row.dataset.id);
   ids.splice(row._dropAbove ? at : at + 1, 0, moved);
-  fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({action: 'reorder', ids})}).then(load);
+  postReorder(ids);
+}
+
+/* ===== Menu de reclassement (⇅) =====
+   Réutilise l'action API « reorder » : l'ordre appliqué est persisté
+   (settings.server_order) et gouverne l'affichage ET la priorité de sondage.
+   « manuel » rend l'ordre posé au glisser-déposer AVANT le tri (mémorisé côté
+   client au moment où un tri est appliqué — un drag le réactualise). */
+let manualOrder = null;
+const SORT_STATE_RANK = {UP: 0, STARTING: 1, 'PORT-ONLY': 1, PROBING: 1, DOWN: 2, DISABLED: 3};
+const frCmp = (a, b) => String(a).localeCompare(String(b), 'fr', {sensitivity: 'base'});
+function sortByPort(s) {
+  return s.transport === 'http' ? (s.transport_info.port || 65536) : 65536;
+}
+function applySort(mode) {
+  if (!state || !state.servers.length) return;
+  const byId = Object.fromEntries(state.servers.map(s => [s.id, s]));
+  if (mode === 'manuel') {
+    if (manualOrder && manualOrder.length) postReorder(manualOrder.filter(id => byId[id]));
+    return;
+  }
+  if (manualOrder === null) manualOrder = state.servers.map(s => s.id);
+  let ids = state.servers.map(s => s.id);
+  if (mode === 'az') {
+    ids.sort((a, b) => frCmp(byId[a].label, byId[b].label));
+  } else if (mode === 'etat') {
+    ids.sort((a, b) => ((SORT_STATE_RANK[byId[a].state] ?? 9) - (SORT_STATE_RANK[byId[b].state] ?? 9))
+      || frCmp(byId[a].label, byId[b].label));
+  } else if (mode === 'port') {
+    ids.sort((a, b) => (sortByPort(byId[a]) - sortByPort(byId[b])) || frCmp(byId[a].label, byId[b].label));
+  } else if (mode === 'latence') {
+    // non sondés (null) en fin, puis du plus rapide au plus lent
+    ids.sort((a, b) => ((byId[a].latency_ms ?? 1e12) - (byId[b].latency_ms ?? 1e12)));
+  } else if (mode === 'tools') {
+    ids.sort((a, b) => ((byId[b].tools_count || 0) - (byId[a].tools_count || 0))
+      || frCmp(byId[a].label, byId[b].label));
+  }
+  postReorder(ids);
+}
+async function postReorder(ids) {
+  await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'reorder', ids})}).catch(() => {});
+  await load();
 }
 function rowDragEnd(ev) {
   ev.currentTarget.classList.remove('dragging');

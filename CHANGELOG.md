@@ -1,3 +1,9 @@
+## [0.7.3] — Menu de reclassement des serveurs (⇅)
+
+### Ajouté
+- **Menu « ⇅ » dans l'explorateur** pour reclasser les serveurs en un clic : **A→Z** (label, insensible à la casse, collation française), **état** (UP d'abord, puis PORT-ONLY/DOWN, désactivés en fin), **port** (stdio en fin), **latence** (du plus rapide au plus lent, non sondés en fin) et **tools** (du plus outillé au moins outillé). Réutilise l'action API `reorder` : l'ordre appliqué est **persisté** (settings.server_order) et gouverne l'affichage ET la priorité de sondage, comme le glisser-déposer.
+- **« ⇅ manuel »** rend l'ordre posé au glisser-déposer AVANT le tri (mémorisé côté client au moment où un tri est appliqué) ; poser un drag à la main remet le menu sur « manuel » et réactualise la mémoire.
+
 ## [0.7.2] — Instance unique (reconnexion au moteur existant) + partie HTTP invisible
 
 ### Ajouté
