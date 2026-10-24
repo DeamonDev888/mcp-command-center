@@ -46,6 +46,15 @@ pub fn is_loopback_bind(s: &str) -> bool {
     matches!(s, "127.0.0.1" | "localhost" | "::1" | "[::1]")
 }
 
+/// Le code d'accès est-il exigé pour CETTE connexion ? Uniquement quand l'UI
+/// est exposée au réseau (bind non-loopback) ET que le client vient du réseau :
+/// les connexions locales (fenêtre desktop, navigateur de la machine) n'ont
+/// JAMAIS de code à saisir. Les contrôles Host/Origin (anti CSRF/rebinding)
+/// restent appliqués à toutes les connexions, locales incluses.
+pub fn effective_require_access(bind_is_loopback: bool, peer_is_loopback: bool) -> bool {
+    !bind_is_loopback && !peer_is_loopback
+}
+
 /// Hex aléatoire de `words` × 64 bits — pas de dépendance crypto : RandomState
 /// est semé aléatoirement par process (OS entropy). Suffisant pour un secret LAN
 /// et pour les nonces à usage unique.
@@ -554,6 +563,11 @@ pub fn handle_conn(mut stream: TcpStream, state: Arc<AppState>) {
         let st = lockv(&state.settings);
         (is_loopback_bind(&st.ui_bind), st.api_access.clone())
     };
+    // client local (fenêtre desktop, navigateur de la machine) → jamais de code
+    let peer_is_loopback = stream
+        .peer_addr()
+        .map(|a| a.ip().is_loopback())
+        .unwrap_or(false);
     let (allowed_hosts, allowed_origins) = (
         lockv(&state.allowed_hosts).clone(),
         lockv(&state.allowed_origins).clone(),
@@ -575,7 +589,7 @@ pub fn handle_conn(mut stream: TcpStream, state: Arc<AppState>) {
         }
     };
     let gated = check_access(
-        !loopback_bind,
+        effective_require_access(loopback_bind, peer_is_loopback),
         api_access.as_deref(),
         &allowed_hosts,
         &allowed_origins,
@@ -933,6 +947,20 @@ mod tests {
         for s in ["0.0.0.0", "", "192.0.2.10"] {
             assert!(!is_loopback_bind(s), "{} = PAS loopback", s);
         }
+    }
+
+    #[test]
+    fn code_acces_jamais_exige_aux_clients_locaux() {
+        // bind loopback : aucun code, quel que soit le client
+        assert!(!effective_require_access(true, true));
+        assert!(!effective_require_access(true, false));
+        // bind 0.0.0.0 : client LOCAL (desktop, navigateur de la machine) → pas de code
+        assert!(
+            !effective_require_access(false, true),
+            "une connexion venue de la machine n'exige jamais le code"
+        );
+        // bind 0.0.0.0 + client du LAN → code exigé
+        assert!(effective_require_access(false, false));
     }
 
     #[test]

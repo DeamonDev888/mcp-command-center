@@ -1,3 +1,8 @@
+## [0.7.4] — Plus jamais de code pour l'usage local
+
+### Modifié
+- **Le code d'accès n'est exigé que des clients du RÉSEAU** : les connexions venues de la machine elle-même (fenêtre desktop, navigateur local sur 127.0.0.1) n'ont **jamais** de code à saisir, même quand l'UI est bindée `0.0.0.0` pour la détection de pairs — plus de dialogue de déverrouillage à l'ouverture de l'app. Les contrôles Host/Origin (anti CSRF / DNS-rebinding) et la CSP restent appliqués à toutes les connexions, locales incluses ; un client du LAN doit toujours présenter le code (ou une preuve de pair HMAC).
+
 ## [0.7.3] — Menu de reclassement des serveurs (⇅)
 
 ### Ajouté

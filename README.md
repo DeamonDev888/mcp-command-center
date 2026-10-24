@@ -44,16 +44,15 @@ start-command-center.bat
 > lancer un second — un seul processus supervise les serveurs. Le journal complet
 > vit dans `mcc.log` (à côté du config.json) même quand rien n'est affiché à l'écran.
 
-> **Sécurité (v0.7.1)** : le bind par défaut est `127.0.0.1` (UI locale seulement).
-> Pour ouvrir au LAN (`"ui_bind": "0.0.0.0"` dans config.json), un code d'accès API est
-> exigé sur `/api/*` — généré au premier boot et persisté dans `settings.api_access`
-> (ou fourni via la variable d'environnement `MCC_API_ACCESS`). Le code n'est **jamais
-> envoyé dans la page** : l'UI le demande dans un dialogue de déverrouillage, le garde
-> dans le localStorage du navigateur et le présente à chaque appel (header
-> `X-MCC-Access`). Les scripts présentent le même header ; les **pairs** command-center
-> prouvent qu'ils connaissent le code sans le transmettre (`GET /api/hello` → nonce à
-> usage unique, puis `X-MCC-Proof` = HMAC-SHA256 du nonce avec le code — mettre la même
-> valeur des deux côtés). La page est servie avec une CSP stricte.
+> **Sécurité (v0.7.4)** : le bind par défaut est `127.0.0.1` (UI locale seulement).
+> **Aucun code n'est jamais demandé pour l'usage local** (fenêtre desktop, navigateur de
+> la machine), même en bind LAN. Si l'UI est ouverte au LAN (`"ui_bind": "0.0.0.0"`), un
+> code d'accès est exigé des clients du **réseau** sur `/api/*` — généré au premier boot
+> et persisté dans `settings.api_access` (ou via `MCC_API_ACCESS`), jamais envoyé dans la
+> page. Les **pairs** command-center prouvent qu'ils connaissent le code sans le
+> transmettre (`GET /api/hello` → nonce à usage unique, puis `X-MCC-Proof` =
+> HMAC-SHA256 du nonce avec le code — même valeur des deux côtés). CSP stricte sur la
+> page, contrôles Host/Origin sur toutes les connexions.
 
 ## Ce que ça fait
 
