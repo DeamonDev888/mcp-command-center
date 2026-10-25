@@ -1,3 +1,8 @@
+## [0.7.6] — Logo Rust (« R » engrenagé) pour le chip de langage
+
+### UI
+- **Le chip de langage des serveurs Rust affiche désormais le vrai glyphe** — le « R » cerclé d'un engrenage (SVG vectoriel maison, teinte orange Rust du thème), même lecture que l'icône `.rs` des éditeurs — à la place du monogramme texte « RS ». Dans l'explorateur et l'en-tête du détail, inféré par en-têtes HTTP, process propriétaire du port, ou framework (LiteMCP = Rust par définition).
+
 ## [0.7.5] — Auto-scan au démarrage sur TOUS les ports en écoute + bouton ⟳ qui découvre
 
 ### Corrigé

@@ -215,6 +215,9 @@ details.fold .kv{margin-top:12px}
 .srow .l1 .tag{font-size:8.5px;padding:0 5px;line-height:14px;flex-shrink:0}
 .langchip{font:8.5px var(--mono);font-weight:700;border:1px solid;border-radius:4px;padding:0 4px;line-height:14px;flex-shrink:0}
 .langchip.unk{color:var(--t4);border-color:var(--border-soft);background:transparent;font-weight:400}
+/* Logo Rust (langage inféré) : « R » cerclé d'un engrenage, comme l'icône .rs des éditeurs */
+.rustwrap{display:inline-flex;align-items:center;flex-shrink:0;margin:0 1px}
+.rustlogo{width:15px;height:15px}
 #storeDlg{width:min(1180px,96vw)}
 .store-bar{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
 .store-count{color:var(--t3);font-weight:400;font-size:12.5px;margin-left:2px}
@@ -529,7 +532,12 @@ const LANG_META = {
   ruby:   { t: 'RB',  c: '#cc342d', n: 'Ruby' },
   php:    { t: 'PHP', c: '#777bb4', n: 'PHP' },
 };
+// Glyphe Rust : « R » dans un engrenage (lecture de l'icône .rs des éditeurs).
+// NB : attributs en simples quotes — guillemet-double suivi de dièse interdit
+// dans ce bloc (cette séquence fermerait la raw string Rust d'INDEX_HTML).
+const RUST_LOGO = "<svg class='rustlogo' viewBox='0 0 24 24' aria-hidden='true'><g stroke='#dea584' stroke-width='1.5' stroke-linecap='round' fill='none'><circle cx='12' cy='12' r='7.9'/><path d='M19.9 12h2M17.6 17.6l1.4 1.4M12 19.9v2M6.4 17.6 5 19M4.1 12h-2M6.4 6.4 5 5M12 4.1v-2M17.6 6.4 19 5'/></g><text x='12' y='15.7' text-anchor='middle' font-size='10' font-weight='700' font-family='inherit' fill='#dea584'>R</text></svg>";
 function langChip(s) {
+  if (s.lang === 'rust') return `<span class="rustwrap" title="Langage inféré : Rust">${RUST_LOGO}</span>`;
   const m = LANG_META[s.lang];
   if (!m) return '<span class="langchip unk" title="Langage non d\u00e9tect\u00e9 (ni commande ni en-t\u00eates ni process)">?</span>';
   return `<span class="langchip" style="color:${m.c};border-color:${m.c}66;background:${m.c}14" title="Langage inféré : ${m.n}">${m.t}</span>`;
