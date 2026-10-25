@@ -312,7 +312,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
 </div>
 
 <div id="logpanel">
-  <div id="loghead" onclick="document.getElementById('logpanel').classList.toggle('min')">
+  <div id="loghead" onclick="toggleLog()">
     <span class="arrow">&#9662;</span><span class="lbl">Journal</span>
     <span class="tb-badge" style="margin-left:auto">auto-d&eacute;tection : HTTP streamable &middot; stdio JSON-RPC</span>
   </div>
@@ -1167,6 +1167,18 @@ async function installStore(id, btn) {
   } catch (e) { /* navigateur classique : rien à câbler */ }
 })();
 
+/* Journal replié PAR DÉFAUT (interface épurée) : l'opérateur l'ouvre d'un clic
+   sur sa barre et son choix est retenu (localStorage). */
+function toggleLog() {
+  const lp = document.getElementById('logpanel');
+  lp.classList.toggle('min');
+  try { localStorage.setItem('mcc.logmin', String(lp.classList.contains('min'))); } catch (e) {}
+}
+(function () {
+  let v = null;
+  try { v = localStorage.getItem('mcc.logmin'); } catch (e) {}
+  document.getElementById('logpanel').classList.toggle('min', v === null ? true : v === 'true');
+})();
 load();
 setInterval(load, 5000);
 // retour de la fenêtre (tray → visible) : reprise immédiate du rafraîchissement

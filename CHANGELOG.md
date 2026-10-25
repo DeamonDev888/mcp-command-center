@@ -1,3 +1,11 @@
+## [0.7.9] — Journal replié par défaut + README ultra simple, captures refaites
+
+### UI
+- **Journal (console) replié par défaut** : la fenêtre est épurée à l'ouverture — un clic sur sa barre le déplie et le choix est retenu (localStorage, `mcc.logmin`).
+
+### Docs
+- **README encore plus noob-friendly** : vocabulaire courant, tableaux « Tu vois / Ça veut dire » et « Problème / Solution », parties techniques repliées en détails (API, sécurité, compilation). **Captures refaites sans le journal** (accueil, détail, serveur Rust avec le grand R, boutique ouverte).
+
 ## [0.7.8] — Audit complet 2026-10-25 : 3 panics mortels corrigés + XSS stockée fermée
 
 ### Corrigé

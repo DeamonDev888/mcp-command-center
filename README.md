@@ -1,99 +1,109 @@
 # MCP Command Center
 
-Ton tableau de bord pour les serveurs **MCP** : l'app les **trouve toute seule**, les **surveille** en continu, et te laisse les **démarrer / arrêter** d'un clic. Application native en Rust — légère (~40 Mo en mémoire), aucune dépendance à installer.
+Une petite application qui **veille sur tes serveurs MCP** : elle les trouve toute seule, te dit lequel marche et lequel est cassé, et te laisse tout allumer ou éteindre d'un clic.
 
-![Aperçu](assets/readme-accueil.png)
-*L'app au démarrage : tes serveurs à gauche (état, badges, langage), les chiffres clés au centre, le journal en bas. Tout est découvert automatiquement.*
+![L'application au démarrage](assets/readme-accueil.png)
 
-## En 30 secondes
+## Ça sert à quoi ?
 
-1. Lance `start-command-center.bat` (ou l'exe installé).
-2. L'app s'ouvre et **scanne tous les ports de la machine** — chaque serveur MCP apparaît tout seul, quel que soit son port.
-3. C'est tout. Clique sur un serveur pour voir ses tools, ses infos, et le piloter.
+- **Voir** tous tes serveurs MCP en un coup d'œil (même ceux que tu avais oubliés).
+- **Savoir** immédiatement qui marche et qui est planté.
+- **Agir** : démarrer, arrêter, installer de nouveaux serveurs, tout depuis la même fenêtre.
 
-> Astuce : un serveur ne s'affiche pas ? Clique sur **⟳** (en haut à droite) — il re-sonde tout et cherche les nouveaux.
+## Démarrer
 
-## Ce que tu vois
+1. Double-clique sur `start-command-center.bat` (ou l'icône de l'app installée).
+2. La fenêtre s'ouvre. **C'est tout** — la liste se remplit toute seule.
 
-![Détail d'un serveur](assets/readme-detail.png)
-*Un serveur sélectionné : sa liste de tools (chacun activable/désactivable), son état, sa latence, sa version, et le **framework** avec lequel il est construit (badge `FastMCP`, `LiteMCP`…) avec la spec MCP utilisée.*
+## Lire l'écran
 
-![Serveur Rust](assets/readme-rust.png)
-*Un serveur écrit en Rust : logo **R** cerclé d'un engrenage + badge du framework détecté automatiquement (ici LiteMCP, spec 2026-07-28).*
+| Tu vois | Ça veut dire |
+|---|---|
+| 🟢 **UP** | Le serveur marche |
+| 🟠 **PORT-ONLY** | Le serveur est planté (le port répond, mais pas le serveur) |
+| ⚪ **DOWN** | Le serveur est éteint |
+| ⚫ **DISABLED** | Tu l'as désactivé toi-même |
 
-![Boutique](assets/readme-boutique.png)
-*La **boutique** : 64 serveurs MCP installables en un clic (Filesystem, GitHub, Playwright, Puppeteer…), avec leurs logos officiels.*
+Les petits badges à côté du nom (`FastMCP`, `LiteMCP`…) indiquent **avec quoi le serveur est construit** — reconnu automatiquement, tu n'as rien à faire.
+
+![Un serveur en détail](assets/readme-detail.png)
+*Clique sur un serveur : tu vois tous ses outils (tools), son état, sa vitesse, sa version — et des boutons pour l'allumer, l'éteindre, ou couper un outil précis.*
+
+![Un serveur écrit en Rust](assets/readme-rust.png)
+*Un serveur Rust affiche son logo 🦀 (le « R » cerclé). Ici l'app a aussi reconnu le framework LiteMCP.*
 
 ## Les boutons
 
 | Bouton | Ce qu'il fait |
 |---|---|
-| **⟳** | Rafraîchit tout **et** découvre les nouveaux serveurs |
-| **🔍 Scan ports** | Scanne une plage de ports précise (réglable dans config.json) |
-| **🌐 Scan réseau** | Cherche des serveurs MCP sur les autres machines du réseau local |
-| **🖥️ Machines** | Connecte une autre machine (VPS, Docker…) en SSH et importe ses serveurs — même ceux bindés `localhost` |
-| **🛒 Boutique** | 64 serveurs MCP à installer en un clic |
-| **+ Ajouter** | Ajoute un serveur à la main (port HTTP, ou programme stdio) |
-| **ON/OFF** (par ligne) | Allume / éteint un serveur |
-| **▶ / ■** | Démarre / arrête le process du serveur |
-| **⇅** (au-dessus de la liste) | Reclasse les serveurs : A→Z, état, port, latence, tools — ou glisse une ligne à la main |
-| **⏭ Auto-boot** | Lance (ou non) l'app au démarrage de Windows ; fermer la fenêtre = réduit dans le tray |
+| **⟳** | Rafraîchit tout et cherche les nouveaux serveurs |
+| **🔍 Scan ports** | Cherche des serveurs sur une plage de ports |
+| **🌐 Scan réseau** | Cherche des serveurs sur les autres PC du réseau |
+| **🖥️ Machines** | Va chercher les serveurs d'une autre machine (VPS, serveur…) via SSH |
+| **🛒 Boutique** | 64 serveurs MCP prêts à installer en 1 clic |
+| **+ Ajouter** | Ajouter un serveur à la main |
+| **ON/OFF** | Allumer / éteindre un serveur |
+| **▶ / ■** | Démarrer / arrêter le programme du serveur |
+| **⇅** | Ranger la liste (A→Z, état, rapidité…) — ou glisse une ligne à la main |
+| **⏭ Auto-boot** | Ouvrir l'app automatiquement au démarrage de Windows |
 
-## Questions fréquentes
+![La boutique](assets/readme-boutique.png)
+*64 serveurs MCP à installer d'un clic, avec leurs logos. Une barre de recherche pour trouver le bon.*
 
-**Mon serveur MCP n'apparaît pas ?**
-Au démarrage, l'app lit tous les ports en écoute de la machine et sonde chacun (`/mcp`, `/`, `/api/mcp`) — il est trouvé automatiquement. Sinon : bouton **⟳**, ou **+ Ajouter** avec son port.
+## Un problème ? La réponse rapide
 
-**C'est quoi les badges `FastMCP`, `LiteMCP`, `HTTP+SSE` ?**
-Le framework détecté automatiquement par fingerprint (avec la spec MCP utilisée), et le type de transport. Tu n'as rien à configurer.
+| Problème | Solution |
+|---|---|
+| Mon serveur n'apparaît pas | Clique **⟳**. Sinon : **+ Ajouter** avec son numéro de port |
+| « Code d'accès » demandé | Ça n'arrive JAMAIS sur ton PC — seulement si tu ouvres l'app depuis une autre machine. Le code est dans `config.json` |
+| L'app ne s'ouvre plus | Elle est peut-être déjà dans la zone de notification (près de l'horloge) — clique sur son icône |
+| Où voir l'historique ? | Barre « Journal » en bas de la fenêtre — clique dessus pour la déplier |
+| Un serveur ne redémarre pas | Après 3 échecs, l'app arrête d'insister. Clique **▶** pour réessayer |
 
-**On me demande un « code d'accès » ?**
-Seulement si l'UI est ouverte aux autres machines du LAN. En usage local (fenêtre de l'app, navigateur de la machine) : **jamais aucun code**. Le code vit dans `settings.api_access` du config.json.
+## Pour aller plus loin
 
-**Où sont les logs ?**
-Dans `mcc.log`, à côté du config.json (et dans le panneau Journal de l'app).
-
-**Comment ça démarre avec Windows ?**
-Bouton **⏭ Auto-boot ON** dans la barre de titre. L'app vit alors dans le tray et surveille tes serveurs sans fenêtre.
-
-## Pour les scripts (API)
-
-Tout est pilotable en HTTP local (aucun code requis en local) :
+<details>
+<summary><b>Commander l'app depuis un script (avancé)</b></summary>
 
 ```bash
-# état complet + journal
+# tout l'état
 curl http://127.0.0.1:5090/api/state
 
-# détail d'un serveur (liste des tools)
+# détail d'un serveur
 curl "http://127.0.0.1:5090/api/detail?id=seed-overmind"
 
-# une action : refresh | toggle | scan | discover | add | remove | start | kill | reorder | install_store | import_mcp …
+# une action (refresh, toggle, scan, add, remove, start, kill…)
 curl -X POST -H "Content-Type: application/json" \
   -d '{"action":"add","transport":"stdio","label":"mon-mcp","program":"node","args":["dist/index.js"]}' \
   http://127.0.0.1:5090/api/action
 ```
 
-Si l'UI est ouverte au LAN (`"ui_bind": "0.0.0.0"`), chaque appel `/api/*` exige le code (`X-MCC-Access`). Les pairs command-center s'authentifient par preuve HMAC — le code ne circule jamais en clair.
+</details>
 
-## Sécurité, en une minute
+<details>
+<summary><b>Sécurité (avancé)</b></summary>
 
-- Par défaut, l'UI n'écoute que la machine locale (`127.0.0.1`) — rien d'exposé.
-- Ouverture LAN : code d'accès généré automatiquement, jamais envoyé dans la page.
-- Protections anti-CSRF/DNS-rebinding, CSP stricte, corps de requêtes plafonnés.
+- Par défaut, l'app n'est joignable que depuis ton PC — rien n'est ouvert vers l'extérieur.
+- Si tu l'ouvres au réseau (d'autres machines), un code d'accès est exigé d'elles automatiquement.
+- L'app vérifie les origines des connexions et plafonne la taille des requêtes.
 
-## Compiler / installer
+</details>
+
+<details>
+<summary><b>Compiler soi-même (avancé)</b></summary>
 
 ```bash
 cargo build --release -p mcp-command-center -p mcp-command-center-desktop
+cargo test      # 75 tests
 ```
 
-- `mcp-command-center` : le moteur (headless, console) — `start-headless.bat`
-- `mcp-command-center-desktop` : la fenêtre native (Tauri) — `start-command-center.bat`
-- Tests : `cargo test` (75) · Lint : `cargo clippy --all-targets -- -D warnings`
+- `start-command-center.bat` → la fenêtre de l'app
+- `start-headless.bat` → juste le moteur, sans fenêtre
+- Les serveurs écrits avec [LiteMCP](https://github.com/DeamonDev888/litemcp) (lib Rust) sont reconnus automatiquement.
 
-> **Écosystème** : les serveurs écrits avec [**LiteMCP**](https://github.com/DeamonDev888/litemcp) (lib MCP Rust stateless, [crates.io](https://crates.io/crates/litemcp)) sont détectés et badgés nativement.
+</details>
 
-## Limites connues
+## Limites
 
-- La détection HTTP ne fait pas de TLS (un serveur `https://` n'est pas sondable — passe par un tunnel local).
-- `config.json` vit à côté de l'exe (chemin figé, surchargeable via `MCC_CONFIG`).
+- Un serveur en `https://` n'est pas sondable (pas de TLS) — passe par un tunnel local.
+- Le fichier `config.json` vit à côté de l'exe.
