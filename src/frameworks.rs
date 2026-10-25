@@ -30,7 +30,8 @@ pub struct Framework {
     pub keywords: &'static [&'static str],
 }
 
-/// Table des frameworks populaires — 5 maximum par langage.
+/// Table des frameworks populaires — quelques frameworks par langage (≤ 6),
+/// les plus utilisés de l'écosystème.
 pub const FRAMEWORKS: &[Framework] = &[
     // ---------- Python ----------
     Framework {
@@ -97,6 +98,12 @@ pub const FRAMEWORKS: &[Framework] = &[
         label: "Fastify MCP",
         lang: "node",
         keywords: &["fastify-mcp", "fastify mcp"],
+    },
+    Framework {
+        id: "vitemcp",
+        label: "ViteMCP",
+        lang: "node",
+        keywords: &["vitemcp", "vite-mcp"],
     },
     // ---------- Rust ----------
     Framework {
@@ -353,8 +360,15 @@ pub fn detect_signature(
     None
 }
 
-/// Détection complète : signature d'abord (la plus fiable), puis nom.
-/// Le langage permet de lever l'ambiguïté FastMCP Python vs TypeScript.
+/// Détection complète, en trois temps :
+/// 1. **signature forte LiteMCP** (version de spec non négociée + `/health` ok) —
+///    deux signaux spécifiques, elle prime même sur un nom trompeur ;
+/// 2. **nom annoncé** (déclaration explicite du développeur) ;
+/// 3. **signature faible FastMCP** (réponses SSE + `/sse` co-servi) — beaucoup de
+///    serveurs co-servent `/sse`, donc elle ne doit pas contredire un nom déclaré
+///    (cas réel : rust-mcp-sdk 2.x était étiqueté FastMCP).
+///
+/// Le langage tranche entre FastMCP Python et TypeScript.
 pub fn detect(
     name: Option<&str>,
     protocol: Option<&str>,
@@ -364,13 +378,21 @@ pub fn detect(
     lang_hint: Option<&str>,
 ) -> Option<&'static Framework> {
     if let Some(fw) = detect_signature(protocol, health, sse, sse_endpoint) {
+        if fw.id == "litemcp" {
+            return Some(fw);
+        }
+    }
+    if let Some(fw) = name.and_then(detect_by_name) {
+        return Some(fw);
+    }
+    if let Some(fw) = detect_signature(protocol, health, sse, sse_endpoint) {
         // FastMCP existe en Python et en TypeScript : le langage tranche.
         if fw.id == "fastmcp-py" && lang_hint == Some("node") {
             return by_id("fastmcp-ts");
         }
         return Some(fw);
     }
-    name.and_then(detect_by_name)
+    None
 }
 
 #[cfg(test)]
@@ -378,7 +400,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn table_max_cinq_par_langage_et_ids_uniques() {
+    fn table_max_six_par_langage_et_ids_uniques() {
         use std::collections::{HashMap, HashSet};
         let mut ids = HashSet::new();
         let mut per_lang: HashMap<&str, usize> = HashMap::new();
@@ -398,8 +420,31 @@ mod tests {
         ] {
             let n = per_lang.get(lang).copied().unwrap_or(0);
             assert!(n > 0, "aucun framework pour {}", lang);
-            assert!(n <= 5, "{} a {} frameworks (max 5)", lang, n);
+            assert!(n <= 6, "{} a {} frameworks (max 6)", lang, n);
         }
+    }
+
+    #[test]
+    fn nom_annonce_prime_sur_la_signature_sse() {
+        // rust-mcp-sdk 2.x co-sert /sse ET répond en SSE : la signature
+        // FastMCP matchait à tort et écrasait le nom annoncé.
+        assert_eq!(
+            detect(
+                Some("rust-mcp-sdk"),
+                Some("2026-07-28"),
+                false,
+                true,
+                true,
+                Some("rust")
+            )
+            .map(|f| f.id),
+            Some("rust-mcp-sdk")
+        );
+        // Sans nom déclaré, la signature reste le seul indice exploitable.
+        assert_eq!(
+            detect(None, Some("2026-07-28"), false, true, true, Some("rust")).map(|f| f.id),
+            Some("fastmcp-py")
+        );
     }
 
     #[test]

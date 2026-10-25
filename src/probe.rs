@@ -1241,9 +1241,17 @@ fn http_request(
                     method, path, host_hdr
                 );
                 if body.is_some() {
-                    req.push_str(
-                        "Content-Type: application/json\r\nMCP-Protocol-Version: 2024-11-05\r\n",
-                    );
+                    req.push_str("Content-Type: application/json\r\n");
+                    // Le protocole par défaut est 2024-11-05. Un appelant qui
+                    // sonde le protocole stateless fournit SON en-tête
+                    // (2026-07-28) : envoyer les deux valeurs dans la même
+                    // requête fait répondre 400 aux serveurs stricts.
+                    let has_proto = extra_headers
+                        .iter()
+                        .any(|(n, _)| n.eq_ignore_ascii_case("MCP-Protocol-Version"));
+                    if !has_proto {
+                        req.push_str("MCP-Protocol-Version: 2024-11-05\r\n");
+                    }
                 }
                 for (n, v) in extra_headers {
                     // SÉCURITÉ (audit 2026-10-25) : la VALEUR d'un en-tête
@@ -1489,51 +1497,110 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
             false,
         );
     };
+    let client_info = json!({
+        "name": "mcp-command-center",
+        "version": env!("CARGO_PKG_VERSION")
+    });
     let init_params = json!({
         "protocolVersion": "2024-11-05",
         "capabilities": {},
-        "clientInfo": {"name": "mcp-command-center", "version": env!("CARGO_PKG_VERSION")}
+        "clientInfo": client_info.clone()
     });
+    // Protocole 2026-07-28 (stateless) : certains serveurs (rust-mcp-sdk 2.x)
+    // REFUSENT un initialize nu — il leur faut `Mcp-Method` + les clés `_meta`
+    // io.modelcontextprotocol/*. On sonde donc en 2 temps : legacy d'abord
+    // (majorité des serveurs), stateless en repli.
+    let strict_meta = json!({
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientInfo": client_info.clone(),
+        "io.modelcontextprotocol/clientCapabilities": {}
+    });
+    let init_strict = json!({
+        "protocolVersion": "2026-07-28",
+        "capabilities": {},
+        "clientInfo": client_info,
+        "_meta": strict_meta.clone()
+    });
+    let strict_init_hdrs: [(&str, &str); 2] = [
+        ("MCP-Protocol-Version", "2026-07-28"),
+        ("Mcp-Method", "initialize"),
+    ];
     let other_host = if open_host == "::1" {
         "127.0.0.1"
     } else {
         "::1"
     };
     let t0 = Instant::now();
-    let (res, host, head, latency) = match rpc_call_host_headers(
-        open_host,
-        port,
-        path,
-        "initialize",
-        init_params.clone(),
-        1,
-        timeout_ms,
-        &[],
-    ) {
-        Ok((r, h)) => (r, open_host.to_string(), h, t0.elapsed().as_millis() as u64),
-        Err(e1) => {
-            let t1 = Instant::now();
+    let mut attempt: Option<(serde_json::Value, String, RespHead, u64, bool)> = None;
+    let mut last_err = String::from("pas de réponse initialize");
+    'probe: for (params, hdrs, stateless) in [
+        (&init_params, &[][..], false),
+        (&init_strict, &strict_init_hdrs[..], true),
+    ] {
+        for host in [open_host, other_host] {
             match rpc_call_host_headers(
-                other_host,
+                host,
                 port,
                 path,
                 "initialize",
-                init_params,
+                params.clone(),
                 1,
                 timeout_ms,
-                &[],
+                hdrs,
             ) {
-                Ok((r, h)) => (
-                    r,
-                    other_host.to_string(),
-                    h,
-                    t1.elapsed().as_millis() as u64,
-                ),
-                Err(_) => return McpProbe::fail(e1, true),
+                Ok((r, h)) => {
+                    attempt = Some((r, host.to_string(), h, t0.elapsed().as_millis() as u64, stateless));
+                    break 'probe;
+                }
+                Err(e) => last_err = e,
             }
         }
+    }
+    // 3e forme : serveurs stateless 2026-07-28 qui n'implémentent PAS
+    // `initialize` (rust-mcp-sdk 2.x répond « No handler is implemented for
+    // custom requests »). La découverte passe par `server/discover`, et le
+    // serverInfo vit sous result._meta["io.modelcontextprotocol/serverInfo"].
+    let mut discovered: Option<serde_json::Value> = None;
+    if attempt.is_none() {
+        let discover_hdrs: [(&str, &str); 2] = [
+            ("MCP-Protocol-Version", "2026-07-28"),
+            ("Mcp-Method", "server/discover"),
+        ];
+        for host in [open_host, other_host] {
+            if let Ok((r, h)) = rpc_call_host_headers(
+                host,
+                port,
+                path,
+                "server/discover",
+                json!({ "_meta": strict_meta.clone() }),
+                1,
+                timeout_ms,
+                &discover_hdrs,
+            ) {
+                discovered = Some(r);
+                attempt = Some((
+                    serde_json::Value::Null,
+                    host.to_string(),
+                    h,
+                    t0.elapsed().as_millis() as u64,
+                    true,
+                ));
+                break;
+            }
+        }
+    }
+    let (res, host, head, latency, stateless_mode) = match attempt {
+        Some(x) => x,
+        None => return McpProbe::fail(last_err, true),
     };
-    let si = res.get("serverInfo");
+    // serverInfo : à la racine (initialize) ou sous _meta (server/discover).
+    let si = discovered
+        .as_ref()
+        .and_then(|d| {
+            d.get("_meta")
+                .and_then(|m| m.get("io.modelcontextprotocol/serverInfo"))
+        })
+        .or_else(|| res.get("serverInfo"));
     let name = si
         .and_then(|s| s.get("name"))
         .and_then(|x| x.as_str())
@@ -1545,7 +1612,16 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
     let protocol = res
         .get("protocolVersion")
         .and_then(|x| x.as_str())
-        .map(String::from);
+        .map(String::from)
+        .or_else(|| {
+            discovered
+                .as_ref()
+                .and_then(|d| d.get("supportedVersions"))
+                .and_then(|v| v.as_array())
+                .and_then(|a| a.first())
+                .and_then(|x| x.as_str())
+                .map(String::from)
+        });
 
     // Classification transport — le Content-Type de l'initialize NE SUFFIT PAS :
     // FastMCP httpStream répond en text/event-stream (mcp-proxy encode les
@@ -1583,13 +1659,24 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
     if !head.session_id.is_empty() {
         session_hdr.push(("Mcp-Session-Id", head.session_id.as_str()));
     }
+    // Un serveur stateless 2026-07-28 attend les en-têtes `Mcp-Method` et le
+    // bloc `_meta` sur CHAQUE requête, pas seulement sur initialize.
+    if stateless_mode {
+        session_hdr.push(("MCP-Protocol-Version", "2026-07-28"));
+        session_hdr.push(("Mcp-Method", "tools/list"));
+    }
+    let tools_params = if stateless_mode {
+        json!({ "_meta": strict_meta })
+    } else {
+        json!({})
+    };
     let mut tools = Vec::new();
     if let Ok((tr, _)) = rpc_call_host_headers(
         &host,
         port,
         path,
         "tools/list",
-        json!({}),
+        tools_params,
         2,
         timeout_ms,
         &session_hdr,
