@@ -36,6 +36,9 @@ Tu peux aussi utiliser le `.exe` portable, sans installation, ou
 
 Les petits badges à côté du nom (`FastMCP`, `LiteMCP`, `rmcp`, `mcp-go`, `Spring AI`…) indiquent **avec quoi le serveur est construit** — 37 frameworks reconnus, du Python au PHP, avec leur langage. Le badge `STDIO` / `HTTP` / `WS` indique le transport.
 
+![Les trois familles de badges](assets/readme-badges.png)
+*Trois familles, trois codes couleur. **Langage** (à gauche) : la couleur du langage — JS jaune, Python vert, Rust orange, Go cyan. **Transport** : monochrome — `HTTP` le plus clair, `STDIO` médian, `WS` le plus sourd — et le chip `désuet` en pointillés pour les serveurs stdio. **Framework** (à droite) : la couleur du langage qu'il fait tourner ; seul **LiteMCP** porte un halo orange.*
+
 ![Un serveur en détail](assets/readme-detail.png)
 *Clique sur un serveur : tu vois tous ses outils (tools), son état, sa vitesse, sa version — et des boutons pour l'allumer, l'éteindre, ou couper un outil précis.*
 
