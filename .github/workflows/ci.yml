@@ -25,6 +25,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable (épinglé SHA)
         with:
+          toolchain: stable
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2 (épinglé SHA)
