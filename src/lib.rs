@@ -611,12 +611,15 @@ pub fn handle_conn(mut stream: TcpStream, state: Arc<AppState>) {
     // ACAO dynamique : on reflète UNIQUEMENT une origine autorisée (jamais *),
     // sinon aucun site tiers ne peut lire nos réponses (/api/state inclu).
     let mut resp = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nX-Content-Type-Options: nosniff\r\n",
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\n",
         status,
         reason_phrase(status),
         ctype,
         payload.len()
     );
+    if ctype == "application/json" {
+        resp.push_str("Cache-Control: no-store\r\n");
+    }
     // CSP sur la page UI : la page est mono-fichier inline, mais une XSS future
     // ne doit ni charger du code externe ni exfiltrer (connect-src 'self').
     // ipc: / http://ipc.localhost = transport IPC du shell Tauri (desktop).
@@ -640,7 +643,8 @@ pub fn route(
     path: &str,
     body: &[u8],
 ) -> (u16, &'static str, Vec<u8>) {
-    if method == "GET" && (path == "/" || path.starts_with("/?")) {
+    let bare_path = path.split('?').next().unwrap_or(path);
+    if method == "GET" && bare_path == "/" {
         // SÉCURITÉ (audit 2026-10-24) : le code d'accès n'est PLUS injecté dans la
         // page — quiconque joint le port pouvait le lire sur / et contourner toute
         // l'auth. L'UI le demande à l'utilisateur (login), le garde en localStorage
@@ -648,7 +652,7 @@ pub fn route(
         let html = ui::INDEX_HTML.replace("__MCC_VERSION__", env!("CARGO_PKG_VERSION"));
         return (200, "text/html; charset=utf-8", html.into_bytes());
     }
-    if method == "GET" && path == "/api/hello" {
+    if method == "GET" && bare_path == "/api/hello" {
         // amorce de la preuve de pair : identité + nonce à usage unique, aucun secret
         let j = serde_json::json!({
             "app": "mcp-command-center",
@@ -657,20 +661,21 @@ pub fn route(
         });
         return (200, "application/json", j.to_string().into_bytes());
     }
-    if (method == "GET" || method == "POST") && path == "/api/state" {
+    if (method == "GET" || method == "POST") && bare_path == "/api/state" {
         let j = manage::state_json(state);
         return (200, "application/json", j.to_string().into_bytes());
     }
-    if method == "GET" && path.starts_with("/api/detail?id=") {
-        let id = urldecode(&path["/api/detail?id=".len()..]);
-        let j = manage::detail_json(state, &id);
-        return (200, "application/json", j.to_string().into_bytes());
+    if method == "GET" && bare_path == "/api/detail" {
+        if let Some(id) = query_param(path, "id") {
+            let j = manage::detail_json(state, &id);
+            return (200, "application/json", j.to_string().into_bytes());
+        }
     }
-    if method == "GET" && path == "/api/store" {
+    if method == "GET" && bare_path == "/api/store" {
         let j = manage::store_json();
         return (200, "application/json", j.to_string().into_bytes());
     }
-    if method == "GET" && path == "/api/store-logos" {
+    if method == "GET" && bare_path == "/api/store-logos" {
         return (
             200,
             "application/json",
@@ -679,7 +684,7 @@ pub fn route(
     }
     // Table des frameworks MCP connus (id, label, langage) — l'UI en dérive
     // les badges sans dupliquer la liste côté JavaScript.
-    if method == "GET" && path == "/api/frameworks" {
+    if method == "GET" && bare_path == "/api/frameworks" {
         let arr: Vec<serde_json::Value> = crate::frameworks::FRAMEWORKS
             .iter()
             .map(|f| serde_json::json!({"id": f.id, "label": f.label, "lang": f.lang}))
@@ -687,7 +692,7 @@ pub fn route(
         let j = serde_json::json!({"frameworks": arr});
         return (200, "application/json", j.to_string().into_bytes());
     }
-    if method == "POST" && path == "/api/action" {
+    if method == "POST" && bare_path == "/api/action" {
         let text = String::from_utf8_lossy(body).to_string();
         let j = manage::handle_action(state, &text);
         return (200, "application/json", j.to_string().into_bytes());
@@ -1133,5 +1138,52 @@ mod tests {
         assert_eq!(v["nonce"].as_str().unwrap().len(), 64);
         let text = String::from_utf8_lossy(&body).to_string();
         assert!(!text.contains("code-secret-123"), "aucun secret dans hello");
+    }
+
+    #[test]
+    fn route_accepte_query_access_sur_state_et_detail() {
+        let state = test_state_with_access(Some("code-secret-123"));
+        let (st1, _, body1) = route(&state, "GET", "/api/state?access=code-secret-123", b"");
+        assert_eq!(st1, 200);
+        let v1: serde_json::Value = serde_json::from_slice(&body1).unwrap();
+        assert!(v1.get("servers").is_some());
+
+        // /api/detail avec ?id=...&access=... ne doit pas polluer l'id avec "&access=..."
+        state.servers.lock().unwrap().push(crate::types::Server {
+            id: "seed-overmind".into(),
+            label: "Overmind".into(),
+            transport: crate::types::Transport::Http {
+                host: None,
+                port: 3333,
+                path: "/mcp".into(),
+            },
+            origin: crate::types::Origin::Seed,
+            enabled: true,
+            auto_restart: true,
+            state: crate::types::SState::Up,
+            pid: None,
+            bound_host: None,
+            server_name: None,
+            version: None,
+            protocol: None,
+            sse: false,
+            sse_endpoint: false,
+            ws: false,
+            lang: None,
+            framework: None,
+            via_ssh: false,
+            tools: vec![],
+            latency_ms: None,
+            last_seen_ts: None,
+            last_error: None,
+            start_cmd: None,
+            tools_disabled: vec![],
+        });
+        let expected_id = "seed-overmind";
+        let path = format!("/api/detail?id={}&access=code-secret-123", expected_id);
+        let (st2, _, body2) = route(&state, "GET", &path, b"");
+        assert_eq!(st2, 200);
+        let v2: serde_json::Value = serde_json::from_slice(&body2).unwrap();
+        assert_eq!(v2["id"], serde_json::json!(expected_id));
     }
 }

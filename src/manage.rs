@@ -1,6 +1,7 @@
 use crate::probe;
 use crate::types::{lockv, AppState, LogEntry, Origin, SState, Server, StartCmd, Transport};
 use serde_json::{json, Map, Value};
+#[cfg_attr(not(windows), allow(unused_imports))] // Stdio : chemins cfg(windows)
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
@@ -1276,6 +1277,7 @@ pub fn poll_all(state: &Arc<AppState>) {
 // ---------- démarrage automatique avec l'OS (bouton ON/OFF de la barre de titre) ----------
 
 /// Clé/valeur du registre Run (Windows) ou fichiers autostart (Linux/macOS).
+#[cfg_attr(not(windows), allow(dead_code))] // utilisé par le registre Run (Windows)
 const AUTOSTART_RUN_NAME: &str = "MCP Command Center";
 
 /// Arguments de l'entrée de démarrage automatique (compilé hors tests seulement :
@@ -1331,6 +1333,7 @@ pub fn apply_autostart(state: &Arc<AppState>, enable: bool) {
 #[cfg(not(test))]
 #[allow(unused_must_use)]
 fn apply_autostart_os(state: &Arc<AppState>, enable: bool) {
+    #[cfg_attr(not(windows), allow(unused_variables))] // lu dans le bloc cfg(windows)
     let args = autostart_entry_args();
     #[cfg(windows)]
     {
@@ -2737,12 +2740,25 @@ pub fn ssh_discover(state: &Arc<AppState>, ip: &str, user: &str) -> Value {
     for (port, v) in &found {
         let res = v.get("result").cloned().unwrap_or(json!({}));
         let si = res.get("serverInfo").cloned().unwrap_or(json!({}));
-        let name = si
-            .get("name")
-            .and_then(|x| x.as_str())
+        let raw_name = si.get("name").and_then(|x| x.as_str());
+        let name = raw_name
             .map(String::from)
             .unwrap_or_else(|| format!("{ip}:{port}"));
         let version = si.get("version").and_then(|x| x.as_str()).map(String::from);
+        let protocol = res
+            .get("protocolVersion")
+            .and_then(|x| x.as_str())
+            .map(String::from);
+        let lang = probe::detect_lang_http(&probe::RespHead::default(), raw_name);
+        let framework = crate::frameworks::detect(
+            raw_name,
+            protocol.as_deref(),
+            false,
+            false,
+            false,
+            lang.as_deref(),
+        )
+        .map(|f| f.id.to_string());
         let id = format!("net-{ip}.{port}");
         let mut servers = lockv(&state.servers);
         if let Some(existing) = servers.iter_mut().find(|s| {
@@ -2753,8 +2769,17 @@ pub fn ssh_discover(state: &Arc<AppState>, ip: &str, user: &str) -> Value {
             // déjà connu : passe la sonde en interne (via_ssh) et rafraîchit
             existing.via_ssh = true;
             existing.state = SState::Up;
-            existing.server_name = si.get("name").and_then(|x| x.as_str()).map(String::from);
+            existing.server_name = raw_name.map(String::from);
             existing.version = version.clone();
+            if protocol.is_some() {
+                existing.protocol = protocol.clone();
+            }
+            if lang.is_some() {
+                existing.lang = lang.clone();
+            }
+            if framework.is_some() {
+                existing.framework = framework.clone();
+            }
             existing.last_seen_ts = Some(crate::types::now_ts());
             serveurs.push(json!({"port": port, "name": name, "imported": false}));
             continue;
@@ -2773,17 +2798,14 @@ pub fn ssh_discover(state: &Arc<AppState>, ip: &str, user: &str) -> Value {
             auto_restart: true,
             pid: None,
             bound_host: Some(ip.to_string()),
-            server_name: si.get("name").and_then(|x| x.as_str()).map(String::from),
+            server_name: raw_name.map(String::from),
             version: version.clone(),
-            protocol: res
-                .get("protocolVersion")
-                .and_then(|x| x.as_str())
-                .map(String::from),
+            protocol,
             sse: false,
             sse_endpoint: false,
             ws: false,
-            lang: None,
-            framework: None,
+            lang,
+            framework,
             via_ssh: true,
             tools: vec![],
             latency_ms: None,
@@ -3538,52 +3560,84 @@ fn managed_ids(state: &Arc<AppState>) -> std::collections::HashSet<String> {
 
 pub fn state_json(state: &Arc<AppState>) -> Value {
     let managed = managed_ids(state);
-    let servers = lockv(&state.servers);
-    let log = lockv(&state.log);
-    let settings = lockv(&state.settings);
-    let peers = lockv(&state.peers);
-    // affichage : ordre préféré (glisser-déposer), non listés en dernier (stable)
-    let order = &settings.server_order;
-    let mut list: Vec<(usize, Value)> = servers
-        .iter()
-        .map(|s| {
-            let pos = order.iter().position(|x| x == &s.id).unwrap_or(usize::MAX);
-            (pos, server_json(s, managed.contains(&s.id)))
-        })
-        .collect();
-    list.sort_by_key(|(pos, _)| *pos);
-    let list: Vec<Value> = list.into_iter().map(|(_, v)| v).collect();
-    let up = servers.iter().filter(|s| s.state == SState::Up).count();
-    let total = servers.len();
-    let tools: usize = servers.iter().map(tools_actifs).sum();
-    let logarr: Vec<Value> = log
-        .iter()
-        .rev()
-        .take(80)
-        .map(|e| {
+    // chaque verrou est pris et relâché isolément pour éviter de maintenir
+    // 5 mutex simultanément (réduit la contention et tout risque d'inversion d'ordre).
+    let (order, autostart, settings_val) = {
+        let settings = lockv(&state.settings);
+        (
+            settings.server_order.clone(),
+            settings.autostart,
             json!({
-                "ts": e.ts, "level": e.level, "msg": e.msg
+                "refresh_secs": settings.refresh_secs,
+                "ui_port": settings.ui_port,
+                "scan_from": settings.scan_from,
+                "scan_to": settings.scan_to,
+                "network_enabled": settings.network_enabled,
+                "network_ports": settings.network_ports,
+                "ssh_hosts": settings.ssh_hosts.iter().map(|h| json!({
+                    "ip": h.ip, "user": h.user
+                })).collect::<Vec<_>>(),
+            }),
+        )
+    };
+    let (list, up, total, tools) = {
+        let servers = lockv(&state.servers);
+        // affichage : ordre préféré (glisser-déposer), non listés en dernier (stable)
+        let mut list: Vec<(usize, Value)> = servers
+            .iter()
+            .map(|s| {
+                let pos = order.iter().position(|x| x == &s.id).unwrap_or(usize::MAX);
+                (pos, server_json(s, managed.contains(&s.id)))
             })
-        })
-        .collect();
+            .collect();
+        list.sort_by_key(|(pos, _)| *pos);
+        let list: Vec<Value> = list.into_iter().map(|(_, v)| v).collect();
+        let up = servers.iter().filter(|s| s.state == SState::Up).count();
+        let total = servers.len();
+        // ne compte que les tools des serveurs effectivement UP (les tools mis en
+        // cache d'un serveur DOWN/PORT-ONLY restent visibles dans le panneau détail
+        // mais ne gonflent pas le compteur d'outils disponibles).
+        let tools: usize = servers
+            .iter()
+            .filter(|s| s.state == SState::Up)
+            .map(tools_actifs)
+            .sum();
+        (list, up, total, tools)
+    };
+    let logarr: Vec<Value> = {
+        let log = lockv(&state.log);
+        log.iter()
+            .rev()
+            .take(80)
+            .map(|e| {
+                json!({
+                    "ts": e.ts, "level": e.level, "msg": e.msg
+                })
+            })
+            .collect()
+    };
+    let peers_arr: Vec<Value> = {
+        let peers = lockv(&state.peers);
+        peers
+            .values()
+            .map(|p| {
+                json!({
+                    "ip": p.ip, "ui_port": p.ui_port, "last_seen": p.last_seen,
+                    "stats": p.servers.get("stats"),
+                    "servers": p.servers.get("servers"),
+                })
+            })
+            .collect()
+    };
     let latest = lockv(&state.update_latest).clone();
     json!({
         "servers": list, "log": logarr,
         "latest_version": latest,
         "update_available": latest.is_some(),
-        "autostart": settings.autostart,
+        "autostart": autostart,
         "stats": {"up": up, "total": total, "tools": tools},
-        "settings": {"refresh_secs": settings.refresh_secs, "ui_port": settings.ui_port,
-                     "scan_from": settings.scan_from, "scan_to": settings.scan_to,
-                     "network_enabled": settings.network_enabled,
-                     "network_ports": settings.network_ports,
-                     "ssh_hosts": settings.ssh_hosts.iter().map(|h| json!({
-                         "ip": h.ip, "user": h.user})).collect::<Vec<_>>()},
-        "peers": peers.values().map(|p| json!({
-            "ip": p.ip, "ui_port": p.ui_port, "last_seen": p.last_seen,
-            "stats": p.servers.get("stats"),
-            "servers": p.servers.get("servers"),
-        })).collect::<Vec<_>>(),
+        "settings": settings_val,
+        "peers": peers_arr,
     })
 }
 
@@ -3622,8 +3676,11 @@ mod tests {
 
     #[test]
     fn store_catalogue_sain() {
-        // ids uniques (install_store clé les serveurs sur "store-<id>"), kinds et programmes connus
+        // ids et commandes uniques (install_store clé les serveurs sur "store-<id>"),
+        // kinds et programmes connus
         let mut ids = std::collections::HashSet::new();
+        let mut cmds: std::collections::HashMap<(&str, Vec<&str>), &str> =
+            std::collections::HashMap::new();
         for it in all_store_items() {
             assert!(
                 !it.id.is_empty() && !it.name.is_empty() && !it.desc.is_empty(),
@@ -3631,6 +3688,13 @@ mod tests {
                 it.id
             );
             assert!(ids.insert(it.id), "id store dupliqué : {}", it.id);
+            let cmd_key = (it.program, it.args.to_vec());
+            if let Some(prev_id) = cmds.insert(cmd_key, it.id) {
+                panic!(
+                    "commande store dupliquée entre '{}' et '{}' : {} {:?}",
+                    prev_id, it.id, it.program, it.args
+                );
+            }
             assert!(
                 it.kind == "npm" || it.kind == "python",
                 "{}: kind inconnu {}",
@@ -4329,6 +4393,47 @@ mod tests {
                     start_cmd: None,
                     tools_disabled: vec![],
                 },
+                Server {
+                    id: "c".into(),
+                    label: "C".into(),
+                    transport: Transport::Http {
+                        host: None,
+                        port: 3,
+                        path: "/mcp".into(),
+                    },
+                    origin: Origin::Seed,
+                    enabled: true,
+                    auto_restart: true,
+                    state: SState::PortOnly,
+                    pid: None,
+                    bound_host: None,
+                    server_name: None,
+                    version: None,
+                    protocol: None,
+                    sse: false,
+                    sse_endpoint: false,
+                    ws: false,
+                    lang: None,
+                    framework: None,
+                    via_ssh: false,
+                    // tools en cache d'un poll précédent alors que le serveur est PORT-ONLY :
+                    // ne doivent PAS gonfler stats.tools
+                    tools: vec![
+                        crate::types::ToolInfo {
+                            name: "t_stale_1".into(),
+                            desc: String::new(),
+                        },
+                        crate::types::ToolInfo {
+                            name: "t_stale_2".into(),
+                            desc: String::new(),
+                        },
+                    ],
+                    latency_ms: None,
+                    last_seen_ts: None,
+                    last_error: None,
+                    start_cmd: None,
+                    tools_disabled: vec![],
+                },
             ]),
             log: Mutex::new(VecDeque::new()),
             settings: Mutex::new(Settings::default()),
@@ -4342,11 +4447,23 @@ mod tests {
             config_path: String::new(),
         };
         let j = state_json(&Arc::new(state));
-        assert_eq!(j["stats"]["total"], serde_json::json!(2));
+        assert_eq!(j["stats"]["total"], serde_json::json!(3));
         assert_eq!(j["stats"]["up"], serde_json::json!(1));
         assert_eq!(j["stats"]["tools"], serde_json::json!(1));
         assert_eq!(j["servers"][1]["state"], serde_json::json!("DISABLED"));
         assert_eq!(j["servers"][1]["origin"], serde_json::json!("seed"));
+        assert_eq!(j["servers"][2]["state"], serde_json::json!("PORT-ONLY"));
+    }
+
+    #[test]
+    fn save_config_chemin_vide_ne_cree_pas_point_tmp() {
+        let state = test_state();
+        assert!(state.config_path.is_empty());
+        save_config(&state);
+        assert!(
+            !std::path::Path::new(".tmp").exists(),
+            "save_config avec config_path vide ne doit jamais écrire '.tmp'"
+        );
     }
 
     fn test_state() -> Arc<AppState> {

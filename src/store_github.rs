@@ -6,15 +6,6 @@ use crate::manage::StoreItem;
 
 pub const STORE_GITHUB: &[StoreItem] = &[
     StoreItem {
-        id: "gh-chromedevtools",
-        name: "Chrome DevTools",
-        desc: "Chrome DevTools pour agents de code : DOM, réseau, performance, traces, JS évalué dans un vrai navigateur (54k★ sur GitHub)",
-        cat: "Dev",
-        kind: "npm",
-        program: "npx",
-        args: &["-y", "chrome-devtools-mcp@latest"],
-    },
-    StoreItem {
         id: "gh-codebase-memory",
         name: "Codebase Memory",
         desc: "Intelligence de code locale et rapide pour agents de code : indexation du dépôt, recherche, mémoire de codebase (47k★ sur GitHub)",

@@ -2,6 +2,7 @@ use crate::types::ToolInfo;
 use serde_json::{json, Value};
 use std::io::{BufRead, Read, Write};
 use std::net::{SocketAddr, TcpStream};
+#[cfg_attr(not(windows), allow(unused_imports))] // Stdio : chemins cfg(windows)
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -202,8 +203,10 @@ pub fn pids_listening_on_ss(text: &str, port: u16) -> Vec<u32> {
 }
 
 /// Unix : tue le process qui ÉCOUTE réellement sur un port (parité Windows).
-/// 1) `ss -tlnp` (iproute2) — sans privilèges, seuls les process de l'utilisateur
-/// sont visibles ; 2) repli `lsof -ti :PORT -sTCP:LISTEN` (macOS).
+///
+/// 1) `ss -tlnp` (iproute2) — sans privilèges, seuls les process de
+///    l'utilisateur sont visibles ;
+/// 2) repli `lsof -ti :PORT -sTCP:LISTEN` (macOS).
 #[cfg(not(windows))]
 pub fn kill_port(port: u16) {
     let mut c = Command::new("ss");

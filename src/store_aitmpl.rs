@@ -61,8 +61,8 @@ pub const STORE_AITMPL: &[StoreItem] = &[
     },
     StoreItem {
         id: "at-chrome-devtools",
-        name: "Chrome Devtools",
-        desc: "A Model Context Protocol server for interacting with Chrome DevTools, enabling browser automation, debugging, and performance analysis capabilities.",
+        name: "Chrome DevTools",
+        desc: "Chrome DevTools pour agents de code : DOM, réseau, performance, traces, JS évalué dans un vrai navigateur (54k★ sur GitHub)",
         cat: "Dev",
         kind: "npm",
         program: "npx",
