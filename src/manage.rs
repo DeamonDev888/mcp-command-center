@@ -2164,18 +2164,19 @@ pub fn scan_listening(state: &Arc<AppState>) {
     // encaisse la connexion sans jamais répondre et coûte son timeout entier
     // (4 s) — en séquentiel, une trentaine de ports bavards paralysait la
     // découverte des minutes durant. Ajouts sérialisés ensuite (verrou servers).
+    // Chaque port est sondé sur les chemins MCP usuels (/mcp, /, /api/mcp).
     let handles: Vec<_> = candidates
         .into_iter()
-        .map(|port| std::thread::spawn(move || (port, probe::probe_http(port, "/mcp", 4000))))
+        .map(|port| std::thread::spawn(move || (port, probe::probe_mcp_any_path(port, 4000))))
         .collect();
     for h in handles {
-        let (port, p) = match h.join() {
+        let (port, probe_res) = match h.join() {
             Ok(x) => x,
             Err(_) => continue,
         };
-        if !p.mcp_up {
+        let Some((path, p)) = probe_res else {
             continue;
-        }
+        };
         let id = format!("disc-{}", port);
         let mut servers = lockv(&state.servers);
         if servers.iter().any(|s| {
@@ -2194,7 +2195,7 @@ pub fn scan_listening(state: &Arc<AppState>) {
             transport: Transport::Http {
                 host: None,
                 port,
-                path: "/mcp".into(),
+                path: path.to_string(),
             },
             origin: Origin::Discovered,
             enabled: true,

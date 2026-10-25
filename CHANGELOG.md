@@ -1,3 +1,13 @@
+## [0.7.7] — Détection au max (multi-chemins + fingerprint FastMCP), mémoire au repos, E2E complet
+
+### Ajouté
+- **Détection multi-chemins** : chaque port découvert est sondé sur `/mcp`, puis `/`, puis `/api/mcp` — un serveur MCP monté à la racine ou sous `/api/mcp` est désormais trouvé (test unitaire : serveur racine-only découvert, non-MCP rejeté). Le chemin gagnant est conservé dans le serveur découvert.
+- **Fingerprint FastMCP** : badge teal « FastMCP » sur les serveurs répondant à la double signature httpStream de mcp-proxy (réponses initialize encodées SSE **et** endpoint `/sse` legacy co-servi) — même mécanique que le badge LiteMCP, précédence au plus spécifique. **La spec MCP utilisée par chaque framework est affichée** (tooltip du badge + ligne framework du détail : « LiteMCP (Rust · stateless 2026-07-28) », « FastMCP (… · spec 2025-06-18) »). Tests : signature à 4 signaux, un-seul-signal rejeté, précédence.
+- **Mémoire/CPU au repos** : le polling UI (5 s) est suspendu quand la fenêtre est masquée (tray) — reprise immédiate au retour (`visibilitychange`).
+
+### Testé
+- **E2E de la release installée** : chaque bouton de l'UI exercé dans un vrai navigateur (scan, scan réseau, machines, boutique, ajout, tri ⟳, onglets, replis) + toutes les actions API (toggle/start/kill/remove, reorder, import, install_store, autostart roundtrip) — zéro erreur console, état restauré.
+
 ## [0.7.6] — Logo Rust (« R » engrenagé) pour le chip de langage
 
 ### UI

@@ -598,12 +598,34 @@ pub fn health_ok_host(host: &str, port: u16, timeout_ms: u64) -> bool {
 /// ET expose GET /health → 200 « ok ». Les deux signatures à la fois écartent
 /// les serveurs qui partagent l'une ou l'autre (specs à jour, health endpoints
 /// génériques).
-fn detect_framework(protocol: Option<&str>, health: bool) -> Option<&'static str> {
+fn detect_framework(
+    protocol: Option<&str>,
+    health: bool,
+    sse: bool,
+    sse_endpoint: bool,
+) -> Option<&'static str> {
     if protocol == Some(crate::LITEMCP_PROTOCOL) && health {
-        Some("litemcp")
-    } else {
-        None
+        return Some("litemcp");
     }
+    // FastMCP httpStream (mcp-proxy) : réponses initialize encodées SSE ET
+    // endpoint /sse legacy co-servi — la double signature documentée du combo.
+    if sse && sse_endpoint {
+        return Some("fastmcp");
+    }
+    None
+}
+
+/// Sonde un port sur les chemins MCP usuels, dans l'ordre : /mcp, /, /api/mcp.
+/// Retourne le premier chemin qui répond + sa sonde complète — un serveur
+/// monté à la racine ou sous /api/mcp est découvert, pas seulement /mcp.
+pub fn probe_mcp_any_path(port: u16, timeout_ms: u64) -> Option<(&'static str, McpProbe)> {
+    for path in ["/mcp", "/", "/api/mcp"] {
+        let p = probe_http(port, path, timeout_ms);
+        if p.mcp_up {
+            return Some((path, p));
+        }
+    }
+    None
 }
 
 // ---------- découverte SSH d'une machine distante ----------
@@ -1276,15 +1298,18 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
     let sse_endpoint = sse_get_host(&host, port, sse_path, timeout_ms.clamp(500, 1200));
     // Fingerprint litemcp : la sonde /health ne part que si l'initialize a
     // répondu 2026-07-28 (requête émise : 2024-11-05) — aucune requête de plus
-    // pour les serveurs qui négocient normalement.
+    // pour les serveurs qui négocient normalement. Sinon : signature FastMCP
+    // (réponses SSE + endpoint /sse legacy co-servi).
     let framework = if protocol.as_deref() == Some(crate::LITEMCP_PROTOCOL) {
         detect_framework(
             protocol.as_deref(),
             health_ok_host(&host, port, timeout_ms.clamp(400, 1200)),
+            sse,
+            sse_endpoint,
         )
         .map(String::from)
     } else {
-        None
+        detect_framework(protocol.as_deref(), false, sse, sse_endpoint).map(String::from)
     };
     // 1) en-têtes Server/X-Powered-By ; 2) sinon le vrai process qui écoute le port ;
     // 3) sinon le framework (litemcp = lib Rust par définition)
@@ -1590,10 +1615,12 @@ pub fn probe_http_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> Mc
         detect_framework(
             protocol.as_deref(),
             health_ok_host(host, port, timeout_ms.clamp(400, 1200)),
+            sse,
+            sse_endpoint,
         )
         .map(String::from)
     } else {
-        None
+        detect_framework(protocol.as_deref(), false, sse, sse_endpoint).map(String::from)
     };
     let lang = detect_lang_http(&head, name.as_deref())
         .or_else(|| framework.as_ref().map(|_| "rust".to_string()));
@@ -1912,16 +1939,101 @@ mod tests {
 
     #[test]
     fn detect_framework_exige_les_deux_signatures() {
-        // les deux signaux : protocol 2026-07-28 non négocié + /health « ok »
+        // litemcp : protocol 2026-07-28 non négocié + /health « ok »
         assert_eq!(
-            detect_framework(Some("2026-07-28"), true),
+            detect_framework(Some("2026-07-28"), true, false, false),
             Some("litemcp"),
             "les deux signatures = litemcp"
         );
-        // un seul signal ne suffit pas (specs à jour ailleurs, /health génériques)
-        assert_eq!(detect_framework(Some("2026-07-28"), false), None);
-        assert_eq!(detect_framework(Some("2024-11-05"), true), None);
-        assert_eq!(detect_framework(None, true), None);
+        // un seul signal litemcp ne suffit pas (specs à jour ailleurs, /health génériques)
+        assert_eq!(
+            detect_framework(Some("2026-07-28"), false, false, false),
+            None
+        );
+        // 2026-07-28 sans /health MAIS signature SSE+/sse complète → fastmcp
+        assert_eq!(
+            detect_framework(Some("2026-07-28"), false, true, true),
+            Some("fastmcp")
+        );
+        assert_eq!(
+            detect_framework(Some("2024-11-05"), true, false, false),
+            None
+        );
+        assert_eq!(detect_framework(None, true, false, false), None);
+        // fastmcp : réponses SSE + endpoint /sse legacy co-servi
+        assert_eq!(
+            detect_framework(Some("2024-11-05"), false, true, true),
+            Some("fastmcp"),
+            "SSE + /sse legacy = fastmcp"
+        );
+        // un seul des deux signaux fastmcp ne suffit pas
+        assert_eq!(
+            detect_framework(Some("2024-11-05"), false, true, false),
+            None
+        );
+        assert_eq!(
+            detect_framework(Some("2024-11-05"), false, false, true),
+            None
+        );
+        // précédence : les deux fingerprints à la fois → litemcp (le plus spécifique)
+        assert_eq!(
+            detect_framework(Some("2026-07-28"), true, true, true),
+            Some("litemcp")
+        );
+    }
+
+    #[test]
+    fn probe_mcp_any_path_trouve_racine_et_rejete_non_mcp() {
+        // serveur MCP monté à la RACINE (ne répond QUE sur "POST / ")
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        thread::spawn(move || {
+            for stream in l.incoming() {
+                let Ok(mut s) = stream else { return };
+                let mut buf = [0u8; 16384];
+                let n = match s.read(&mut buf) {
+                    Ok(n) => n,
+                    Err(_) => continue,
+                };
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                if !req.starts_with("POST / ") {
+                    let _ = s.write_all(
+                        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    );
+                    continue;
+                }
+                let body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2024-11-05\",\"serverInfo\":{\"name\":\"racine\",\"version\":\"1.0\"}}}";
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = s.write_all(resp.as_bytes());
+            }
+        });
+        let found = probe_mcp_any_path(port, 4000);
+        assert!(
+            found.is_some(),
+            "un serveur monté à la racine doit être découvert"
+        );
+        let (path, p) = found.unwrap();
+        assert_eq!(path, "/");
+        assert_eq!(p.name.as_deref(), Some("racine"));
+
+        // non-MCP (404 sur tous les chemins) → None
+        let l2 = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port2 = l2.local_addr().unwrap().port();
+        thread::spawn(move || {
+            for stream in l2.incoming() {
+                let Ok(mut s) = stream else { return };
+                let mut buf = [0u8; 16384];
+                let _ = s.read(&mut buf);
+                let _ = s.write_all(
+                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                );
+            }
+        });
+        assert!(probe_mcp_any_path(port2, 2000).is_none());
     }
 
     #[test]

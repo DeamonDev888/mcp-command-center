@@ -211,6 +211,8 @@ details.fold .kv{margin-top:12px}
 .tag.https{color:#d2a8ff;border-color:#d2a8ff44;background:#d2a8ff11;box-shadow:0 0 8px rgba(210,168,255,.35)}
 /* Framework détecté par fingerprint (litemcp) : badge violet « glow HTTPS » — halo pulsant */
 .tag.litemcp{color:#e9d5ff;border-color:#d2a8ff88;background:#d2a8ff1f;box-shadow:0 0 10px rgba(210,168,255,.55);animation:glowPulse 2.4s ease-in-out infinite}
+/* Framework FastMCP (mcp-proxy httpStream) : badge teal — distinct du violet litemcp */
+.tag.fastmcp{color:#8fd3dE;border-color:#6f9ba688;background:#6f9ba61f;box-shadow:0 0 8px rgba(111,155,166,.45)}
 @keyframes glowPulse{50%{box-shadow:0 0 18px rgba(210,168,255,.9)}}
 .srow .l1 .tag{font-size:8.5px;padding:0 5px;line-height:14px;flex-shrink:0}
 .langchip{font:8.5px var(--mono);font-weight:700;border:1px solid;border-radius:4px;padding:0 4px;line-height:14px;flex-shrink:0}
@@ -465,6 +467,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const js = s => esc(JSON.stringify(String(s ?? '')));
 
 async function load() {
+  if (document.hidden) return; // fenêtre masquée (tray) : polling suspendu — CPU/mémoire au repos
   try {
     const r = await fetch('/api/state');
     state = await r.json();
@@ -561,13 +564,18 @@ function typeBadge(s) {
   return `<span class="tag ${cls}" title="${tip}${suffix}">${t}${lan}${via}</span>`;
 }
 
-// Badge du framework détecté par fingerprint (seul litemcp aujourd'hui) :
-// initialize répondu 2026-07-28 SANS négocier la version demandée + sonde
-// GET /health → 200 « ok » — les deux signatures documentées de litemcp.
+// Badge du framework détecté par fingerprint :
+// - litemcp : initialize répondu 2026-07-28 SANS négocier + sonde /health « ok » ;
+// - fastmcp : réponses initialize encodées SSE + endpoint /sse legacy co-servi
+//   (signature httpStream de mcp-proxy/FastMCP). La spec MCP utilisée par le
+//   serveur (s.protocol) est exposée dans le tooltip et le détail.
 function frameworkBadge(s) {
-  if (s.framework !== 'litemcp') return '';
-  const lan = s.transport_info.host ? ' — serveur distant (LAN)' : '';
-  return `<span class="tag litemcp" title="Framework LiteMCP : lib Rust MCP stateless, HTTP streamable (spec 2026-07-28) — fingerprint : version non négociée + sonde /health${lan}">LiteMCP</span>`;
+  const lan = s.transport_info && s.transport_info.host ? ' — serveur distant (LAN)' : '';
+  if (s.framework === 'litemcp')
+    return `<span class="tag litemcp" title="Framework LiteMCP : lib Rust MCP stateless, HTTP streamable (spec ${esc(s.protocol || '?')}) — fingerprint : version non négociée + sonde /health${lan}">LiteMCP</span>`;
+  if (s.framework === 'fastmcp')
+    return `<span class="tag fastmcp" title="Framework FastMCP (mcp-proxy httpStream) : réponses initialize en SSE + endpoint /sse legacy co-servi — spec MCP utilisée : ${esc(s.protocol || '?')}${lan}">FastMCP</span>`;
+  return '';
 }
 
 function rowToggle(s) {
@@ -779,7 +787,9 @@ function renderDetail() {
     ['origine', s.origin],
     ['bind', s.bound_host ?? '-'], ['serveur MCP', s.server_name ?? '-'],
     ['version', s.version ?? '-'], ['protocole', s.protocol ?? '-'],
-    ['framework', s.framework === 'litemcp' ? 'LiteMCP (Rust · HTTP stateless 2026-07-28)' : '-'],
+    ['framework', s.framework === 'litemcp' ? 'LiteMCP (Rust · HTTP stateless ' + (s.protocol || '?') + ')'
+      : s.framework === 'fastmcp' ? 'FastMCP (mcp-proxy httpStream + SSE legacy · spec ' + (s.protocol || '?') + ')'
+      : '-'],
     ['sonde', s.via_ssh ? 'via SSH (interne à la machine)' : 'directe'],
     ['latence', s.latency_ms != null ? s.latency_ms + ' ms' : '-'],
     ['dernier vu', s.last_seen ? new Date(s.last_seen * 1000).toLocaleString('fr-FR') : '-'],
@@ -1159,6 +1169,8 @@ async function installStore(id, btn) {
 
 load();
 setInterval(load, 5000);
+// retour de la fenêtre (tray → visible) : reprise immédiate du rafraîchissement
+document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 </script>
 </body>
 </html>
