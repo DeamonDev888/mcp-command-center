@@ -125,7 +125,7 @@ fn verify_proof(nonce: &str, proof: &str, api_access: &str) -> bool {
         api_access.as_bytes(),
         format!("mcc-proof-v1:{}", nonce).as_bytes(),
     );
-    expected == proof
+    crate::crypto::ct_eq(expected.as_bytes(), proof.as_bytes())
 }
 
 /// Extrait un paramètre de query d'un chemin (ex. access= pour /api/detail).
@@ -230,7 +230,8 @@ pub fn check_access(
         let provided: Option<&str> = hdr.as_deref().or(q.as_deref());
         let api_access = api_access.filter(|s| !s.is_empty());
         match (api_access, provided) {
-            (Some(expected), Some(got)) if expected == got => {}
+            (Some(expected), Some(got))
+                if crate::crypto::ct_eq(expected.as_bytes(), got.as_bytes()) => {}
             _ => return Err((401, "Unauthorized")),
         }
     }
@@ -271,6 +272,38 @@ pub struct RunOutcome {
 pub fn run_headless() -> RunOutcome {
     let config_path =
         manage::resolve_config_path(env!("CARGO_MANIFEST_DIR"), std::env::var("MCC_CONFIG").ok());
+    // ROBUSTESSE (audit 2026-10-25) : un panic dans un thread (poller, sonde)
+    // était TOTALEMENT silencieux en mode desktop (windows_subsystem=windows,
+    // aucune console) et tuait la supervision sans trace. Le hook écrit le
+    // panic sur disque (mcc.log) et sur stderr.
+    {
+        let log_file = std::path::Path::new(&config_path)
+            .with_file_name("mcc.log")
+            .to_string_lossy()
+            .to_string();
+        std::panic::set_hook(Box::new(move |info| {
+            let ts = crate::types::iso_utc(crate::types::now_ts());
+            let payload = info
+                .payload()
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| info.payload().downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "?".to_string());
+            let loc = info
+                .location()
+                .map(|l| format!("{}:{}", l.file(), l.line()))
+                .unwrap_or_default();
+            let line = format!("[{}] [panic] {} ({})\n", ts, payload, loc);
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_file)
+            {
+                let _ = f.write_all(line.as_bytes());
+            }
+            eprint!("{}", line);
+        }));
+    }
     let (servers, settings) = manage::load_config(&config_path);
     let state = Arc::new(AppState {
         servers: Mutex::new(servers),
@@ -283,6 +316,7 @@ pub fn run_headless() -> RunOutcome {
         spawn_fails: Mutex::new(std::collections::HashMap::new()),
         spawning: Mutex::new(std::collections::HashSet::new()),
         update_latest: Mutex::new(None),
+        lan_ok: Mutex::new(None),
         config_path,
     });
     // cache de démarrage : restaure le dernier état connu AVANT la première
@@ -405,13 +439,34 @@ pub fn run_headless() -> RunOutcome {
         ),
     );
 
-    // poller : première passe immédiate, ensuite refresh_secs
+    // poller : première passe immédiate, ensuite refresh_secs.
+    // catch_unwind : un panic dans un cycle de sondage ne doit JAMAIS tuer la
+    // supervision (c'était le cas avant l'audit 2026-10-25 — le thread mourait
+    // en silence et l'app affichait un état figé).
     {
         let st = state.clone();
         thread::spawn(move || loop {
-            manage::poll_all(&st);
+            let cycle =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| manage::poll_all(&st)));
+            if cycle.is_err() {
+                manage::add_log(
+                    &st,
+                    "error",
+                    "panic pendant un cycle de sondage — le poller a survécu (détail dans mcc.log)",
+                );
+            }
             let secs = lockv(&st.settings).refresh_secs;
             thread::sleep(Duration::from_secs(secs));
+        });
+    }
+    // veille réseau : la passerelle LAN répond-elle ? (VPN, câble, Wi-Fi)
+    // Mesuré tout de suite puis toutes les 30 s — l'UI explique les serveurs
+    // distants injoignables au lieu de les afficher comme en panne.
+    {
+        let st = state.clone();
+        thread::spawn(move || loop {
+            manage::refresh_lan_state(&st);
+            thread::sleep(Duration::from_secs(30));
         });
     }
     // AUTO-SCAN au boot : tous les ports en écoute de la machine (netstat/ss),
@@ -1105,6 +1160,7 @@ mod tests {
             spawn_fails: Mutex::new(std::collections::HashMap::new()),
             spawning: Mutex::new(std::collections::HashSet::new()),
             update_latest: Mutex::new(None),
+            lan_ok: Mutex::new(None),
         })
     }
 

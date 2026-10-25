@@ -27,6 +27,10 @@ body{background:var(--chrome);color:var(--t1);font:13px/1.5 var(--sans);display:
   background:var(--sidebar);border-bottom:1px solid var(--border);user-select:none}
 #titlebar .logo{font-weight:600;font-size:13px;letter-spacing:.2px;white-space:nowrap}
 #titlebar .logo em{color:var(--accent);font-style:normal}
+.tb-logout{background:none;border:1px solid var(--border);border-radius:6px;color:var(--t3);
+  font-size:10px;line-height:16px;padding:0 6px;margin-left:4px}
+.tb-logout:hover{color:var(--bad);border-color:var(--bad)}
+.tb-logout[hidden]{display:none}
 .tb-badge{font:11px var(--mono);color:var(--t3);background:var(--hover);border:1px solid var(--border-soft);
   border-radius:6px;padding:2px 8px;white-space:nowrap}
 .tb-badge b{color:var(--t1);font-weight:600}
@@ -76,6 +80,10 @@ button:disabled{opacity:.35;cursor:not-allowed}
 .srow .l1 .cnt{font:10px var(--mono);color:var(--t4)}
 .legacy{font:9px var(--mono);text-transform:uppercase;letter-spacing:.4px;color:var(--t4);
   border:1px dashed var(--border);border-radius:4px;padding:0 5px;white-space:nowrap;flex-shrink:0}
+.netbanner{background:rgba(231,94,120,.12);border-bottom:1px solid rgba(231,94,120,.45);
+  color:#f0a8b6;font-size:11.5px;padding:5px 12px;display:flex;gap:8px;align-items:center}
+.netbanner b{color:#ffd7de}
+.netbanner[hidden]{display:none}
 .rowbtn{background:none;border:1px solid var(--border);border-radius:5px;color:var(--t3);
   padding:0 6px;font-size:9px;line-height:15px;min-width:20px;flex-shrink:0}
 .rowbtn:hover{color:var(--accent);border-color:var(--accent);background:var(--hover)}
@@ -276,6 +284,8 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
 </head>
 <body>
 
+<div id="netBanner" class="netbanner" hidden></div>
+
 <div id="titlebar" data-tauri-drag-region>
   <span class="logo" data-tauri-drag-region><em>&#9679;</em> MCP <em>Command Center</em></span>
   <span class="tb-badge" title="Version installée">v__MCC_VERSION__</span>
@@ -284,6 +294,8 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
   <span class="tb-badge ok">UP <b id="stUp">0</b>/<b id="stTotal">0</b></span>
   <span class="tb-badge">tools <b id="stTools">0</b></span>
   <span class="tb-badge">refresh <b id="stRefresh">15</b>s</span>
+  <button id="tbLogout" class="tb-logout" hidden onclick="logout()"
+          title="Oublier le code d'accès enregistré dans ce navigateur">&#128275;</button>
   <span class="tb-spacer" data-tauri-drag-region></span>
   <div class="tb-actions">
     <button class="primary" onclick="doScan()">&#128269; Scan ports</button>
@@ -420,7 +432,8 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
       <label>Code d'acc&egrave;s</label>
       <input id="loginCode" type="password" autocomplete="off" placeholder="code d'acc&egrave;s">
       <div id="loginMsg" class="machine-msg"></div>
-      <div style="display:flex;justify-content:flex-end;margin-top:6px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+        <button type="button" onclick="forgetCode()" title="Supprime le code enregistr&eacute; dans ce navigateur">Oublier le code enregistr&eacute;</button>
         <button type="submit" class="primary">D&eacute;verrouiller</button>
       </div>
     </form>
@@ -462,11 +475,33 @@ async function loginSubmit(ev) {
     msg.textContent = '';
     document.getElementById('loginCode').value = '';
     document.getElementById('loginDlg').close();
+    updateLogoutBtn();
     load();
   } else {
     msg.textContent = '\u2717 code refus\u00e9 — voir settings.api_access du config.json du serveur';
   }
   return false;
+}
+
+// « Oublier le code » : rien ne doit rester dans le navigateur après un poste
+// partagé ou une rotation de code côté serveur.
+function forgetCode() {
+  try { localStorage.removeItem('mcc.access'); } catch (e) {}
+  const msg = document.getElementById('loginMsg');
+  if (msg) msg.textContent = '\u2713 code effac\u00e9 de ce navigateur';
+  updateLogoutBtn();
+}
+
+// Le bouton de déconnexion n'apparaît que si un code est stocké.
+function updateLogoutBtn() {
+  const b = document.getElementById('tbLogout');
+  if (b) b.hidden = !accessCode();
+}
+function logout() {
+  forgetCode();
+  const d = document.getElementById('loginDlg');
+  if (d) { if (!d.open) d.showModal(); }
+  load();
 }
 
 let state = null;
@@ -493,6 +528,17 @@ async function load() {
 function render() {
   if (!state) return;
   const s = state.stats;
+  // Bandeau réseau : la passerelle LAN ne répond pas → les serveurs distants
+  // sont injoignables (VPN le plus souvent). On l'explique au lieu de laisser
+  // croire à une panne de détection.
+  const nb = document.getElementById('netBanner');
+  if (nb) {
+    const off = state.lan_ok === false;
+    nb.hidden = !off;
+    if (off) nb.innerHTML = '<b>&#9888; R&eacute;seau local injoignable</b>'
+      + '<span>les serveurs distants ne peuvent pas &ecirc;tre sond&eacute;s &mdash; VPN actif ? '
+      + '(Proton VPN : activer &laquo;&nbsp;autoriser les connexions LAN&nbsp;&raquo;)</span>';
+  }
   document.getElementById('stUp').textContent = s.up;
   document.getElementById('stTotal').textContent = s.total;
   document.getElementById('stTools').textContent = s.tools;
@@ -889,10 +935,12 @@ function renderDetail() {
         <button onclick="act('refresh',${js(s.id)})">Sonder</button>
         ${s.can_start ? `<button class="autobtn ${s.auto_restart?'on':''}" onclick="setAuto(${js(s.id)},${s.auto_restart?'false':'true'})"
           title="Autoboot : relance automatique de ce serveur au d&eacute;marrage du command center et apr&egrave;s un crash">&#9889; Autoboot ${s.auto_restart?'ON':'OFF'}</button>` : ''}
-        <button onclick="act('toggle',${js(s.id)})">${s.enabled ? 'D&eacute;sactiver' : 'Activer'}</button>
+        <button onclick="act('toggle',${js(s.id)})" title="${s.enabled
+          ? 'Mettre en pause : le process est arr&ecirc;t&eacute; et le serveur n&#39;est plus sond&eacute; (il reste dans la liste, r&eacute;activable d&#39;un clic)'
+          : 'Reprendre la supervision : le serveur sera sond&eacute; et d&eacute;marr&eacute; si une commande est connue'}">${s.enabled ? '&#9208; Mettre en pause' : '&#9654; Reprendre'}</button>
         ${s.origin !== 'seed'
-          ? `<button class="danger" onclick="removeSrv(${js(s.id)})">Retirer</button>`
-          : `<button class="danger" onclick="removeSeedForever(${js(s.id)})" title="Supprime ce seed de la config : il ne sera pas r&eacute;inject&eacute; au red&eacute;marrage">Retirer durablement</button>`}
+          ? `<button class="danger" onclick="removeSrv(${js(s.id)})">&#128465; Supprimer</button>`
+          : `<button class="danger" onclick="removeSeedForever(${js(s.id)})" title="Supprime ce seed de la config : il ne sera pas r&eacute;inject&eacute; au red&eacute;marrage">&#128465; Supprimer d&eacute;finitivement</button>`}
       </div>
     </div>
     ${s.origin === 'seed' ? '<div class="seed-note">Serveur seed : <b>Retirer durablement</b> l&rsquo;efface m&ecirc;me apr&egrave;s red&eacute;marrage (consign&eacute; dans config.json) ; <b>D&eacute;sactiver</b> l&rsquo;&eacute;teint sans le supprimer.</div>' : ''}
@@ -1223,6 +1271,7 @@ function toggleLog() {
   document.getElementById('logpanel').classList.toggle('min', v === null ? true : v === 'true');
 })();
 loadFrameworks();
+updateLogoutBtn();
 load();
 setInterval(load, 5000);
 // retour de la fenêtre (tray → visible) : reprise immédiate du rafraîchissement

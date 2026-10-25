@@ -120,6 +120,22 @@ pub fn hex(bytes: &[u8]) -> String {
     out
 }
 
+/// Comparaison à TEMPS CONSTANT (audit 2026-10-25). `==` sur des chaînes
+/// sort au premier octet différent : sur une instance exposée au LAN, un
+/// attaquant peut mesurer le temps de réponse pour reconstruire le code
+/// d'accès ou la preuve HMAC octet par octet. Ici on parcourt TOUJOURS toute
+/// la longueur et on accumule les différences.
+pub fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 /// HMAC-SHA256 en hexadécimal — la forme échangée dans l'en-tête X-MCC-Proof.
 pub fn hmac_sha256_hex(key: &[u8], msg: &[u8]) -> String {
     hex(&hmac_sha256(key, msg))

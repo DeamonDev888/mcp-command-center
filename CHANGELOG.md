@@ -1,3 +1,30 @@
+## [0.7.12] — Finitions « produit » : diagnostic réseau, pannes visibles, confort d'usage
+
+### Diagnostic réseau (le cas VPN qui ressemblait à une panne)
+- **Veille de la passerelle LAN** : toutes les 30 s, l'app pingue la passerelle par défaut et croise ce résultat avec l'état des serveurs distants. Si le LAN est coupé (VPN actif le plus souvent) alors que la machine est bien connectée, un **bandeau rouge** s'affiche en haut de la fenêtre : « réseau local injoignable — VPN actif ? (Proton VPN : autoriser les connexions LAN) ». Le journal enregistre l'apparition et le retour du réseau.
+- Décision isolée dans une fonction pure `lan_decision()` et testée (4 cas : sain, passerelle muette, VPN trompeur, indéterminé).
+- **Messages d'erreur actionnables** : une erreur SSH de type `connect to host …` n'est plus présentée comme un problème de clé mais comme « machine injoignable (LAN coupé / VPN actif, ou machine éteinte) ».
+
+### Panics enfin visibles
+- **`panic::set_hook`** : tout panic écrit désormais une ligne `[panic] …` dans `mcc.log` **et** sur stderr. Avant, en mode fenêtré (`windows_subsystem=windows`), un panic était totalement muet.
+- **`catch_unwind` autour du cycle de sondage** : un panic dans un cycle ne tue plus le thread de supervision — il est journalisé et le cycle suivant repart.
+
+### Confort d'usage
+- **Boutons clarifiés** : `Désactiver` devient **« ⏸ Mettre en pause »** / **« ▶ Reprendre »** (le serveur reste listé) et `Retirer` devient **« 🗑 Supprimer »** — la confusion entre les deux avait conduit à mettre 14 serveurs hors supervision par erreur. Chaque bouton a un tooltip qui explique l'effet exact.
+- **Bouton de déconnexion** (🔓 dans la barre de titre, visible seulement si un code est stocké) + **« Oublier le code enregistré »** dans le dialogue de déverrouillage : plus rien ne traîne dans le navigateur après une rotation de code ou sur un poste partagé.
+
+### Performance
+- **Sondage parallèle** : les serveurs sont sondés par paquets de 8 au lieu d'un par un. Avec ~30 serveurs dont 15 en SSH, un cycle dépassait le refresh de 15 s (états en retard d'un cycle) ; il tient maintenant dans l'intervalle. Les spawns concurrents restent protégés par la garde anti-doublon.
+
+### Sécurité
+- **Comparaisons à temps constant** (`crypto::ct_eq`) pour le code d'accès et la preuve de pair : la comparaison précédente sortait au premier octet différent.
+
+### Documentation
+- README : section **Installer** (assistant NSIS, sans droits admin), tableau des boutons mis à jour (⚡ autoboot par serveur, ⏸ pause, 🗑 suppression), 37 frameworks, FAQ « tous mes serveurs distants sont DOWN » (VPN) et « mes serveurs ont disparu » (pause).
+
+### Tests
+- **89 tests verts** (+ `lan_decision_couvre_les_cas_vpn_et_panne`), clippy `-D warnings` sous Windows **et** Linux, `cargo fmt --check`.
+
 ## [0.7.11] — Installateur wizard (NSIS) + bouton Autoboot par serveur
 
 ### Installateur Windows (wizard)

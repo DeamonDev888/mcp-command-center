@@ -1273,14 +1273,27 @@ pub fn tools_actifs(s: &Server) -> usize {
         .count()
 }
 
+/// Nombre de sondes menées en parallèle par cycle. Les serveurs lents (SSH,
+/// process MCP muet) ne doivent pas retarder tout le monde : avec 30 serveurs
+/// dont 15 en SSH, un cycle séquentiel dépassait largement le refresh de 15 s.
+const POLL_WIDTH: usize = 8;
+
 pub fn poll_all(state: &Arc<AppState>) {
     // priorité : l'ordre choisi par glisser-déposer gouverne l'ordre de sondage
     // (utile au boot où le premier cycle est séquentiel) — ids absents en dernier
     let order = lockv(&state.settings).server_order.clone();
     let mut ids: Vec<String> = lockv(&state.servers).iter().map(|s| s.id.clone()).collect();
     ids.sort_by_key(|id| order.iter().position(|x| x == id).unwrap_or(usize::MAX));
-    for id in ids {
-        poll_one(state, &id);
+    // Sondes en parallèle par paquets de POLL_WIDTH. Chaque poll_one prend ses
+    // verrous brièvement et relâche avant d'écrire au journal ; les spawns
+    // concurrents restent protégés par `state.spawning`. Résultat : un cycle
+    // tient dans le refresh même avec des serveurs distants lents.
+    for paquet in ids.chunks(POLL_WIDTH) {
+        std::thread::scope(|scope| {
+            for id in paquet {
+                scope.spawn(move || poll_one(state, id.as_str()));
+            }
+        });
     }
     save_cache(state);
 }
@@ -3610,6 +3623,66 @@ fn managed_ids(state: &Arc<AppState>) -> std::collections::HashSet<String> {
     lockv(&state.children).keys().cloned().collect()
 }
 
+/// Décision pure « le LAN est-il joignable ? » — testable sans réseau.
+/// Un VPN fait répondre SA passerelle alors que le LAN est coupé : si tous les
+/// serveurs distants échouent en réseau, on conclut LAN coupé même si le ping
+/// de la passerelle passe.
+pub fn lan_decision(gw: Option<bool>, distants_ko: bool) -> Option<bool> {
+    match (gw, distants_ko) {
+        (Some(true), true) => Some(false),
+        (None, true) => Some(false),
+        (g, _) => g,
+    }
+}
+
+/// Mesure si le LAN répond et publie le résultat.
+/// Deux signaux, car un VPN fait répondre SA passerelle tout en coupant le LAN :
+/// 1. ping des passerelles par défaut (aucune ne répond = réseau coupé) ;
+/// 2. état des serveurs DISTANTS : s'ils échouent tous avec une erreur réseau
+///    (ssh/connect/timeout/injoignable), c'est le LAN qui est coupé, pas eux.
+pub fn refresh_lan_state(state: &Arc<AppState>) {
+    let gw = probe::lan_reachable();
+    let distants_ko = {
+        let servers = lockv(&state.servers);
+        let distants: Vec<(bool, Option<String>)> = servers
+            .iter()
+            .filter(|s| s.enabled && matches!(&s.transport, Transport::Http { host: Some(_), .. }))
+            .map(|s| (s.state == SState::Up, s.last_error.clone()))
+            .collect();
+        !distants.is_empty()
+            && distants.iter().all(|(up, err)| {
+                !up && err
+                    .as_deref()
+                    .map(|e| {
+                        let e = e.to_lowercase();
+                        e.contains("ssh")
+                            || e.contains("connect")
+                            || e.contains("timed out")
+                            || e.contains("injoignable")
+                            || e.contains("unreachable")
+                    })
+                    .unwrap_or(false)
+            })
+    };
+    let reachable = lan_decision(gw, distants_ko);
+    let mut slot = lockv(&state.lan_ok);
+    let changed = *slot != reachable;
+    *slot = reachable;
+    drop(slot);
+    if changed {
+        match reachable {
+            Some(false) => add_log(
+                state,
+                "warn",
+                "réseau local injoignable (passerelle muette et serveurs distants en échec réseau) — \
+                 VPN actif ou connexion coupée : les serveurs distants ne peuvent pas être sondés",
+            ),
+            Some(true) => add_log(state, "info", "réseau local joignable"),
+            None => {}
+        }
+    }
+}
+
 pub fn state_json(state: &Arc<AppState>) -> Value {
     let managed = managed_ids(state);
     // chaque verrou est pris et relâché isolément pour éviter de maintenir
@@ -3682,11 +3755,14 @@ pub fn state_json(state: &Arc<AppState>) -> Value {
             .collect()
     };
     let latest = lockv(&state.update_latest).clone();
+    let lan = *lockv(&state.lan_ok);
     json!({
         "servers": list, "log": logarr,
         "latest_version": latest,
         "update_available": latest.is_some(),
         "autostart": autostart,
+        // None = pas encore mesuré ; false = réseau local coupé (VPN le plus souvent)
+        "lan_ok": lan,
         "stats": {"up": up, "total": total, "tools": tools},
         "settings": settings_val,
         "peers": peers_arr,
@@ -3842,6 +3918,7 @@ mod tests {
             spawn_fails: Mutex::new(std::collections::HashMap::new()),
             spawning: Mutex::new(std::collections::HashSet::new()),
             update_latest: Mutex::new(None),
+            lan_ok: Mutex::new(None),
         });
         let j = handle_action(
             &state,
@@ -3951,6 +4028,7 @@ mod tests {
                 spawn_fails: Mutex::new(std::collections::HashMap::new()),
                 spawning: Mutex::new(std::collections::HashSet::new()),
                 update_latest: Mutex::new(None),
+                lan_ok: Mutex::new(None),
             })
         };
         let state = mk(&["a", "b", "c"]);
@@ -4054,6 +4132,7 @@ mod tests {
                 spawn_fails: Mutex::new(std::collections::HashMap::new()),
                 spawning: Mutex::new(std::collections::HashSet::new()),
                 update_latest: Mutex::new(None),
+                lan_ok: Mutex::new(None),
             })
         };
         // 1. état riche -> cache
@@ -4181,6 +4260,7 @@ mod tests {
             spawn_fails: Mutex::new(std::collections::HashMap::new()),
             spawning: Mutex::new(std::collections::HashSet::new()),
             update_latest: Mutex::new(None),
+            lan_ok: Mutex::new(None),
             config_path: path.clone(),
         };
         {
@@ -4301,6 +4381,7 @@ mod tests {
             spawn_fails: Mutex::new(std::collections::HashMap::new()),
             spawning: Mutex::new(std::collections::HashSet::new()),
             update_latest: Mutex::new(None),
+            lan_ok: Mutex::new(None),
             config_path: String::new(),
         };
         let arc = Arc::new(state);
@@ -4372,6 +4453,7 @@ mod tests {
             spawn_fails: Mutex::new(std::collections::HashMap::new()),
             spawning: Mutex::new(std::collections::HashSet::new()),
             update_latest: Mutex::new(None),
+            lan_ok: Mutex::new(None),
             config_path: String::new(),
         };
         let servers = lockv(&state.servers);
@@ -4496,6 +4578,7 @@ mod tests {
             spawn_fails: Mutex::new(std::collections::HashMap::new()),
             spawning: Mutex::new(std::collections::HashSet::new()),
             update_latest: Mutex::new(None),
+            lan_ok: Mutex::new(None),
             config_path: String::new(),
         };
         let j = state_json(&Arc::new(state));
@@ -4531,7 +4614,22 @@ mod tests {
             spawn_fails: Mutex::new(std::collections::HashMap::new()),
             spawning: Mutex::new(std::collections::HashSet::new()),
             update_latest: Mutex::new(None),
+            lan_ok: Mutex::new(None),
         })
+    }
+
+    #[test]
+    fn lan_decision_couvre_les_cas_vpn_et_panne() {
+        // passerelle qui répond, serveurs distants OK → réseau sain
+        assert_eq!(lan_decision(Some(true), false), Some(true));
+        // passerelle muette → coupé
+        assert_eq!(lan_decision(Some(false), false), Some(false));
+        // VPN : SA passerelle répond mais tous les distants échouent en réseau
+        assert_eq!(lan_decision(Some(true), true), Some(false));
+        // pas de passerelle détectée mais distants KO → coupé
+        assert_eq!(lan_decision(None, true), Some(false));
+        // pas de passerelle et distants OK → indéterminé (pas de LAN à surveiller)
+        assert_eq!(lan_decision(None, false), None);
     }
 
     #[test]
@@ -4894,6 +4992,7 @@ mod tests {
             spawn_fails: Mutex::new(std::collections::HashMap::new()),
             spawning: Mutex::new(std::collections::HashSet::new()),
             update_latest: Mutex::new(None),
+            lan_ok: Mutex::new(None),
         };
         save_config(&state);
         let (servers2, _) = load_config(&path);

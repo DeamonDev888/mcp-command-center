@@ -238,6 +238,11 @@ pub struct AppState {
     /// (badge « mise à jour disponible »). None = à jour ou vérification
     /// impossible (hors ligne, dépôt privé).
     pub update_latest: Mutex<Option<String>>,
+    /// Le LAN est-il joignable ? Mesuré en pingant la passerelle par défaut.
+    /// `None` = pas encore mesuré ; `Some(false)` = réseau local coupé (VPN
+    /// actif le plus souvent) → les serveurs distants ne peuvent pas être
+    /// sondés, l'UI l'explique au lieu de les afficher en panne.
+    pub lan_ok: Mutex<Option<bool>>,
 }
 
 #[cfg(test)]

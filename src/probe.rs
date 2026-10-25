@@ -606,6 +606,98 @@ pub fn ws_upgrade_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> bo
     head.starts_with("http/1.1 101") || head.starts_with("http/1.0 101")
 }
 
+/// Passerelles par défaut IPv4 de la machine (0 à 2 entrées).
+/// Sert à mesurer si le réseau LOCAL est joignable : quand un VPN capture le
+/// trafic (kill switch), la passerelle LAN ne répond plus alors que la machine
+/// est bien connectée — les serveurs distants paraissent alors « en panne ».
+/// Ajoute `cand` à `out` si c'est une IPv4 valide non nulle et pas déjà vue.
+fn push_gateway(out: &mut Vec<String>, cand: &str) {
+    let ip = cand.trim().trim_matches(|c: char| c == '(' || c == ')');
+    let ok = ip.split('.').count() == 4
+        && ip.split('.').all(|o| o.parse::<u8>().is_ok())
+        && ip != "0.0.0.0";
+    if ok && !out.iter().any(|x| x == ip) {
+        out.push(ip.to_string());
+    }
+}
+
+pub fn default_gateways() -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if cfg!(windows) {
+        let mut c = Command::new("ipconfig");
+        hidden(&mut c);
+        if let Ok(o) = c.output() {
+            let text = String::from_utf8_lossy(&o.stdout).to_string();
+            for line in text.lines() {
+                let low = line.to_lowercase();
+                if (low.contains("passerelle") || low.contains("default gateway"))
+                    && line.contains(':')
+                {
+                    if let Some(v) = line.split(':').nth(1) {
+                        push_gateway(&mut out, v);
+                    }
+                }
+            }
+        }
+    } else {
+        let mut c = Command::new("ip");
+        probe_hidden_cmd(&mut c);
+        if let Ok(o) = c.args(["route", "show", "default"]).output() {
+            let text = String::from_utf8_lossy(&o.stdout).to_string();
+            for line in text.lines() {
+                let toks: Vec<&str> = line.split_whitespace().collect();
+                if let Some(i) = toks.iter().position(|t| *t == "via") {
+                    if let Some(v) = toks.get(i + 1) {
+                        push_gateway(&mut out, v);
+                    }
+                }
+            }
+        }
+        if out.is_empty() {
+            // macOS
+            let mut c2 = Command::new("netstat");
+            probe_hidden_cmd(&mut c2);
+            if let Ok(o) = c2.args(["-rn"]).output() {
+                let text = String::from_utf8_lossy(&o.stdout).to_string();
+                for line in text.lines() {
+                    let low = line.to_lowercase();
+                    if low.starts_with("default") {
+                        if let Some(v) = line.split_whitespace().nth(1) {
+                            push_gateway(&mut out, v);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Ping ICMP court (1 paquet) — vrai si la cible répond. Utilisé pour vérifier
+/// la passerelle LAN ; jamais bloquant au-delà de `timeout_ms`.
+pub fn ping_ok(host: &str, timeout_ms: u64) -> bool {
+    let ms = timeout_ms.clamp(200, 3000);
+    let mut c = Command::new("ping");
+    hidden(&mut c);
+    let status = if cfg!(windows) {
+        c.args(["-n", "1", "-w", &ms.to_string(), host]).output()
+    } else {
+        // -W : secondes sous Linux, millisecondes sous macOS — 1 reste sûr.
+        c.args(["-c", "1", "-W", "1", host]).output()
+    };
+    matches!(status, Ok(o) if o.status.success())
+}
+
+/// Le réseau local est-il joignable ? (au moins une passerelle répond)
+/// `None` = aucune passerelle détectée (pas de réseau local à surveiller).
+pub fn lan_reachable() -> Option<bool> {
+    let gws = default_gateways();
+    if gws.is_empty() {
+        return None;
+    }
+    Some(gws.iter().any(|g| ping_ok(g, 800)))
+}
+
 /// GET /health sur un hôte précis — vrai si 2xx avec un corps contenant « ok ».
 /// Sonde de vie documentée de litemcp ; second signal du fingerprint du framework.
 pub fn health_ok_host(host: &str, port: u16, timeout_ms: u64) -> bool {
@@ -775,9 +867,10 @@ fn ssh_error_hint(stderr: &str) -> &'static str {
         || low.contains("network is unreachable")
         || low.contains("connect to host")
     {
-        " — machine injoignable"
+        " — machine injoignable (LAN coupé / VPN actif, ou machine éteinte)"
     } else if low.contains("permission denied") || low.contains("publickey") {
-        " — auth refusée : ajoute ta clé publique sur la machine (authorized_keys), le mot de passe n'est pas possible en non-interactif"
+        " — clé SSH refusée (ajoute ta clé publique dans authorized_keys de la machine ; \
+le mot de passe n'est pas possible en non-interactif)"
     } else {
         ""
     }
@@ -2896,15 +2989,15 @@ LISTEN  0      128              *:3141             *:*";
     fn ssh_error_hint_distingue_socket_bloque_et_cle_refusee() {
         assert_eq!(
             ssh_error_hint("ssh: connect to host 192.168.2.159 port 22: Permission denied"),
-            " — machine injoignable"
+            " — machine injoignable (LAN coupé / VPN actif, ou machine éteinte)"
         );
         assert_eq!(
             ssh_error_hint("ssh: connect to host 192.168.2.159 port 22: Connection timed out"),
-            " — machine injoignable"
+            " — machine injoignable (LAN coupé / VPN actif, ou machine éteinte)"
         );
         assert!(
             ssh_error_hint("user@192.168.2.159: Permission denied (publickey).")
-                .contains("auth refusée")
+                .contains("clé SSH refusée")
         );
     }
 }

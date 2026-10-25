@@ -10,9 +10,19 @@ Une petite application qui **veille sur tes serveurs MCP** : elle les trouve tou
 - **Savoir** immédiatement qui marche et qui est planté.
 - **Agir** : démarrer, arrêter, installer de nouveaux serveurs, tout depuis la même fenêtre.
 
+## Installer
+
+Télécharge **`mcp-command-center-desktop-windows-x86_64-setup.exe`** depuis la
+[dernière release](https://github.com/DeamonDev888/mcp-command-center/releases/latest)
+et lance-le : un assistant t'accompagne (langue, dossier d'installation, dossier
+du menu Démarrer, raccourci bureau). Aucun droit administrateur n'est demandé.
+
+Tu peux aussi utiliser le `.exe` portable, sans installation, ou
+`start-command-center.bat` si tu as le dépôt.
+
 ## Démarrer
 
-1. Double-clique sur `start-command-center.bat` (ou l'icône de l'app installée).
+1. Ouvre l'app (raccourci du bureau ou du menu Démarrer).
 2. La fenêtre s'ouvre. **C'est tout** — la liste se remplit toute seule.
 
 ## Lire l'écran
@@ -24,7 +34,7 @@ Une petite application qui **veille sur tes serveurs MCP** : elle les trouve tou
 | ⚪ **DOWN** | Le serveur est éteint |
 | ⚫ **DISABLED** | Tu l'as désactivé toi-même |
 
-Les petits badges à côté du nom (`FastMCP`, `LiteMCP`…) indiquent **avec quoi le serveur est construit** — reconnu automatiquement, tu n'as rien à faire.
+Les petits badges à côté du nom (`FastMCP`, `LiteMCP`, `rmcp`, `mcp-go`, `Spring AI`…) indiquent **avec quoi le serveur est construit** — 37 frameworks reconnus, du Python au PHP, avec leur langage. Le badge `STDIO` / `HTTP` / `WS` indique le transport.
 
 ![Un serveur en détail](assets/readme-detail.png)
 *Clique sur un serveur : tu vois tous ses outils (tools), son état, sa vitesse, sa version — et des boutons pour l'allumer, l'éteindre, ou couper un outil précis.*
@@ -44,8 +54,11 @@ Les petits badges à côté du nom (`FastMCP`, `LiteMCP`…) indiquent **avec qu
 | **+ Ajouter** | Ajouter un serveur à la main |
 | **ON/OFF** | Allumer / éteindre un serveur |
 | **▶ / ■** | Démarrer / arrêter le programme du serveur |
+| **⚡** | **Autoboot du serveur** : le relancer automatiquement au démarrage de l'app et après un crash |
+| **⏸ Mettre en pause** | Retire le serveur de la supervision (il reste dans la liste, réactivable) |
+| **🗑 Supprimer** | Enlève le serveur de la liste |
 | **⇅** | Ranger la liste (A→Z, état, rapidité…) — ou glisse une ligne à la main |
-| **⏭ Auto-boot** | Ouvrir l'app automatiquement au démarrage de Windows |
+| **⏭ Auto-boot** (barre du haut) | Ouvrir l'app elle-même au démarrage de Windows |
 
 ![La boutique](assets/readme-boutique.png)
 *64 serveurs MCP à installer d'un clic, avec leurs logos. Une barre de recherche pour trouver le bon.*
@@ -59,6 +72,8 @@ Les petits badges à côté du nom (`FastMCP`, `LiteMCP`…) indiquent **avec qu
 | L'app ne s'ouvre plus | Elle est peut-être déjà dans la zone de notification (près de l'horloge) — clique sur son icône |
 | Où voir l'historique ? | Barre « Journal » en bas de la fenêtre — clique dessus pour la déplier |
 | Un serveur ne redémarre pas | Après 3 échecs, l'app arrête d'insister. Clique **▶** pour réessayer |
+| Tous mes serveurs distants sont DOWN | Un **VPN** coupe souvent le réseau local : un bandeau rouge s'affiche en haut. Déconnecte-le ou active « autoriser les connexions LAN » |
+| Mes serveurs ont disparu de la liste | Ils ont peut-être été mis **en pause** (⚪ DISABLED) : clique **▶ Reprendre** dans leur détail |
 
 ## Pour aller plus loin
 
