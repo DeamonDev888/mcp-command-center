@@ -87,6 +87,7 @@ fn default_servers() -> Vec<Server> {
             protocol: None,
             sse: false,
             sse_endpoint: false,
+            ws: false,
             lang: None,
             framework: None,
             via_ssh: false,
@@ -151,6 +152,7 @@ fn default_servers() -> Vec<Server> {
             protocol: None,
             sse: false,
             sse_endpoint: false,
+            ws: false,
             lang: None,
             framework: None,
             via_ssh: false,
@@ -406,6 +408,7 @@ fn from_json(s: &Value) -> Option<Server> {
         protocol: None,
         sse: false,
         sse_endpoint: false,
+        ws: false,
         lang: None,
         framework: None,
         via_ssh,
@@ -498,6 +501,9 @@ fn parse_settings(v: &Value, mut st: crate::types::Settings) -> crate::types::Se
 
 #[allow(unused_must_use)]
 pub fn save_config(state: &AppState) {
+    if state.config_path.is_empty() {
+        return;
+    }
     let servers = lockv(&state.servers).clone();
     let settings = lockv(&state.settings).clone();
     let mut arr = Vec::new();
@@ -992,6 +998,7 @@ fn entry_to_server(id: String, name: &str, entry: &Value) -> Option<Server> {
             protocol: None,
             sse: false,
             sse_endpoint: false,
+            ws: false,
             lang: None,
             framework: None,
             via_ssh: false,
@@ -1024,6 +1031,7 @@ fn entry_to_server(id: String, name: &str, entry: &Value) -> Option<Server> {
             protocol: None,
             sse: false,
             sse_endpoint: false,
+            ws: false,
             lang: None,
             framework: None,
             via_ssh: false,
@@ -1137,6 +1145,7 @@ pub fn import_mcp_text(state: &Arc<AppState>, raw: &str) -> Value {
                     protocol: None,
                     sse: false,
                     sse_endpoint: false,
+                    ws: false,
                     lang: None,
                     framework: None,
                     via_ssh: false,
@@ -1210,6 +1219,7 @@ fn push_imported(state: &Arc<AppState>, name: String, program: String, args: Vec
         protocol: None,
         sse: false,
         sse_endpoint: false,
+        ws: false,
         lang: None,
         framework: None,
         via_ssh: false,
@@ -1579,7 +1589,7 @@ pub fn save_cache(state: &Arc<AppState>) {
             json!({
                 "id": s.id, "state": s.state.as_str(),
                 "server_name": s.server_name, "version": s.version, "protocol": s.protocol,
-                "sse": s.sse, "sse_endpoint": s.sse_endpoint, "lang": s.lang,
+                "sse": s.sse, "sse_endpoint": s.sse_endpoint, "ws": s.ws, "lang": s.lang,
                 "framework": s.framework, "via_ssh": s.via_ssh,
                 "latency_ms": s.latency_ms, "last_seen": s.last_seen_ts,
                 "last_error": s.last_error,
@@ -1659,6 +1669,7 @@ pub fn load_cache(state: &Arc<AppState>) {
             .get("sse_endpoint")
             .and_then(|x| x.as_bool())
             .unwrap_or(srv.sse_endpoint);
+        srv.ws = e.get("ws").and_then(|x| x.as_bool()).unwrap_or(srv.ws);
         srv.lang = get_str("lang").or(srv.lang.take());
         srv.framework = get_str("framework").or(srv.framework.take());
         srv.via_ssh = e
@@ -1876,6 +1887,7 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                     srv.protocol = res.protocol.clone();
                     srv.sse = res.sse;
                     srv.sse_endpoint = res.sse_endpoint;
+                    srv.ws = res.ws;
                     srv.lang = res.lang.clone();
                     srv.framework = res.framework.clone();
                     srv.tools = res.tools.clone();
@@ -2100,6 +2112,7 @@ pub fn scan_ports(state: &Arc<AppState>, range: Option<(u16, u16)>) {
                     protocol: p.protocol.clone(),
                     sse: p.sse,
                     sse_endpoint: p.sse_endpoint,
+                    ws: p.ws,
                     lang: p.lang.clone(),
                     framework: p.framework.clone(),
                     via_ssh: false,
@@ -2220,6 +2233,7 @@ pub fn scan_listening(state: &Arc<AppState>) {
             protocol: p.protocol.clone(),
             sse: p.sse,
             sse_endpoint: p.sse_endpoint,
+            ws: p.ws,
             lang: p.lang.clone(),
             framework: p.framework.clone(),
             via_ssh: false,
@@ -2426,6 +2440,7 @@ pub fn scan_network_range(
                             protocol: p.protocol.clone(),
                             sse: p.sse,
                             sse_endpoint: p.sse_endpoint,
+                            ws: p.ws,
                             lang: p.lang.clone(),
                             framework: p.framework.clone(),
                             via_ssh: false,
@@ -2640,6 +2655,7 @@ pub fn import_peer(state: &Arc<AppState>, ip: &str) -> Value {
                 protocol: None,
                 sse: false,
                 sse_endpoint: false,
+                ws: false,
                 lang: None,
                 framework: None,
                 via_ssh: false,
@@ -2749,6 +2765,7 @@ pub fn ssh_discover(state: &Arc<AppState>, ip: &str, user: &str) -> Value {
                 .map(String::from),
             sse: false,
             sse_endpoint: false,
+            ws: false,
             lang: None,
             framework: None,
             via_ssh: true,
@@ -2996,6 +3013,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     protocol: None,
                     sse: false,
                     sse_endpoint: false,
+                    ws: false,
                     lang: None,
                     framework: None,
                     via_ssh: false,
@@ -3070,6 +3088,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     protocol: None,
                     sse: false,
                     sse_endpoint: false,
+                    ws: false,
                     lang: None,
                     framework: None,
                     via_ssh: false,
@@ -3387,6 +3406,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                                 protocol: None,
                                 sse: false,
                                 sse_endpoint: false,
+                                ws: false,
                                 lang: None,
                                 framework: None,
                                 via_ssh: false,
@@ -3482,7 +3502,7 @@ fn server_json(s: &Server, managed: bool) -> Value {
         "latency_ms": s.latency_ms,
         "last_seen": s.last_seen_ts, "last_error": s.last_error,
         "can_start": s.start_cmd.is_some(), "auto_restart": s.auto_restart,
-        "sse": s.sse, "sse_endpoint": s.sse_endpoint, "lang": s.lang,
+        "sse": s.sse, "sse_endpoint": s.sse_endpoint, "ws": s.ws, "lang": s.lang,
         "framework": s.framework,
         "via_ssh": s.via_ssh,
         // contrôle du process : maintenu par CE command center (children) ?
@@ -3776,6 +3796,7 @@ mod tests {
                             protocol: None,
                             sse: false,
                             sse_endpoint: false,
+                            ws: false,
                             lang: None,
                             framework: None,
                             via_ssh: false,
@@ -3867,6 +3888,7 @@ mod tests {
                     protocol: None,
                     sse: false,
                     sse_endpoint: false,
+                    ws: false,
                     lang: Some("node".into()),
                     framework: None,
                     via_ssh: false,
@@ -4050,6 +4072,7 @@ mod tests {
                 protocol: None,
                 sse: false,
                 sse_endpoint: false,
+                ws: false,
                 lang: None,
                 framework: None,
                 via_ssh: false,
@@ -4117,6 +4140,7 @@ mod tests {
                 protocol: None,
                 sse: false,
                 sse_endpoint: false,
+                ws: false,
                 lang: None,
                 framework: None,
                 via_ssh: false,
@@ -4183,6 +4207,7 @@ mod tests {
                 protocol: None,
                 sse: false,
                 sse_endpoint: false,
+                ws: false,
                 lang: None,
                 framework: None,
                 via_ssh: false,
@@ -4244,6 +4269,7 @@ mod tests {
                     protocol: None,
                     sse: false,
                     sse_endpoint: false,
+                    ws: false,
                     lang: None,
                     framework: None,
                     via_ssh: false,
@@ -4276,6 +4302,7 @@ mod tests {
                     protocol: None,
                     sse: false,
                     sse_endpoint: false,
+                    ws: false,
                     lang: None,
                     framework: None,
                     via_ssh: false,
@@ -4501,6 +4528,7 @@ mod tests {
             content_type: String::new(),
             server: server.to_string(),
             powered_by: powered.to_string(),
+            session_id: String::new(),
         };
         assert_eq!(
             crate::probe::detect_lang_http(&mk("uvicorn", ""), None).as_deref(),

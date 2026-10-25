@@ -1,3 +1,29 @@
+## [0.7.10] — Trois modes de transport (STDIO / HTTP / WS) + 37 frameworks MCP détectés par langage
+
+### Frameworks MCP
+- **37 frameworks reconnus, 5 maximum par langage** : Python (FastMCP, FastAPI-MCP, mcpo, mcp-proxy, MCP SDK), TypeScript/Node (FastMCP, xmcp, mcp-framework, MCP SDK, Fastify MCP), Rust (LiteMCP, rmcp, rust-mcp-sdk, tower-mcp, mcp-rs), Go (mcp-go, Go SDK, mcp-golang, gomcp, go-mcp), Java (Spring AI, MCP Java SDK, Quarkus MCP, LangChain4j, mcp-java), C#/.NET (MCP C# SDK, mcp-dotnet, mcpdotnet, csharp-mcp), Ruby (MCP Ruby, fast-mcp, ruby-mcp, mcp-rb), PHP (PHP MCP SDK, Laravel MCP, mcp-php, Symfony MCP).
+- **Détection combinée** : signature comportementale d'abord (LiteMCP = spec 2026-07-28 non négociée + `/health` « ok » ; FastMCP = réponses SSE + `/sse` legacy co-servi, avec arbitrage Python/TypeScript par le langage du process), puis **nom annoncé** par le serveur (`serverInfo.name`) et **paquet lancé** pour les serveurs stdio.
+- **Langage déduit du framework** quand il est identifié (rmcp → Rust, mcp-go → Go…), sinon en-têtes HTTP, process propriétaire du port ou commande stdio.
+- **Matching par mot délimité** : `mcpo` ne matche plus `mcporter`, et `@modelcontextprotocol/server-*` (serveurs npm officiels) n'est plus pris pour le SDK C#. Tests de non-régression dédiés.
+- Nouvelle route `GET /api/frameworks` (id, label, langage) : l'UI construit les badges depuis cette table, sans liste dupliquée en JavaScript. Badge générique `.tag.fw` pour les frameworks autres que LiteMCP/FastMCP.
+
+### Durcissements (audit 2026-10-25)
+- `sanitize_http_path` : un chemin de sonde sans `/` initial ou contenant un caractère de contrôle retombe sur le chemin par défaut (anti-CRLF dans la request-line) ; utilisé par `http_request`, `sse_get_host` et le probe.
+- `http_host_header` : en-tête `Host` correct (`host:port`, crochets IPv6) sur toutes les requêtes de sonde.
+- `read_bounded_line` : lecture stdio plafonnée (au plus `MAX_PROBE_READ` + 1 octets avant troncature) — plus d'allocation géante avant coupure.
+- `RespHead.session_id` : le `Mcp-Session-Id` renvoyé par l'initialize est capturé, prêt à être rejoué sur les appels suivants.
+- `ssh_error_hint` factorisé (un seul endroit pour les messages « auth refusée » / « machine injoignable »).
+
+### UI
+- **Plus de badge « HTTP+SSE » ni « SSE »** : le streamable JSON et les réponses encodées SSE (FastMCP/mcp-proxy) sont **tous les deux du HTTP** — le badge de transport affiche désormais simplement `HTTP`. Le badge de framework (`FastMCP`, `LiteMCP`) reste séparé et son tooltip ne parle plus de SSE.
+- **Trois modes seulement : STDIO / HTTP / WS.** Le badge `HTTPS` (port 443) est retiré : ce n'était pas un mode de transport.
+- **Badge WS** (orange) : affiché quand le serveur accepte une **upgrade WebSocket** (`HTTP/1.1 101 Switching Protocols`) sur le chemin MCP. Nouvelle sonde `ws_upgrade_host` (en-têtes `Upgrade: websocket`, `Sec-WebSocket-Key`), timeout court, détection seule — aucun frame WS n'est échangé.
+- Détail serveur : la ligne framework de FastMCP n'affiche plus « + SSE legacy ».
+
+### Technique
+- `Server.ws` / `McpProbe.ws` propagés (probe HTTP loopback, probe par hôte, cache de démarrage, `/api/state`, `/api/detail`).
+- Test de non-régression `ws_upgrade_detecte_101_et_rejette_le_reste` : 101 → WS, 200 → HTTP, port fermé → pas de panic.
+
 ## [0.7.9] — Journal replié par défaut + README ultra simple, captures refaites
 
 ### UI

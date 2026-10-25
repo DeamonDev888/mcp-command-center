@@ -1,4 +1,5 @@
 pub mod crypto;
+pub mod frameworks;
 pub mod logos;
 pub mod manage;
 pub mod probe;
@@ -675,6 +676,16 @@ pub fn route(
             "application/json",
             logos::LOGOS_JSON.as_bytes().to_vec(),
         );
+    }
+    // Table des frameworks MCP connus (id, label, langage) — l'UI en dérive
+    // les badges sans dupliquer la liste côté JavaScript.
+    if method == "GET" && path == "/api/frameworks" {
+        let arr: Vec<serde_json::Value> = crate::frameworks::FRAMEWORKS
+            .iter()
+            .map(|f| serde_json::json!({"id": f.id, "label": f.label, "lang": f.lang}))
+            .collect();
+        let j = serde_json::json!({"frameworks": arr});
+        return (200, "application/json", j.to_string().into_bytes());
     }
     if method == "POST" && path == "/api/action" {
         let text = String::from_utf8_lossy(body).to_string();

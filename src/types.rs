@@ -116,6 +116,10 @@ pub struct Server {
     pub sse: bool,
     /// Endpoint SSE legacy (/sse → event:) co-servi (FastMCP httpStream le fait).
     pub sse_endpoint: bool,
+    /// Le serveur accepte une upgrade WebSocket (réponse 101 à un GET avec
+    /// `Upgrade: websocket`) — mode de transport « ws » de l'UI. Détection
+    /// seulement : aucun trafic WS n'est émis au-delà du handshake.
+    pub ws: bool,
     /// Langage inféré (stdio: commande ; HTTP: en-têtes Server/X-Powered-By)
     pub lang: Option<String>,
     /// Framework détecté par fingerprint ("litemcp" : réponse initialize en

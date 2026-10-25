@@ -208,11 +208,14 @@ details.fold .kv{margin-top:12px}
 .tag.stdio{color:#39c5cf;border-color:#39c5cf44}
 .tag.http{color:#bc8cff;border-color:#bc8cff44}
 .tag.sse{color:var(--ok);border-color:rgba(85,165,131,.45)}
+.tag.ws{color:#f0a35e;border-color:#f0a35e55;background:#f0a35e11}
 .tag.https{color:#d2a8ff;border-color:#d2a8ff44;background:#d2a8ff11;box-shadow:0 0 8px rgba(210,168,255,.35)}
 /* Framework détecté par fingerprint (litemcp) : badge violet « glow HTTPS » — halo pulsant */
 .tag.litemcp{color:#e9d5ff;border-color:#d2a8ff88;background:#d2a8ff1f;box-shadow:0 0 10px rgba(210,168,255,.55);animation:glowPulse 2.4s ease-in-out infinite}
 /* Framework FastMCP (mcp-proxy httpStream) : badge teal — distinct du violet litemcp */
 .tag.fastmcp{color:#8fd3dE;border-color:#6f9ba688;background:#6f9ba61f;box-shadow:0 0 8px rgba(111,155,166,.45)}
+/* autres frameworks MCP détectés par nom (rmcp, mcp-go, Spring AI, xmcp…) */
+.tag.fw{color:#a5b4fc;border-color:#a5b4fc55;background:#a5b4fc11}
 @keyframes glowPulse{50%{box-shadow:0 0 18px rgba(210,168,255,.9)}}
 .srow .l1 .tag{font-size:8.5px;padding:0 5px;line-height:14px;flex-shrink:0}
 .langchip{font:8.5px var(--mono);font-weight:700;border:1px solid;border-radius:4px;padding:0 4px;line-height:14px;flex-shrink:0}
@@ -497,7 +500,7 @@ function render() {
     upd.style.display = '';
     upd.textContent = '⬆ v' + state.latest_version + ' dispo';
     upd.title = 'Nouvelle version ' + state.latest_version + ' publiée sur GitHub (installée : v' + MCC_VERSION + ') — github.com/DeamonDev888/mcp-command-center/releases';
-    upd.onclick = () => window.open('https://github.com/DeamonDev888/mcp-command-center/releases/latest', '_blank');
+    upd.onclick = () => window.open('https://github.com/DeamonDev888/mcp-command-center/releases/latest', '_blank', 'noopener,noreferrer');
   } else upd.style.display = 'none';
   renderServers();
   renderPeers();
@@ -546,22 +549,19 @@ function langChip(s) {
   return `<span class="langchip" style="color:${m.c};border-color:${m.c}66;background:${m.c}14" title="Langage inféré : ${m.n}">${m.t}</span>`;
 }
 
-// Badge du type de MCP : STDIO / HTTPS / HTTP+SSE (streamable + endpoint legacy
-// co-servi, typique FastMCP) / SSE (réponses event-stream sans POST prouvé) /
-// HTTP (streamable), + ·LAN si distant. Le POST initialize répondu = streamable
-// HTTP quel que soit l'encodage des réponses (le probe n'atteint le badge que là).
+// Badge du type de MCP : STDIO / HTTP / WS — trois modes, point.
+// HTTP couvre le streamable JSON et les réponses encodées SSE (FastMCP).
 function typeBadge(s) {
+  // Trois modes affichés, point : STDIO / HTTP / WS. Le streamable JSON et les
+  // réponses encodées SSE (FastMCP) sont tous les deux « HTTP » — pas de badge
+  // séparé. Le framework (LiteMCP/FastMCP) a son propre badge.
   if (s.transport === 'stdio') return '<span class="tag stdio" title="Transport stdio (process local)">STDIO</span>';
   const lan = s.transport_info.host ? '\u00b7LAN' : '';
   const via = s.via_ssh ? '\u00b7SSH' : '';
   const viaTip = s.via_ssh ? ' — sondé via SSH depuis la machine (interne)' : '';
   const suffix = (lan ? ' — serveur distant (LAN)' : '') + viaTip;
-  if (s.transport_info.port === 443) return `<span class="tag https" title="HTTPS (TLS, port 443)${suffix}">HTTPS${lan}${via}</span>`;
-  if (s.sse && s.sse_endpoint) return `<span class="tag sse" title="HTTP streamable + endpoint SSE legacy co-servé : réponses initialize en text/event-stream et GET /sse ouvert (comportement FastMCP/mcp-proxy)${suffix}">HTTP+SSE${lan}${via}</span>`;
-  const t = s.sse ? 'SSE' : 'HTTP';
-  const cls = t === 'SSE' ? 'sse' : 'http';
-  const tip = t === 'SSE' ? 'Réponses initialize en text/event-stream' : 'HTTP streamable (JSON)';
-  return `<span class="tag ${cls}" title="${tip}${suffix}">${t}${lan}${via}</span>`;
+  if (s.ws) return `<span class="tag ws" title="WebSocket — le serveur accepte une upgrade WS (101)${suffix}">WS${lan}${via}</span>`;
+  return `<span class="tag http" title="HTTP streamable${suffix}">HTTP${lan}${via}</span>`;
 }
 
 // Badge du framework détecté par fingerprint :
@@ -569,13 +569,25 @@ function typeBadge(s) {
 // - fastmcp : réponses initialize encodées SSE + endpoint /sse legacy co-servi
 //   (signature httpStream de mcp-proxy/FastMCP). La spec MCP utilisée par le
 //   serveur (s.protocol) est exposée dans le tooltip et le détail.
+// Table des frameworks MCP (id → {label, lang}) chargée depuis /api/frameworks :
+// une seule source de vérité côté Rust, pas de liste dupliquée en JS.
+let FRAMEWORKS = {};
+async function loadFrameworks() {
+  try {
+    const r = await fetch('/api/frameworks');
+    if (!r.ok) return;
+    const j = await r.json();
+    (j.frameworks || []).forEach(f => { FRAMEWORKS[f.id] = f; });
+    if (state) { render(); if (selectedId && detailCache) renderDetail(); }
+  } catch (e) { /* hors ligne : les badges afficheront l'id brut */ }
+}
 function frameworkBadge(s) {
+  if (!s.framework) return '';
+  const f = FRAMEWORKS[s.framework] || {label: s.framework, lang: s.lang || '?'};
+  const cls = s.framework === 'litemcp' ? 'litemcp'
+            : s.framework.indexOf('fastmcp') === 0 ? 'fastmcp' : 'fw';
   const lan = s.transport_info && s.transport_info.host ? ' — serveur distant (LAN)' : '';
-  if (s.framework === 'litemcp')
-    return `<span class="tag litemcp" title="Framework LiteMCP : lib Rust MCP stateless, HTTP streamable (spec ${esc(s.protocol || '?')}) — fingerprint : version non négociée + sonde /health${lan}">LiteMCP</span>`;
-  if (s.framework === 'fastmcp')
-    return `<span class="tag fastmcp" title="Framework FastMCP (mcp-proxy httpStream) : réponses initialize en SSE + endpoint /sse legacy co-servi — spec MCP utilisée : ${esc(s.protocol || '?')}${lan}">FastMCP</span>`;
-  return '';
+  return `<span class="tag ${cls}" title="Framework ${esc(f.label)} · ${esc(f.lang)}${lan}">${esc(f.label)}</span>`;
 }
 
 function rowToggle(s) {
@@ -780,15 +792,17 @@ function renderDetail() {
   const s = detailCache;
   if (!s || s.id !== selectedId) return;
   const ti = s.transport === 'http'
-    ? `HTTP ${s.transport_info.host ? esc(s.transport_info.host)+':' : ''}${s.transport_info.port}${esc(s.transport_info.path)}`
-    : `stdio &middot; ${esc(s.transport_info.program)} ${(s.transport_info.args||[]).join(' ')}`;
+    ? `HTTP ${s.transport_info.host ? s.transport_info.host + ':' : ''}${s.transport_info.port}${s.transport_info.path}`
+    : `stdio \u00b7 ${s.transport_info.program} ${(s.transport_info.args || []).join(' ')}`;
   const kv = [
     ['id', s.id], ['transport', ti],
     ['origine', s.origin],
     ['bind', s.bound_host ?? '-'], ['serveur MCP', s.server_name ?? '-'],
     ['version', s.version ?? '-'], ['protocole', s.protocol ?? '-'],
-    ['framework', s.framework === 'litemcp' ? 'LiteMCP (Rust · HTTP stateless ' + (s.protocol || '?') + ')'
-      : s.framework === 'fastmcp' ? 'FastMCP (mcp-proxy httpStream + SSE legacy · spec ' + (s.protocol || '?') + ')'
+    ['framework', s.framework
+      ? ((FRAMEWORKS[s.framework] || {label: s.framework, lang: '?'}).label
+         + ' (' + (FRAMEWORKS[s.framework] || {lang: s.lang || '?'}).lang
+         + ' · spec ' + (s.protocol || '?') + ')')
       : '-'],
     ['sonde', s.via_ssh ? 'via SSH (interne à la machine)' : 'directe'],
     ['latence', s.latency_ms != null ? s.latency_ms + ' ms' : '-'],
@@ -800,18 +814,18 @@ function renderDetail() {
   const starting = s.enabled && s.managed && s.state !== 'UP';
   const dispState = starting ? 'STARTING' : s.state;
   const etatProcess = s.state === 'UP' ? 'en marche'
-    : starting ? 'au d&eacute;marrage&hellip;'
-    : s.state === 'PORT-ONLY' ? 'port occup&eacute; (aucune r&eacute;ponse MCP)'
-    : s.state === 'DISABLED' ? 'd&eacute;sactiv&eacute;' : 'arr&ecirc;t&eacute;';
+    : starting ? 'au d\u00e9marrage\u2026'
+    : s.state === 'PORT-ONLY' ? 'port occup\u00e9 (aucune r\u00e9ponse MCP)'
+    : s.state === 'DISABLED' ? 'd\u00e9sactiv\u00e9' : 'arr\u00eat\u00e9';
   const cmd = s.start_cmd
-    ? s.start_cmd.program + ' ' + (s.start_cmd.args || []).join(' ') + (s.start_cmd.workdir ? '  &middot;  ' + s.start_cmd.workdir : '')
+    ? s.start_cmd.program + ' ' + (s.start_cmd.args || []).join(' ') + (s.start_cmd.workdir ? '  \u00b7  ' + s.start_cmd.workdir : '')
     : null;
   const kvd = [
-    ['contr&ocirc;le', s.managed ? 'process lanc&eacute; et maintenu par le command center'
-      : (cmd ? 'commande pr&ecirc;te &mdash; process externe non d&eacute;marr&eacute; par ici' : 'aucune &mdash; process externe')],
+    ['contr&ocirc;le', s.managed ? 'process lanc\u00e9 et maintenu par le command center'
+      : (cmd ? 'commande pr\u00eate \u2014 process externe non d\u00e9marr\u00e9 par ici' : 'aucune \u2014 process externe')],
     ['&eacute;tat du process', etatProcess],
     ['pid', s.pid ?? '-'],
-    ['auto-restart', s.auto_restart ? 'ON &mdash; relance automatique au boot/crash' : 'OFF'],
+    ['auto-restart', s.auto_restart ? 'ON \u2014 relance automatique au boot/crash' : 'OFF'],
     ['commande', cmd ?? '-'],
   ].map(([k, v]) => `<div class="k">${k}</div><div class="v">${esc(v)}</div>`).join('');
   /* Replis à état mémorisé : le rendu tourne à chaque cycle de rafraîchissement,
@@ -1179,6 +1193,7 @@ function toggleLog() {
   try { v = localStorage.getItem('mcc.logmin'); } catch (e) {}
   document.getElementById('logpanel').classList.toggle('min', v === null ? true : v === 'true');
 })();
+loadFrameworks();
 load();
 setInterval(load, 5000);
 // retour de la fenêtre (tray → visible) : reprise immédiate du rafraîchissement

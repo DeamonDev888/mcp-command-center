@@ -1,16 +1,17 @@
 use crate::types::ToolInfo;
 use serde_json::{json, Value};
-use std::io::{Read, Write};
+use std::io::{BufRead, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// En-têtes utiles d'une réponse HTTP (inférence du langage serveur).
+/// En-têtes utiles d'une réponse HTTP (inférence du langage serveur + session MCP).
 #[derive(Default, Clone)]
 pub struct RespHead {
     pub content_type: String,
     pub server: String,
     pub powered_by: String,
+    pub session_id: String,
 }
 
 impl RespHead {
@@ -36,6 +37,9 @@ pub struct McpProbe {
     /// Endpoint SSE legacy co-servé (GET /sse → 200 + `event:`). Vrai sur un
     /// FastMCP httpStream (compat 2024-11-05) ET sur un vrai serveur SSE.
     pub sse_endpoint: bool,
+    /// Le serveur accepte une upgrade WebSocket (101 à un GET avec
+    /// `Upgrade: websocket`) — badge de transport « WS » dans l'UI.
+    pub ws: bool,
     /// Langage inféré (stdio : la commande ; HTTP : en-têtes Server/X-Powered-By).
     /// La spec MCP n'expose PAS le langage dans serverInfo.
     pub lang: Option<String>,
@@ -61,6 +65,7 @@ impl McpProbe {
             protocol: None,
             sse: false,
             sse_endpoint: false,
+            ws: false,
             lang: None,
             framework: None,
             tools: vec![],
@@ -474,6 +479,27 @@ pub fn port_open(host: &str, port: u16, timeout: Duration) -> bool {
     }
 }
 
+/// En-tête `Host` conforme RFC 7230 §5.4 : crochets obligatoires sur un littéral IPv6.
+fn http_host_header(host: &str, port: u16) -> String {
+    if host.contains(':') {
+        format!("[{}]:{}", host, port)
+    } else {
+        format!("{}:{}", host, port)
+    }
+}
+
+/// Sanitize un chemin HTTP avant insertion dans la request-line (anti-CRLF / request splitting).
+fn sanitize_http_path<'a>(path: &'a str, fallback: &'a str) -> &'a str {
+    if !path.is_empty()
+        && path.starts_with('/')
+        && path.chars().all(|c| !c.is_control() && c != ' ')
+    {
+        path
+    } else {
+        fallback
+    }
+}
+
 /// Le endpoint SSE legacy (GET, généralement /sse) sert-il un flux SSE ?
 /// Un 200 dont le début de réponse contient `event:` = flux SSE ouvert.
 /// Seule signature fiable du transport SSE legacy : un FastMCP httpStream
@@ -492,9 +518,11 @@ pub fn sse_get_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> bool 
     };
     stream.set_read_timeout(Some(timeout)).ok();
     stream.set_write_timeout(Some(timeout)).ok();
+    let path = sanitize_http_path(path, "/sse");
+    let host_hdr = http_host_header(host, port);
     let req = format!(
-        "GET {} HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\nConnection: close\r\n\r\n",
-        path
+        "GET {} HTTP/1.1\r\nHost: {}\r\nAccept: text/event-stream\r\nConnection: close\r\n\r\n",
+        path, host_hdr
     );
     if stream.write_all(req.as_bytes()).is_err() {
         return false;
@@ -536,6 +564,45 @@ pub fn sse_get(port: u16, path: &str, timeout_ms: u64) -> bool {
     sse_get_host("::1", port, path, timeout_ms) || sse_get_host("127.0.0.1", port, path, timeout_ms)
 }
 
+/// Le serveur accepte-t-il une upgrade WebSocket sur `path` ? Envoie un GET
+/// avec les en-têtes `Upgrade: websocket` et regarde si la réponse est un
+/// `101 Switching Protocols`. Détection seule : aucun frame WS n'est échangé.
+/// Sert au badge de transport « WS » de l'UI (les trois modes affichés sont
+/// stdio, http et ws).
+pub fn ws_upgrade_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> bool {
+    let addr = match socket_addr(host, port) {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    let timeout = Duration::from_millis(timeout_ms.clamp(150, 1500));
+    let mut stream = match TcpStream::connect_timeout(&addr, timeout) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    stream.set_read_timeout(Some(timeout)).ok();
+    stream.set_write_timeout(Some(timeout)).ok();
+    let path = sanitize_http_path(path, "/mcp");
+    let host_hdr = http_host_header(host, port);
+    // clé factice RFC 6455 (16 octets base64) — le serveur peut répondre 101
+    // sans qu'on poursuive le protocole.
+    let req = format!(
+        "GET {} HTTP/1.1\r\nHost: {}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+        path, host_hdr
+    );
+    if stream.write_all(req.as_bytes()).is_err() {
+        return false;
+    }
+    let mut data = Vec::new();
+    let mut tmp = [0u8; 2048];
+    // une seule lecture suffit : la ligne de statut arrive en tête de réponse
+    match stream.read(&mut tmp) {
+        Ok(n) if n > 0 => data.extend_from_slice(&tmp[..n]),
+        _ => return false,
+    }
+    let head = String::from_utf8_lossy(&data).to_lowercase();
+    head.starts_with("http/1.1 101") || head.starts_with("http/1.0 101")
+}
+
 /// GET /health sur un hôte précis — vrai si 2xx avec un corps contenant « ok ».
 /// Sonde de vie documentée de litemcp ; second signal du fingerprint du framework.
 pub fn health_ok_host(host: &str, port: u16, timeout_ms: u64) -> bool {
@@ -550,11 +617,7 @@ pub fn health_ok_host(host: &str, port: u16, timeout_ms: u64) -> bool {
     };
     stream.set_read_timeout(Some(timeout)).ok();
     stream.set_write_timeout(Some(timeout)).ok();
-    let host_hdr = if host.contains(':') {
-        format!("[{}]:{}", host, port)
-    } else {
-        format!("{}:{}", host, port)
-    };
+    let host_hdr = http_host_header(host, port);
     let req = format!(
         "GET /health HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
         host_hdr
@@ -598,21 +661,15 @@ pub fn health_ok_host(host: &str, port: u16, timeout_ms: u64) -> bool {
 /// ET expose GET /health → 200 « ok ». Les deux signatures à la fois écartent
 /// les serveurs qui partagent l'une ou l'autre (specs à jour, health endpoints
 /// génériques).
+/// Ancienne API conservée pour les tests : signature comportementale seule.
+#[cfg(test)]
 fn detect_framework(
     protocol: Option<&str>,
     health: bool,
     sse: bool,
     sse_endpoint: bool,
 ) -> Option<&'static str> {
-    if protocol == Some(crate::LITEMCP_PROTOCOL) && health {
-        return Some("litemcp");
-    }
-    // FastMCP httpStream (mcp-proxy) : réponses initialize encodées SSE ET
-    // endpoint /sse legacy co-servi — la double signature documentée du combo.
-    if sse && sse_endpoint {
-        return Some("fastmcp");
-    }
-    None
+    crate::frameworks::detect_signature(protocol, health, sse, sse_endpoint).map(|f| f.id)
 }
 
 /// Sonde un port sur les chemins MCP usuels, dans l'ordre : /mcp, /, /api/mcp.
@@ -702,6 +759,27 @@ pub fn probe_hidden_cmd(cmd: &mut Command) {
     }
 }
 
+/// Indice diagnostic sur une erreur `ssh` (pur, testable).
+/// NB : « connect to host … port 22: Permission denied » (blocage socket/pare-feu
+/// local) doit être classé comme machine injoignable AVANT le test « permission
+/// denied » d'un refus d'authentification par clé publique.
+fn ssh_error_hint(stderr: &str) -> &'static str {
+    let low = stderr.to_lowercase();
+    if low.contains("could not resolve")
+        || low.contains("timed out")
+        || low.contains("connection refused")
+        || low.contains("no route to host")
+        || low.contains("network is unreachable")
+        || low.contains("connect to host")
+    {
+        " — machine injoignable"
+    } else if low.contains("permission denied") || low.contains("publickey") {
+        " — auth refusée : ajoute ta clé publique sur la machine (authorized_keys), le mot de passe n'est pas possible en non-interactif"
+    } else {
+        ""
+    }
+}
+
 /// Exécute une commande sur la machine distante via le client ssh système
 /// (aucune dépendance : ssh.exe/OpenSSH livré avec Windows). Auth par clé
 /// obligatoire : BatchMode interdit toute invite. Retourne stdout, ou l'erreur
@@ -732,17 +810,7 @@ fn ssh_exec(
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     if !out.status.success() && stdout.trim().is_empty() {
-        let low = stderr.to_lowercase();
-        let hint = if low.contains("permission denied") || low.contains("publickey") {
-            " — auth refusée : ajoute ta clé publique sur la machine (authorized_keys), le mot de passe n'est pas possible en non-interactif"
-        } else if low.contains("could not resolve")
-            || low.contains("timed out")
-            || low.contains("connection refused")
-        {
-            " — machine injoignable"
-        } else {
-            ""
-        };
+        let hint = ssh_error_hint(&stderr);
         return Err(format!("ssh {user}@{host} : {}{}", stderr.trim(), hint));
     }
     Ok(stdout)
@@ -909,12 +977,16 @@ pub fn ssh_probe_server(
     );
     let out = match ssh_exec(host, user, &remote, 8) {
         Ok(o) => o,
-        Err(e) => return McpProbe::fail(e, true),
+        Err(e) => return McpProbe::fail(e, false),
     };
     let latency = t0.elapsed().as_millis() as u64;
     let (init_body, tools_body) = out.split_once("__MCC_SEP__").unwrap_or((out.as_str(), ""));
+    let remote_open = !init_body.trim().is_empty();
     let Some(v) = extract_json(init_body.as_bytes()) else {
-        return McpProbe::fail("via ssh : pas de réponse initialize".to_string(), true);
+        return McpProbe::fail(
+            "via ssh : pas de réponse initialize".to_string(),
+            remote_open,
+        );
     };
     let Some(res) = v.get("result") else {
         return McpProbe::fail("via ssh : initialize rejeté".to_string(), true);
@@ -932,6 +1004,17 @@ pub fn ssh_probe_server(
         .get("protocolVersion")
         .and_then(|x| x.as_str())
         .map(String::from);
+    let lang_hint = detect_lang_http(&RespHead::default(), name.as_deref());
+    let fw = crate::frameworks::detect(
+        name.as_deref(),
+        protocol.as_deref(),
+        false,
+        false,
+        false,
+        lang_hint.as_deref(),
+    );
+    let framework = fw.map(|f| f.id.to_string());
+    let lang = lang_hint.or_else(|| fw.map(|f| f.lang.to_string()));
     let mut tools = Vec::new();
     if let Some(tv) = extract_json(tools_body.as_bytes()) {
         if let Some(arr) = tv
@@ -967,8 +1050,9 @@ pub fn ssh_probe_server(
         protocol,
         sse: false,
         sse_endpoint: false,
-        lang: None,
-        framework: None,
+        ws: false,
+        lang,
+        framework,
         tools,
         latency_ms: latency,
         error: None,
@@ -1052,19 +1136,10 @@ fn http_request(
                 stream.set_read_timeout(Some(timeout)).ok();
                 stream.set_write_timeout(Some(timeout)).ok();
                 // Host exact (le "localhost" historique casse les vhosts sur hôte distant)
-                let host_hdr = if host.contains(':') {
-                    format!("[{}]:{}", host, port)
-                } else {
-                    format!("{}:{}", host, port)
-                };
+                let host_hdr = http_host_header(host, port);
                 // path sans CR/LF ni espace : il est placé tel quel dans la ligne de
                 // requête — un path configuré ne doit pas pouvoir injecter d'en-têtes
-                let path = if !path.is_empty() && path.chars().all(|c| !c.is_control() && c != ' ')
-                {
-                    path
-                } else {
-                    "/mcp"
-                };
+                let path = sanitize_http_path(path, "/mcp");
                 let mut req = format!(
                     "{} {} HTTP/1.1\r\nHost: {}\r\nAccept: application/json, text/event-stream\r\n",
                     method, path, host_hdr
@@ -1175,17 +1250,32 @@ fn http_request(
                 // et la supervision des serveurs s'arrêtait définitivement.
                 // On borne l'extraction du corps au contenu réellement reçu.
                 let sep = find_sub(&data, b"\r\n\r\n").unwrap_or(0);
-                let head = String::from_utf8_lossy(&data[..sep]).to_lowercase();
+                let raw_head = String::from_utf8_lossy(&data[..sep]);
+                let head = raw_head.to_lowercase();
                 let header = |name: &str| -> String {
                     head.lines()
                         .find_map(|l| l.strip_prefix(name))
                         .map(|v| v.trim().to_string())
                         .unwrap_or_default()
                 };
+                // Mcp-Session-Id : nom d'en-tête insensible à la casse, mais la
+                // VALEUR du jeton de session doit conserver sa casse exacte.
+                let session_id = raw_head
+                    .lines()
+                    .find_map(|l| {
+                        let (k, v) = l.split_once(':')?;
+                        if k.trim().eq_ignore_ascii_case("mcp-session-id") {
+                            Some(v.trim().to_string())
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_default();
                 let resp_head = RespHead {
                     content_type: header("content-type:"),
                     server: header("server:"),
                     powered_by: header("x-powered-by:"),
+                    session_id,
                 };
                 let body_start = sep.saturating_add(4).min(data.len());
                 let mut body_bytes = data[body_start..].to_vec();
@@ -1292,25 +1382,61 @@ pub fn rpc_call(
 
 /// Probe MCP streamable-HTTP complète : initialize + tools/list.
 pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
-    let t0 = Instant::now();
     let quick = Duration::from_millis(timeout_ms.min(1500));
-    let open = port_open("::1", port, quick) || port_open("127.0.0.1", port, quick);
-    if !open {
+    let open_host = if port_open("::1", port, quick) {
+        "::1"
+    } else if port_open("127.0.0.1", port, quick) {
+        "127.0.0.1"
+    } else {
         return McpProbe::fail(
             "port fermé (rien n'écoute sur ::1 ni 127.0.0.1)".to_string(),
             false,
         );
-    }
+    };
     let init_params = json!({
         "protocolVersion": "2024-11-05",
         "capabilities": {},
         "clientInfo": {"name": "mcp-command-center", "version": env!("CARGO_PKG_VERSION")}
     });
-    let (res, host, head) = match rpc_call(port, path, "initialize", init_params, 1, timeout_ms) {
-        Ok(x) => x,
-        Err(e) => return McpProbe::fail(e, true),
+    let other_host = if open_host == "::1" {
+        "127.0.0.1"
+    } else {
+        "::1"
     };
-    let latency = t0.elapsed().as_millis() as u64;
+    let t0 = Instant::now();
+    let (res, host, head, latency) = match rpc_call_host_headers(
+        open_host,
+        port,
+        path,
+        "initialize",
+        init_params.clone(),
+        1,
+        timeout_ms,
+        &[],
+    ) {
+        Ok((r, h)) => (r, open_host.to_string(), h, t0.elapsed().as_millis() as u64),
+        Err(e1) => {
+            let t1 = Instant::now();
+            match rpc_call_host_headers(
+                other_host,
+                port,
+                path,
+                "initialize",
+                init_params,
+                1,
+                timeout_ms,
+                &[],
+            ) {
+                Ok((r, h)) => (
+                    r,
+                    other_host.to_string(),
+                    h,
+                    t1.elapsed().as_millis() as u64,
+                ),
+                Err(_) => return McpProbe::fail(e1, true),
+            }
+        }
+    };
     let si = res.get("serverInfo");
     let name = si
         .and_then(|s| s.get("name"))
@@ -1335,28 +1461,43 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
     let sse = head.sse();
     let sse_path = if path == "/sse" { path } else { "/sse" };
     let sse_endpoint = sse_get_host(&host, port, sse_path, timeout_ms.clamp(500, 1200));
-    // Fingerprint litemcp : la sonde /health ne part que si l'initialize a
-    // répondu 2026-07-28 (requête émise : 2024-11-05) — aucune requête de plus
-    // pour les serveurs qui négocient normalement. Sinon : signature FastMCP
-    // (réponses SSE + endpoint /sse legacy co-servi).
-    let framework = if protocol.as_deref() == Some(crate::LITEMCP_PROTOCOL) {
-        detect_framework(
-            protocol.as_deref(),
-            health_ok_host(&host, port, timeout_ms.clamp(400, 1200)),
-            sse,
-            sse_endpoint,
-        )
-        .map(String::from)
-    } else {
-        detect_framework(protocol.as_deref(), false, sse, sse_endpoint).map(String::from)
-    };
-    // 1) en-têtes Server/X-Powered-By ; 2) sinon le vrai process qui écoute le port ;
-    // 3) sinon le framework (litemcp = lib Rust par définition)
-    let lang = detect_lang_http(&head, name.as_deref())
-        .or_else(|| port_owner_lang(port))
-        .or_else(|| framework.as_ref().map(|_| "rust".to_string()));
+    // Transport WS : upgrade WebSocket acceptée (101) → badge « WS » dans l'UI.
+    let ws = ws_upgrade_host(&host, port, path, timeout_ms.clamp(300, 800));
+    // Langage : 1) en-têtes Server/X-Powered-By ; 2) process qui écoute le port.
+    // Il sert aussi à arbitrer FastMCP Python vs TypeScript.
+    let lang_hint = detect_lang_http(&head, name.as_deref()).or_else(|| port_owner_lang(port));
+    // Fingerprint : la sonde /health ne part que si l'initialize a répondu
+    // 2026-07-28 (requête émise : 2024-11-05) — aucune requête de plus pour les
+    // serveurs qui négocient normalement. Les signatures fortes (litemcp,
+    // FastMCP) passent avant la détection par nom du framework.
+    let health = protocol.as_deref() == Some(crate::LITEMCP_PROTOCOL)
+        && health_ok_host(&host, port, timeout_ms.clamp(400, 1200));
+    let fw = crate::frameworks::detect(
+        name.as_deref(),
+        protocol.as_deref(),
+        health,
+        sse,
+        sse_endpoint,
+        lang_hint.as_deref(),
+    );
+    let framework = fw.map(|f| f.id.to_string());
+    // 3) sinon le framework (litemcp = lib Rust par définition, idem rmcp…)
+    let lang = lang_hint.or_else(|| fw.map(|f| f.lang.to_string()));
+    let mut session_hdr: Vec<(&str, &str)> = Vec::new();
+    if !head.session_id.is_empty() {
+        session_hdr.push(("Mcp-Session-Id", head.session_id.as_str()));
+    }
     let mut tools = Vec::new();
-    if let Ok((tr, _, _)) = rpc_call(port, path, "tools/list", json!({}), 2, timeout_ms) {
+    if let Ok((tr, _)) = rpc_call_host_headers(
+        &host,
+        port,
+        path,
+        "tools/list",
+        json!({}),
+        2,
+        timeout_ms,
+        &session_hdr,
+    ) {
         if let Some(arr) = tr.get("tools").and_then(|t| t.as_array()) {
             for t in arr {
                 tools.push(ToolInfo {
@@ -1386,12 +1527,30 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
         protocol,
         sse,
         sse_endpoint,
+        ws,
         lang,
         framework,
         tools,
         latency_ms: latency,
         error: None,
     }
+}
+
+/// Lit au plus `MAX_PROBE_READ` octets jusqu'à `\n` sans jamais allouer une
+/// ligne géante en mémoire AVANT troncature (audit 2026-10-25 — `read_until`
+/// nu lisait les 300 Mo en RAM avant de rendre la main).
+fn read_bounded_line<R: std::io::BufRead>(
+    reader: &mut R,
+    buf: &mut Vec<u8>,
+) -> std::io::Result<usize> {
+    buf.clear();
+    let n = reader
+        .take((MAX_PROBE_READ as u64) + 1)
+        .read_until(b'\n', buf)?;
+    if buf.len() > MAX_PROBE_READ {
+        buf.truncate(MAX_PROBE_READ);
+    }
+    Ok(n)
 }
 
 /// Probe/handshake MCP stdio (JSON délimité par nouvelles lignes sur stdin/stdout).
@@ -1428,23 +1587,16 @@ pub fn probe_stdio(
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     std::thread::spawn(move || {
         let mut reader = std::io::BufReader::new(stdout);
-        use std::io::BufRead;
-        // ROBUSTESSE (audit 2026-10-25) : `BufRead::lines()` alloue la ligne
-        // ENTIÈRE en mémoire, sans plafond — un serveur stdio qui écrit 300 Mo
-        // sur une seule ligne (sans \n) fait exploser la RAM du command-center
-        // (mesuré : 314 572 800 octets en une lecture). Le côté HTTP est déjà
-        // plafonné (MAX_PROBE_READ) ; on aligne le stdio sur la même limite.
+        // ROBUSTESSE (audit 2026-10-25) : `BufRead::lines()` et `read_until` nu
+        // allouent la ligne ENTIÈRE en mémoire, sans plafond — un serveur stdio
+        // qui écrit 300 Mo sur une seule ligne (sans \n) ferait exploser la RAM
+        // du command-center. `read_bounded_line` borne la lecture via `Read::take`
+        // AVANT allocation.
         let mut buf: Vec<u8> = Vec::new();
         loop {
-            buf.clear();
-            match reader.read_until(b'\n', &mut buf) {
+            match read_bounded_line(&mut reader, &mut buf) {
                 Ok(0) => break, // EOF
                 Ok(_) => {
-                    if buf.len() > MAX_PROBE_READ {
-                        // ligne anormalement longue : on la tronque (le parse JSON
-                        // la rejetera) au lieu d'allouer des centaines de Mo
-                        buf.truncate(MAX_PROBE_READ);
-                    }
                     let l = String::from_utf8_lossy(&buf).to_string();
                     if tx.send(l).is_err() {
                         break;
@@ -1559,6 +1711,20 @@ pub fn probe_stdio(
         });
         return Err(msg);
     }
+    // Framework d'un serveur stdio : nom annoncé ou paquet lancé (npx/uvx).
+    let lang = detect_lang_stdio(&program, args);
+    let args_join = args.join(" ").to_ascii_lowercase();
+    let fw = crate::frameworks::detect(
+        name.as_deref(),
+        protocol.as_deref(),
+        false,
+        false,
+        false,
+        lang.as_deref(),
+    )
+    .or_else(|| crate::frameworks::detect_by_name(&args_join));
+    let framework = fw.map(|f| f.id.to_string());
+    let lang = lang.or_else(|| fw.map(|f| f.lang.to_string()));
     if keep_alive {
         Ok((
             McpProbe {
@@ -1571,8 +1737,9 @@ pub fn probe_stdio(
                 protocol,
                 sse: false,
                 sse_endpoint: false,
-                lang: detect_lang_stdio(&program, args),
-                framework: None,
+                ws: false,
+                lang,
+                framework,
                 tools,
                 latency_ms: latency,
                 error: None,
@@ -1596,8 +1763,9 @@ pub fn probe_stdio(
                 protocol,
                 sse: false,
                 sse_endpoint: false,
-                lang: detect_lang_stdio(&program, args),
-                framework: None,
+                ws: false,
+                lang,
+                framework,
                 tools,
                 latency_ms: latency,
                 error: None,
@@ -1617,8 +1785,23 @@ pub fn rpc_call_host(
     id: u64,
     timeout_ms: u64,
 ) -> Result<(Value, RespHead), String> {
+    rpc_call_host_headers(host, port, path, method, params, id, timeout_ms, &[])
+}
+
+/// Un appel JSON-RPC HTTP vers un hôte précis avec en-têtes additionnels (ex. `Mcp-Session-Id`).
+#[allow(clippy::too_many_arguments)]
+pub fn rpc_call_host_headers(
+    host: &str,
+    port: u16,
+    path: &str,
+    method: &str,
+    params: Value,
+    id: u64,
+    timeout_ms: u64,
+    extra_headers: &[(&str, &str)],
+) -> Result<(Value, RespHead), String> {
     let body = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string();
-    let (bytes, head) = http_post_host(host, port, path, &body, timeout_ms, &[])?;
+    let (bytes, head) = http_post_host(host, port, path, &body, timeout_ms, extra_headers)?;
     let v =
         extract_json(&bytes).ok_or_else(|| format!("réponse non JSON ({} octets)", bytes.len()))?;
     if let Some(err) = v.get("error") {
@@ -1629,10 +1812,10 @@ pub fn rpc_call_host(
 
 /// Probe MCP streamable-HTTP sur un hôte précis : initialize + tools/list.
 pub fn probe_http_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> McpProbe {
-    let t0 = Instant::now();
     if !port_open(host, port, Duration::from_millis(timeout_ms.min(1500))) {
         return McpProbe::fail(format!("{}:{} injoignable", host, port), false);
     }
+    let t0 = Instant::now();
     let init_params = json!({
         "protocolVersion": "2024-11-05",
         "capabilities": {},
@@ -1664,21 +1847,36 @@ pub fn probe_http_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> Mc
     let sse = head.sse();
     let sse_path = if path == "/sse" { path } else { "/sse" };
     let sse_endpoint = sse_get_host(host, port, sse_path, timeout_ms.clamp(500, 1200));
-    let framework = if protocol.as_deref() == Some(crate::LITEMCP_PROTOCOL) {
-        detect_framework(
-            protocol.as_deref(),
-            health_ok_host(host, port, timeout_ms.clamp(400, 1200)),
-            sse,
-            sse_endpoint,
-        )
-        .map(String::from)
-    } else {
-        detect_framework(protocol.as_deref(), false, sse, sse_endpoint).map(String::from)
-    };
-    let lang = detect_lang_http(&head, name.as_deref())
-        .or_else(|| framework.as_ref().map(|_| "rust".to_string()));
+    // Transport WS : upgrade WebSocket acceptée (101) → badge « WS » dans l'UI.
+    let ws = ws_upgrade_host(host, port, path, timeout_ms.clamp(300, 800));
+    let lang_hint = detect_lang_http(&head, name.as_deref());
+    let health = protocol.as_deref() == Some(crate::LITEMCP_PROTOCOL)
+        && health_ok_host(host, port, timeout_ms.clamp(400, 1200));
+    let fw = crate::frameworks::detect(
+        name.as_deref(),
+        protocol.as_deref(),
+        health,
+        sse,
+        sse_endpoint,
+        lang_hint.as_deref(),
+    );
+    let framework = fw.map(|f| f.id.to_string());
+    let lang = lang_hint.or_else(|| fw.map(|f| f.lang.to_string()));
+    let mut session_hdr: Vec<(&str, &str)> = Vec::new();
+    if !head.session_id.is_empty() {
+        session_hdr.push(("Mcp-Session-Id", head.session_id.as_str()));
+    }
     let mut tools = Vec::new();
-    if let Ok((tr, _)) = rpc_call_host(host, port, path, "tools/list", json!({}), 2, timeout_ms) {
+    if let Ok((tr, _)) = rpc_call_host_headers(
+        host,
+        port,
+        path,
+        "tools/list",
+        json!({}),
+        2,
+        timeout_ms,
+        &session_hdr,
+    ) {
         if let Some(arr) = tr.get("tools").and_then(|t| t.as_array()) {
             for t in arr {
                 tools.push(ToolInfo {
@@ -1708,6 +1906,7 @@ pub fn probe_http_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> Mc
         protocol,
         sse,
         sse_endpoint,
+        ws,
         lang,
         framework,
         tools,
@@ -1927,7 +2126,56 @@ mod tests {
     }
 
     #[test]
-    fn sse_get_detecte_un_flux_event_stream_et_rejete_l_encodage_sse_du_streamable() {
+    fn ws_upgrade_detecte_101_et_rejette_le_reste() {
+        // 1) serveur qui accepte l'upgrade WebSocket → 101 → true
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        thread::spawn(move || {
+            for stream in l.incoming() {
+                let Ok(mut s) = stream else { return };
+                let mut buf = [0u8; 4096];
+                let n = s.read(&mut buf).unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                let resp = if req.contains("Upgrade: websocket") {
+                    "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+                } else {
+                    "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+                };
+                let _ = s.write_all(resp.as_bytes());
+            }
+        });
+        assert!(
+            ws_upgrade_host("127.0.0.1", port, "/mcp", 1500),
+            "un serveur qui répond 101 doit être détecté comme WS"
+        );
+
+        // 2) serveur HTTP ordinaire → 200 → false (pas de faux badge WS)
+        let l2 = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port2 = l2.local_addr().unwrap().port();
+        thread::spawn(move || {
+            for stream in l2.incoming() {
+                let Ok(mut s) = stream else { return };
+                let mut buf = [0u8; 4096];
+                let _ = s.read(&mut buf);
+                let _ = s.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+                );
+            }
+        });
+        assert!(
+            !ws_upgrade_host("127.0.0.1", port2, "/mcp", 1500),
+            "un serveur HTTP qui ne fait pas d'upgrade ne doit pas être marqué WS"
+        );
+
+        // 3) port fermé → false, jamais de panic
+        let l3 = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port3 = l3.local_addr().unwrap().port();
+        drop(l3);
+        assert!(!ws_upgrade_host("127.0.0.1", port3, "/mcp", 600));
+    }
+
+    #[test]
+    fn sse_get_detecte_un_flux_event_stream_et_rejette_l_encodage_sse_du_streamable() {
         // 1. endpoint SSE legacy : 200 + "event:" dans le flux → true
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = l.local_addr().unwrap().port();
@@ -2038,7 +2286,7 @@ mod tests {
         // 2026-07-28 sans /health MAIS signature SSE+/sse complète → fastmcp
         assert_eq!(
             detect_framework(Some("2026-07-28"), false, true, true),
-            Some("fastmcp")
+            Some("fastmcp-py")
         );
         assert_eq!(
             detect_framework(Some("2024-11-05"), true, false, false),
@@ -2048,7 +2296,7 @@ mod tests {
         // fastmcp : réponses SSE + endpoint /sse legacy co-servi
         assert_eq!(
             detect_framework(Some("2024-11-05"), false, true, true),
-            Some("fastmcp"),
+            Some("fastmcp-py"),
             "SSE + /sse legacy = fastmcp"
         );
         // un seul des deux signaux fastmcp ne suffit pas
@@ -2512,5 +2760,148 @@ LISTEN  0      128              *:3141             *:*";
         let port3 = l3.local_addr().unwrap().port();
         drop(l3);
         assert!(command_center_ui_at(port3).is_none());
+    }
+
+    #[test]
+    fn sanitize_http_path_et_host_header_bloquent_crlf_et_bracketent_ipv6() {
+        assert_eq!(http_host_header("::1", 8080), "[::1]:8080");
+        assert_eq!(http_host_header("127.0.0.1", 8080), "127.0.0.1:8080");
+        assert_eq!(sanitize_http_path("/mcp", "/mcp"), "/mcp");
+        assert_eq!(sanitize_http_path("/", "/mcp"), "/");
+        assert_eq!(
+            sanitize_http_path("/mcp HTTP/1.1\r\nX-Inj: 1", "/mcp"),
+            "/mcp"
+        );
+        assert_eq!(sanitize_http_path("/mcp\r\nX-Inj: 1", "/mcp"), "/mcp");
+        assert_eq!(sanitize_http_path("sans-slash", "/mcp"), "/mcp");
+        assert_eq!(sanitize_http_path("", "/sse"), "/sse");
+
+        // Vérifie que ws_upgrade_host n'injecte jamais d'en-tête sur un path hostile
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        thread::spawn(move || {
+            if let Ok((mut s, _)) = l.accept() {
+                let mut buf = [0u8; 4096];
+                let n = s.read(&mut buf).unwrap_or(0);
+                let _ = tx.send(String::from_utf8_lossy(&buf[..n]).to_string());
+                let _ = s.write_all(b"HTTP/1.1 101 Switching Protocols\r\n\r\n");
+            }
+        });
+        assert!(ws_upgrade_host(
+            "127.0.0.1",
+            port,
+            "/mcp HTTP/1.1\r\nX-Injected: pwn",
+            1000
+        ));
+        let req = rx.recv().unwrap();
+        assert!(
+            req.starts_with("GET /mcp HTTP/1.1\r\n"),
+            "le path hostile doit retomber sur /mcp: {req}"
+        );
+        assert!(
+            !req.contains("X-Injected"),
+            "aucun en-tête injecté ne doit apparaître"
+        );
+        assert!(
+            req.contains(&format!("Host: 127.0.0.1:{port}\r\n")),
+            "Host doit inclure le port: {req}"
+        );
+    }
+
+    #[test]
+    fn read_bounded_line_plafonne_avant_allocation() {
+        // Une ligne de 5 Mo sans '\n' ne doit jamais dépasser MAX_PROBE_READ (2 Mo) dans buf
+        let big = vec![b'A'; MAX_PROBE_READ * 2 + 1234];
+        let mut cursor = std::io::BufReader::new(std::io::Cursor::new(big));
+        let mut buf = Vec::new();
+        let n = read_bounded_line(&mut cursor, &mut buf).unwrap();
+        assert!(n > 0);
+        assert_eq!(buf.len(), MAX_PROBE_READ);
+        // Une ligne normale avec '\n' est lue intégralement
+        let normal = b"{\"jsonrpc\":\"2.0\",\"id\":1}\nreste";
+        let mut cursor2 = std::io::BufReader::new(std::io::Cursor::new(&normal[..]));
+        let n2 = read_bounded_line(&mut cursor2, &mut buf).unwrap();
+        assert_eq!(n2, 25);
+        assert_eq!(&buf[..], b"{\"jsonrpc\":\"2.0\",\"id\":1}\n");
+    }
+
+    #[test]
+    fn probe_http_et_host_propagent_mcp_session_id() {
+        // Serveur MCP stateful : émet Mcp-Session-Id (casse mixte) sur initialize
+        // et REJETTE tools/list si Mcp-Session-Id est absent ou altéré.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut s) = stream else { return };
+                let mut buf = [0u8; 16384];
+                let n = match s.read(&mut buf) {
+                    Ok(n) if n > 0 => n,
+                    _ => continue,
+                };
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                if req.contains("\"initialize\"") {
+                    let body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-03-26\",\"serverInfo\":{\"name\":\"stateful-mcp\",\"version\":\"1.0.0\"}}}";
+                    let resp = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nMcp-Session-Id: Sess_AbCd-1234\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = s.write_all(resp.as_bytes());
+                } else if req.contains("\"tools/list\"") {
+                    let has_sid = req
+                        .lines()
+                        .any(|l| l.trim() == "Mcp-Session-Id: Sess_AbCd-1234");
+                    let body = if has_sid {
+                        "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[{\"name\":\"secret_tool\",\"description\":\"ok\"}]}}"
+                    } else {
+                        "{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-32000,\"message\":\"missing session\"}}"
+                    };
+                    let resp = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = s.write_all(resp.as_bytes());
+                } else {
+                    let _ = s.write_all(
+                        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    );
+                }
+            }
+        });
+        let p = probe_http(port, "/mcp", 4000);
+        assert!(p.mcp_up);
+        assert_eq!(
+            p.tools.len(),
+            1,
+            "probe_http doit rejouer Mcp-Session-Id sur tools/list"
+        );
+        assert_eq!(p.tools[0].name, "secret_tool");
+
+        let p2 = probe_http_host("127.0.0.1", port, "/mcp", 4000);
+        assert!(p2.mcp_up);
+        assert_eq!(
+            p2.tools.len(),
+            1,
+            "probe_http_host doit rejouer Mcp-Session-Id sur tools/list"
+        );
+    }
+
+    #[test]
+    fn ssh_error_hint_distingue_socket_bloque_et_cle_refusee() {
+        assert_eq!(
+            ssh_error_hint("ssh: connect to host 192.168.2.159 port 22: Permission denied"),
+            " — machine injoignable"
+        );
+        assert_eq!(
+            ssh_error_hint("ssh: connect to host 192.168.2.159 port 22: Connection timed out"),
+            " — machine injoignable"
+        );
+        assert!(
+            ssh_error_hint("user@192.168.2.159: Permission denied (publickey).")
+                .contains("auth refusée")
+        );
     }
 }
