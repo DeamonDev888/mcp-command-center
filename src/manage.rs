@@ -364,6 +364,12 @@ fn from_json(s: &Value) -> Option<Server> {
         },
     };
     let enabled = s.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true);
+    // Autoboot par serveur : défaut true (comportement historique), false = le
+    // serveur n'est pas relancé automatiquement (bouton ⚡ de l'UI).
+    let auto_restart = s
+        .get("auto_restart")
+        .and_then(|x| x.as_bool())
+        .unwrap_or(true);
     let via_ssh = s.get("via_ssh").and_then(|x| x.as_bool()).unwrap_or(false);
     // commande de lancement optionnelle (HTTP lancé par le command center)
     let start_cmd = {
@@ -396,7 +402,7 @@ fn from_json(s: &Value) -> Option<Server> {
         transport,
         origin: Origin::Manual,
         enabled,
-        auto_restart: true,
+        auto_restart,
         state: if enabled {
             SState::Down
         } else {
@@ -519,6 +525,11 @@ pub fn save_config(state: &AppState) {
         o.insert("id".into(), json!(s.id));
         o.insert("label".into(), json!(s.label));
         o.insert("enabled".into(), json!(s.enabled));
+        // Autoboot par serveur : on n'écrit que la DÉSACTIVATION (le défaut est
+        // true) — config.json reste lisible et le bouton ⚡ survit au redémarrage.
+        if !s.auto_restart {
+            o.insert("auto_restart".into(), json!(false));
+        }
         if !s.tools_disabled.is_empty() {
             o.insert("tools_disabled".into(), json!(s.tools_disabled));
         }
@@ -3315,6 +3326,47 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
             save_config(state);
             json!({"ok": true, "autostart": enable, "active": autostart_active()})
         }
+        // Autoboot PAR SERVEUR : « ce serveur est relancé automatiquement au
+        // démarrage du command center (et après un crash) ». Persisté dans
+        // config.json, indépendant de l'autostart OS de l'application.
+        "set_auto_restart" => {
+            let Some(id) = id else {
+                return json!({"ok": false, "error": "id manquant"});
+            };
+            let enable = req.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true);
+            let (label, found) = {
+                let mut servers = lockv(&state.servers);
+                match servers.iter_mut().find(|s| s.id == id) {
+                    Some(srv) => {
+                        srv.auto_restart = enable;
+                        // réactiver l'autoboot après des échecs doit repartir de zéro
+                        if enable {
+                            lockv(&state.spawn_fails).remove(&id);
+                        }
+                        (srv.label.clone(), true)
+                    }
+                    None => (String::new(), false),
+                }
+            };
+            if !found {
+                return json!({"ok": false, "error": "serveur inconnu"});
+            }
+            save_config(state);
+            add_log(
+                state,
+                "info",
+                &format!(
+                    "[{}] autoboot {}",
+                    label,
+                    if enable {
+                        "activé (relance au démarrage et après crash)"
+                    } else {
+                        "désactivé (ne sera pas relancé automatiquement)"
+                    }
+                ),
+            );
+            json!({"ok": true, "id": id, "auto_restart": enable})
+        }
         "ssh_discover" => {
             let ip = req
                 .get("ip")
@@ -4480,6 +4532,96 @@ mod tests {
             spawning: Mutex::new(std::collections::HashSet::new()),
             update_latest: Mutex::new(None),
         })
+    }
+
+    #[test]
+    fn auto_restart_par_serveur_action_et_persistance() {
+        // Bouton ⚡ de l'UI : action « set_auto_restart » → flag du serveur,
+        // persistance dans config.json, et remise à zéro des échecs de spawn.
+        let path = tmp_config("cfg_autorestart.json", Some("{\"servers\":[]}"));
+        // état partagé avec un vrai chemin de config pour tester l'écriture
+        let mut base = match Arc::try_unwrap(test_state()) {
+            Ok(s) => s,
+            Err(_) => panic!("test_state doit être unique"),
+        };
+        base.config_path = path.clone();
+        let state = Arc::new(base);
+        {
+            let mut st = lockv(&state.settings);
+            st.autostart = false;
+        }
+        {
+            let mut servers = lockv(&state.servers);
+            servers.push(Server {
+                id: "srv-a".into(),
+                label: "Serveur A".into(),
+                transport: Transport::Stdio {
+                    program: "node".into(),
+                    args: vec![],
+                    workdir: None,
+                },
+                origin: Origin::Manual,
+                enabled: true,
+                state: SState::Down,
+                pid: None,
+                bound_host: None,
+                server_name: None,
+                version: None,
+                protocol: None,
+                sse: false,
+                sse_endpoint: false,
+                ws: false,
+                lang: None,
+                framework: None,
+                via_ssh: false,
+                tools: vec![],
+                latency_ms: None,
+                last_seen_ts: None,
+                last_error: None,
+                start_cmd: Some(StartCmd {
+                    program: "node".into(),
+                    args: vec![],
+                    workdir: None,
+                }),
+                auto_restart: true,
+                tools_disabled: vec![],
+            });
+        }
+        lockv(&state.spawn_fails).insert("srv-a".to_string(), 3);
+
+        // désactivation
+        let j = handle_action(
+            &state,
+            "{\"action\":\"set_auto_restart\",\"id\":\"srv-a\",\"enabled\":false}",
+        );
+        assert_eq!(j["ok"], serde_json::json!(true));
+        assert!(!lockv(&state.servers)[0].auto_restart);
+        let cfg = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(
+            cfg.contains("\"auto_restart\": false"),
+            "le flag doit être persisté dans config.json : {}",
+            cfg
+        );
+
+        // réactivation : les échecs de spawn repartent de zéro
+        lockv(&state.spawn_fails).insert("srv-a".to_string(), 3);
+        let j2 = handle_action(
+            &state,
+            "{\"action\":\"set_auto_restart\",\"id\":\"srv-a\",\"enabled\":true}",
+        );
+        assert_eq!(j2["ok"], serde_json::json!(true));
+        assert!(lockv(&state.servers)[0].auto_restart);
+        assert!(
+            lockv(&state.spawn_fails).get("srv-a").is_none(),
+            "réactiver l'autoboot doit effacer le compteur d'échecs"
+        );
+
+        // serveur inconnu → erreur propre, pas de panic
+        let j3 = handle_action(
+            &state,
+            "{\"action\":\"set_auto_restart\",\"id\":\"inconnu\",\"enabled\":true}",
+        );
+        assert_eq!(j3["ok"], serde_json::json!(false));
     }
 
     #[test]

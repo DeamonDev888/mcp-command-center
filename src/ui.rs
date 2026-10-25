@@ -79,6 +79,13 @@ button:disabled{opacity:.35;cursor:not-allowed}
 .rowbtn{background:none;border:1px solid var(--border);border-radius:5px;color:var(--t3);
   padding:0 6px;font-size:9px;line-height:15px;min-width:20px;flex-shrink:0}
 .rowbtn:hover{color:var(--accent);border-color:var(--accent);background:var(--hover)}
+/* Autoboot par serveur (⚡) : allumé = relance auto au démarrage/crash */
+.rowbtn.auto{color:var(--t3);opacity:.45}
+.rowbtn.auto.on{color:#f0a35e;border-color:#f0a35e66;background:#f0a35e14;opacity:1}
+.rowbtn.auto.on:hover{color:var(--bad);border-color:var(--bad);background:rgba(231,94,120,.08)}
+/* Bouton Autoboot du panneau de détail */
+.autobtn.on{color:#f0a35e;border-color:#f0a35e66;background:#f0a35e14}
+.autobtn.on:hover{color:var(--bad);border-color:var(--bad);background:rgba(231,94,120,.08)}
 .srow.off .rowbtn{opacity:.5}
 /* Drag & drop de réordonnancement (préférence / priorité de sondage) */
 .srow.dragging{opacity:.35}
@@ -521,7 +528,7 @@ function renderServers() {
       onclick="select(${js(s.id)})"
       ondragstart="rowDragStart(event,${js(s.id)})" ondragover="rowDragOver(event)"
       ondragleave="rowDragLeave(event)" ondrop="rowDrop(event)" ondragend="rowDragEnd(event)">
-      <div class="l1"><span class="dot ${s.state}"></span><span class="nm" title="${esc(s.label)}">${esc(s.label)}</span>${langChip(s)}${typeBadge(s)}${frameworkBadge(s)}${s.transport==='stdio'?'<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>':''}<span class="cnt">${s.tools_count}</span>${rowToggle(s)}${rowCtl(s)}</div>
+      <div class="l1"><span class="dot ${s.state}"></span><span class="nm" title="${esc(s.label)}">${esc(s.label)}</span>${langChip(s)}${typeBadge(s)}${frameworkBadge(s)}${s.transport==='stdio'?'<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>':''}<span class="cnt">${s.tools_count}</span>${rowAuto(s)}${rowToggle(s)}${rowCtl(s)}</div>
       <div class="l2"><span class="st ${esc(s.state)}">${esc(s.state)}</span> ${ti}${off}</div>
     </div>`;
   }).join('');
@@ -598,6 +605,17 @@ function rowCtl(s) {
   if (!s.can_start) return '';
   const up = s.state === 'UP';
   return `<button class="rowbtn" title="${up?'Arr\u00eater':'D\u00e9marrer'} ce serveur" onclick="event.stopPropagation();act('${up?'kill':'start'}',${js(s.id)})">${up?'\u25a0':'\u25b6'}</button>`;
+}
+
+// Autoboot PAR SERVEUR : relance automatique de CE serveur au démarrage du
+// command center et après un crash. Bouton ⚡ visible dans la ligne et le détail.
+function rowAuto(s) {
+  if (!s.can_start) return '';
+  const on = s.auto_restart;
+  return `<button class="rowbtn auto ${on?'on':'off'}" title="${on
+    ? 'Autoboot ACTIV\u00c9 : ce serveur est relanc\u00e9 au d\u00e9marrage et apr\u00e8s un crash \u2014 cliquer pour d\u00e9sactiver'
+    : 'Autoboot D\u00c9SACTIV\u00c9 : ce serveur ne sera pas relanc\u00e9 automatiquement \u2014 cliquer pour activer'}"
+    onclick="event.stopPropagation();setAuto(${js(s.id)},${on?'false':'true'})">\u26a1</button>`;
 }
 
 /* État des replis du détail (mémorisé entre les cycles et les sessions) */
@@ -869,6 +887,8 @@ function renderDetail() {
         ${s.can_start && s.state !== 'UP' ? `<button class="primary" onclick="act('start',${js(s.id)})">&#9654; Start</button>` : ''}
         ${s.can_start && s.state === 'UP' ? `<button class="danger" onclick="act('kill',${js(s.id)})">&#9632; Stop</button>` : ''}
         <button onclick="act('refresh',${js(s.id)})">Sonder</button>
+        ${s.can_start ? `<button class="autobtn ${s.auto_restart?'on':''}" onclick="setAuto(${js(s.id)},${s.auto_restart?'false':'true'})"
+          title="Autoboot : relance automatique de ce serveur au d&eacute;marrage du command center et apr&egrave;s un crash">&#9889; Autoboot ${s.auto_restart?'ON':'OFF'}</button>` : ''}
         <button onclick="act('toggle',${js(s.id)})">${s.enabled ? 'D&eacute;sactiver' : 'Activer'}</button>
         ${s.origin !== 'seed'
           ? `<button class="danger" onclick="removeSrv(${js(s.id)})">Retirer</button>`
@@ -900,6 +920,15 @@ async function act(action, id) {
   await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action, id})});
   await load();
+}
+
+// Autoboot par serveur (⚡) : relance auto au démarrage du command center
+// et après un crash. Persisté dans config.json par le moteur.
+async function setAuto(id, enabled) {
+  await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'set_auto_restart', id, enabled})});
+  await load();
+  if (selectedId === id) { detailCache = null; await load(); }
 }
 
 /* Scan en un clic : la plage vient des réglages (settings), aucune saisie demandée */

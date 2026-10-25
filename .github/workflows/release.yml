@@ -114,6 +114,18 @@ jobs:
       - name: Build (Tauri / webview système)
         run: cargo build --release -p mcp-command-center-desktop --target ${{ matrix.target }}
 
+      # Installateur Windows (wizard NSIS : langue, dossier, raccourcis).
+      # `tauri build` réutilise le binaire déjà compilé et n'ajoute que le bundle.
+      - name: CLI Tauri (Windows — installateur NSIS)
+        if: runner.os == 'Windows'
+        run: npm install --global @tauri-apps/cli@^2
+
+      - name: Installateur NSIS (Windows — wizard)
+        if: runner.os == 'Windows'
+        working-directory: desktop
+        shell: bash
+        run: npx tauri build --bundles nsis --target ${{ matrix.target }}
+
       - name: Collecter le binaire
         shell: bash
         run: |
@@ -124,12 +136,21 @@ jobs:
           FILE="${{ matrix.artifact }}${EXT}"
           cp "target/${{ matrix.target }}/release/mcp-command-center-desktop${EXT}" "$FILE"
           echo "FILE=$FILE" >> "$GITHUB_ENV"
+          # installateur wizard NSIS (Windows uniquement)
+          SETUP=$(ls "target/${{ matrix.target }}/release/bundle/nsis/"*-setup.exe 2>/dev/null | head -1 || true)
+          if [ -n "$SETUP" ]; then
+            cp "$SETUP" "${{ matrix.artifact }}-setup.exe"
+            echo "SETUP=${{ matrix.artifact }}-setup.exe" >> "$GITHUB_ENV"
+          fi
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4 (épinglé SHA)
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ env.FILE }}
-          if-no-files-found: error
+          # l'artefact Windows contient le binaire ET l'installateur wizard
+          path: |
+            ${{ env.FILE }}
+            ${{ env.SETUP }}
+          if-no-files-found: warn
 
   release:
     needs: [build, desktop]

@@ -1,3 +1,21 @@
+## [0.7.11] — Installateur wizard (NSIS) + bouton Autoboot par serveur
+
+### Installateur Windows (wizard)
+- **Vrai installateur `*-setup.exe`** généré par Tauri (NSIS), publié dans la release à côté du binaire portable. Parcours : **choix de la langue (Français/English) → bienvenue → dossier d'installation → dossier du menu Démarrer → installation → fin** (avec case « créer un raccourci bureau » et lancement de l'app).
+- `installMode: currentUser` : installation dans le profil utilisateur, **aucune élévation UAC** ; désinstalleur et entrée « Ajout/Suppression de programmes » inclus.
+- Métadonnées du paquet : description courte/longue, éditeur `DeamonDev888`, catégorie `DeveloperTool`, icône de l'installateur.
+- CI : le job desktop Windows construit désormais le bundle NSIS (`@tauri-apps/cli build --bundles nsis`) et publie `<artifact>-setup.exe` en plus du binaire.
+
+### Autoboot par serveur (⚡)
+- **Nouveau bouton ⚡ par serveur** : dans la ligne de l'explorateur et dans la barre d'actions du détail. Il pilote `auto_restart` — le serveur est relancé **au démarrage du command center** et **après un crash**, indépendamment de l'autostart de l'app elle-même.
+- Nouvelle action API `set_auto_restart` (`{action, id, enabled}`) : journalise le changement et, à la réactivation, **remet à zéro le compteur d'échecs de spawn** (un serveur qui avait été coupé après 3 échecs peut repartir).
+- **Persistance réparée** : `auto_restart` n'était lu ni écrit dans `config.json` (toujours `true` au rechargement). Il est maintenant écrit quand il vaut `false` et relu au chargement — le bouton survit au redémarrage.
+- État visuel : ⚡ orange quand actif, grisé sinon, tooltip explicite ; l'état est aussi rappelé en clair dans le panneau Démarrage du détail.
+
+### Tests
+- `auto_restart_par_serveur_action_et_persistance` : action → flag du serveur → écriture dans `config.json` → réactivation effaçant les échecs → serveur inconnu rejeté proprement.
+- **88 tests verts**, clippy `-D warnings` (Windows et Linux), `cargo fmt --check`.
+
 ## [0.7.10] — Trois modes de transport (STDIO / HTTP / WS) + 37 frameworks MCP détectés par langage
 
 ### Frameworks MCP

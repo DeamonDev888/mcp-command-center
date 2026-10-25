@@ -4,7 +4,7 @@ members = [".", "desktop"]
 
 [package]
 name = "mcp-command-center"
-version = "0.7.10"
+version = "0.7.11"
 edition = "2021"
 
 [dependencies]
