@@ -1876,66 +1876,72 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                     lockv(&state.spawning).remove(id);
                 }
             }
-            let mut servers = lockv(&state.servers);
-            if let Some(srv) = servers.iter_mut().find(|s| s.id == id) {
-                if res.mcp_up {
-                    let changed = srv.server_name != res.name || srv.state != SState::Up;
-                    srv.state = SState::Up;
-                    srv.bound_host = res.host.clone();
-                    srv.server_name = res.name.clone();
-                    srv.version = res.version.clone();
-                    srv.protocol = res.protocol.clone();
-                    srv.sse = res.sse;
-                    srv.sse_endpoint = res.sse_endpoint;
-                    srv.ws = res.ws;
-                    srv.lang = res.lang.clone();
-                    srv.framework = res.framework.clone();
-                    srv.tools = res.tools.clone();
-                    srv.latency_ms = Some(res.latency_ms);
-                    srv.last_seen_ts = Some(crate::types::now_ts());
-                    srv.last_error = None;
-                    if res.pid.is_some() {
-                        srv.pid = res.pid;
-                    }
-                    if changed {
-                        add_log(
-                            state,
-                            "info",
-                            &format!(
-                                "[{}] UP : {} v{} — {} tools ({} ms)",
-                                srv.label,
-                                res.name.as_deref().unwrap_or("?"),
-                                res.version.as_deref().unwrap_or("?"),
-                                tools_actifs(srv),
-                                res.latency_ms
-                            ),
-                        );
-                    }
-                } else {
-                    let was_up = srv.state == SState::Up;
-                    // port fermé = DOWN ; port ouvert sans MCP = PORT-ONLY (zombie)
-                    srv.state = if res.port_open {
-                        SState::PortOnly
+            let mut log_event: Option<(&'static str, String)> = None;
+            {
+                let mut servers = lockv(&state.servers);
+                if let Some(srv) = servers.iter_mut().find(|s| s.id == id) {
+                    if res.mcp_up {
+                        let changed = srv.server_name != res.name || srv.state != SState::Up;
+                        srv.state = SState::Up;
+                        srv.bound_host = res.host.clone();
+                        srv.server_name = res.name.clone();
+                        srv.version = res.version.clone();
+                        srv.protocol = res.protocol.clone();
+                        srv.sse = res.sse;
+                        srv.sse_endpoint = res.sse_endpoint;
+                        srv.ws = res.ws;
+                        srv.lang = res.lang.clone();
+                        srv.framework = res.framework.clone();
+                        srv.tools = res.tools.clone();
+                        srv.latency_ms = Some(res.latency_ms);
+                        srv.last_seen_ts = Some(crate::types::now_ts());
+                        srv.last_error = None;
+                        if res.pid.is_some() {
+                            srv.pid = res.pid;
+                        }
+                        if changed {
+                            log_event = Some((
+                                "info",
+                                format!(
+                                    "[{}] UP : {} v{} — {} tools ({} ms)",
+                                    srv.label,
+                                    res.name.as_deref().unwrap_or("?"),
+                                    res.version.as_deref().unwrap_or("?"),
+                                    tools_actifs(srv),
+                                    res.latency_ms
+                                ),
+                            ));
+                        }
                     } else {
-                        SState::Down
-                    };
-                    srv.last_error = res.error.clone();
-                    srv.latency_ms = None;
-                    if !res.port_open && host.is_none() {
-                        srv.pid = None;
-                    }
-                    if was_up {
-                        add_log(
-                            state,
-                            "warn",
-                            &format!(
-                                "[{}] PORT-ONLY : {}",
-                                srv.label,
-                                res.error.as_deref().unwrap_or("?")
-                            ),
-                        );
+                        let was_up = srv.state == SState::Up;
+                        // port fermé = DOWN ; port ouvert sans MCP = PORT-ONLY (zombie)
+                        srv.state = if res.port_open {
+                            SState::PortOnly
+                        } else {
+                            SState::Down
+                        };
+                        srv.last_error = res.error.clone();
+                        srv.latency_ms = None;
+                        if !res.port_open && host.is_none() {
+                            srv.pid = None;
+                        }
+                        if was_up {
+                            let st_lbl = if res.port_open { "PORT-ONLY" } else { "DOWN" };
+                            log_event = Some((
+                                "warn",
+                                format!(
+                                    "[{}] {} : {}",
+                                    srv.label,
+                                    st_lbl,
+                                    res.error.as_deref().unwrap_or("?")
+                                ),
+                            ));
+                        }
                     }
                 }
+            }
+            if let Some((lvl, msg)) = log_event {
+                add_log(state, lvl, &msg);
             }
         }
         Transport::Stdio { .. } => {
@@ -2075,38 +2081,48 @@ pub fn scan_ports(state: &Arc<AppState>, range: Option<(u16, u16)>) {
     }
     open.sort();
     open.dedup();
+    let own_ui = lockv(&state.settings).ui_port;
     let known: Vec<u16> = lockv(&state.servers)
         .iter()
         .filter_map(|s| match &s.transport {
-            Transport::Http { host, port, .. } if host.is_none() => Some(*port),
+            Transport::Http { host, port, .. }
+                if host.as_deref().map(crate::is_loopback_bind).unwrap_or(true) =>
+            {
+                Some(*port)
+            }
             _ => None,
         })
         .collect();
     for (port, host) in open {
-        if known.contains(&port) {
+        if port == own_ui || known.contains(&port) {
             continue;
         }
-        let p = probe::probe_http(port, "/mcp", 4000);
-        if p.mcp_up {
-            found += 1;
+        if let Some((path, p)) = probe::probe_mcp_any_path(port, 4000) {
             let id = format!("disc-{}", port);
             let label = p.name.clone().unwrap_or_else(|| format!("port-{}", port));
             let mut servers = lockv(&state.servers);
-            if !servers.iter().any(|s| s.id == id) {
+            if !servers.iter().any(|s| {
+                s.id == id
+                    || matches!(&s.transport,
+                        Transport::Http { host, port: sp, .. }
+                        if *sp == port
+                            && host.as_deref().map(crate::is_loopback_bind).unwrap_or(true))
+            }) {
+                found += 1;
                 servers.push(Server {
                     id: id.clone(),
                     label,
                     transport: Transport::Http {
-                        host: Some(host.clone()),
+                        host: None,
                         port,
-                        path: "/mcp".into(),
+                        path: path.to_string(),
                     },
                     origin: Origin::Discovered,
                     enabled: true,
                     state: SState::Up,
                     auto_restart: true,
                     pid: p.pid,
-                    bound_host: Some(host),
+                    bound_host: p.host.clone().or(Some(host)),
                     server_name: p.name.clone(),
                     version: p.version.clone(),
                     protocol: p.protocol.clone(),
