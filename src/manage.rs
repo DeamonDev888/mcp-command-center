@@ -1522,9 +1522,21 @@ pub fn check_update(state: &Arc<AppState>) {
     };
     let current = env!("CARGO_PKG_VERSION");
     if version_newer(&tag, current) {
-        let mut u = lockv(&state.update_latest);
-        if u.as_deref() != Some(tag.as_str()) {
-            *u = Some(tag.clone());
+        // VERROUILLAGE (audit 2026-10-25) : ne PAS tenir update_latest pendant
+        // add_log (qui prend le verrou log). state_json prend log PUIS
+        // update_latest → un AB-BA était possible : check_update tenait
+        // update_latest et attendait log pendant que state_json tenait log et
+        // attendait update_latest. On libère update_latest AVANT de logger.
+        let should_log = {
+            let mut u = lockv(&state.update_latest);
+            if u.as_deref() != Some(tag.as_str()) {
+                *u = Some(tag.clone());
+                true
+            } else {
+                false
+            }
+        };
+        if should_log {
             add_log(
                 state,
                 "info",

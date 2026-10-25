@@ -1,3 +1,32 @@
+## [0.7.8] — Audit complet 2026-10-25 : 3 panics mortels corrigés + XSS stockée fermée
+
+### Corrigé
+- **Le poller ne peut plus mourir en silence** : trois panics du parseur HTTP tuaient le thread de supervision des serveurs (aucun `catch_unwind` dans le projet, et en mode desktop aucune console → le panic était totalement invisible). La supervision s'arrêtait **définitivement** : plus de scan, plus d'auto-restart, état figé sans message d'erreur.
+  - `data[sep + 4..]` paniquait sur une réponse HTTP de **moins de 4 octets** (serveur qui répond 1-3 octets puis ferme) — slicing hors bornes.
+  - `dechunk()` paniquait sur une réponse **chunked tronquée** (`&data[i..]` avec `i > len`).
+  - `dechunk()` paniquait sur une **taille de chunk hexadécimale absurde** (`ffffffffffffffff`) — overflow `usize` sur `start + size`.
+  - Correctifs : bornage par `saturating_add` / `.min(data.len())`, boucle dechunk réécrite avec gardes de bornes. Tests de non-régression : 4 vecteurs de réponse courte + 8 vecteurs chunked hostiles. Fuzz de 16 réponses hostiles : **0 panic**.
+- **XSS stockée fermée** : les statistiques d'un pair distant (`stats.up`, `stats.total`, `ui_port`) étaient interpolées sans échappement dans l'explorateur et le panneau Machines. Un hôte du LAN pouvait se faire passer pour un command-center (la sonde pair n'exige aucune preuve) et injecter du HTML/JS dans l'UI — donc exécuter du code dans la session de l'opérateur, lire le code d'accès stocké et appeler `/api/action` (ajout d'un serveur stdio = exécution de commande). Les 3 sites sont désormais échappés (`esc()`).
+- **Lecture stdio plafonnée** : `BufRead::lines()` allouait une ligne entière en mémoire sans limite — un serveur MCP stdio écrivant 300 Mo sur une seule ligne saturait la RAM (mesuré : 314 572 800 octets en une lecture). Remplacé par une lecture bornée à 2 Mo, alignée sur le plafond HTTP existant.
+
+### UI
+- **Logo Rust agrandi** : 18 px (au lieu de 15) et glyphe « R » plus gras (font-size 12, weight 800), cerclage affiné — le R est nettement plus lisible dans l'explorateur et le détail.
+
+### Docs
+- **README refait, simple et à jour** : plus d'image en tête décorative — **quatre vraies captures d'écran de l'app** (accueil, détail avec tools et badges, serveur Rust avec le grand R + badge LiteMCP, boutique avec logos), section « En 30 secondes », tableau des boutons expliqués, FAQ (serveur invisible → ⟳, code d'accès, logs, auto-boot). Anciens assets décoratifs retirés (explorateur.png, boutique.png, banner.jpg).
+
+### Documenté (non corrigé — voir AUDIT-2026-10-25.md)
+- `panic::set_hook` journalisant sur disque : recommandé pour que le prochain panic ne soit jamais muet.
+- `last_seen` absent de `/api/detail` : impossible de distinguer « UP stable » de « UP figé » dans l'UI.
+- `Cache-Control: no-store` / `Referrer-Policy: no-referrer` absents.
+- `poll_all` séquentiel : 32 serveurs × sonde réseau → un cycle dépasse déjà `refresh_secs` (15 s).
+- `manage.rs` a franchi 4 500 lignes (4 596) ; constructeur `Server::new()` à factoriser.
+- Code d'accès jamais effacé de `localStorage` ; `window.open` sans `noopener` ; capability Tauri trop large (10 ports) ; handlers inline à migrer vers `addEventListener` + CSP nonce ; rendu DOM à reconstruire intégralement à chaque cycle.
+
+### Testé
+- 75 tests verts, `clippy --all-targets -D warnings` propre, `cargo fmt --check` propre.
+- Auth revérifiée en dynamique contre l'instance live (bind `0.0.0.0`) : 401 sans code, 403 sur `Origin`/`Host` hostiles, 200 avec le code, preuve de pair HMAC à usage unique (rejeu = 401, nonce inventé = 401), et `POST /api/action add stdio calc.exe` **sans code = 401** (RCE bloquée).
+
 ## [0.7.7] — Détection au max (multi-chemins + fingerprint FastMCP), mémoire au repos, E2E complet
 
 ### Ajouté

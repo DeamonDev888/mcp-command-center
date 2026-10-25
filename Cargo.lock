@@ -1973,14 +1973,14 @@ dependencies = [
 
 [[package]]
 name = "mcp-command-center"
-version = "0.7.7"
+version = "0.7.8"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "mcp-command-center-desktop"
-version = "0.7.7"
+version = "0.7.8"
 dependencies = [
  "mcp-command-center",
  "serde_json",

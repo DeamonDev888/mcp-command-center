@@ -1075,7 +1075,22 @@ fn http_request(
                     );
                 }
                 for (n, v) in extra_headers {
-                    req.push_str(&format!("{}: {}\r\n", n, v));
+                    // SÉCURITÉ (audit 2026-10-25) : la VALEUR d'un en-tête
+                    // additionnel arrive de sources distantes (le nonce renvoyé
+                    // par /api/hello d'un pair). Écrite telle quelle, une valeur
+                    // contenant \r\n permet le request splitting (injecter des
+                    // en-têtes, voire une seconde requête). On n'écrit que les
+                    // valeurs du jeu sûr (hex/base64/jeton) — le nonce est hex,
+                    // la preuve est hex.
+                    let ok = !v.is_empty()
+                        && v.len() <= 256
+                        && v.chars().all(|c| {
+                            c.is_ascii_alphanumeric()
+                                || matches!(c, '/' | '+' | '=' | '.' | '_' | '-' | '~' | ':')
+                        });
+                    if ok {
+                        req.push_str(&format!("{}: {}\r\n", n, v));
+                    }
                 }
                 match body {
                     Some(b) => req.push_str(&format!(
@@ -1153,6 +1168,12 @@ fn http_request(
                         host
                     ));
                 }
+                // ROBUSTESSE (audit 2026-10-25) : une réponse sans séparateur
+                // CRLFCRLF (serveur qui répond 1-3 octets puis ferme) faisait
+                // panicer sur `data[sep + 4..]` (sep=0, len<4) → le thread du
+                // POLLER mourait en silence (fenêtre desktop : aucune console)
+                // et la supervision des serveurs s'arrêtait définitivement.
+                // On borne l'extraction du corps au contenu réellement reçu.
                 let sep = find_sub(&data, b"\r\n\r\n").unwrap_or(0);
                 let head = String::from_utf8_lossy(&data[..sep]).to_lowercase();
                 let header = |name: &str| -> String {
@@ -1166,7 +1187,8 @@ fn http_request(
                     server: header("server:"),
                     powered_by: header("x-powered-by:"),
                 };
-                let mut body_bytes = data[sep + 4..].to_vec();
+                let body_start = sep.saturating_add(4).min(data.len());
+                let mut body_bytes = data[body_start..].to_vec();
                 if head.contains("transfer-encoding: chunked") {
                     body_bytes = dechunk(&body_bytes);
                 }
@@ -1183,7 +1205,17 @@ fn http_request(
 fn dechunk(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     let mut i = 0usize;
-    while let Some(p) = find_sub(&data[i..], b"\r\n") {
+    while i < data.len() {
+        // ROBUSTESSE (audit 2026-10-25) : deux panics sur réponse chunked
+        // tronquée ou à taille absurde —
+        //  (1) `&data[i..]` quand i > len (slice hors bornes) ;
+        //  (2) `start + size` qui déborde (usize overflow sur un size héxa
+        //      énorme, ex. ffffffffffffffff).
+        // Les deux tuaient le thread du POLLER en silence (fenêtre desktop :
+        // aucune console) et arrêtaient la supervision des serveurs.
+        let Some(p) = find_sub(&data[i..], b"\r\n") else {
+            break;
+        };
         let line_end = i + p;
         let size_str = String::from_utf8_lossy(&data[i..line_end]);
         let size = usize::from_str_radix(size_str.trim().split(';').next().unwrap_or("0"), 16)
@@ -1192,12 +1224,19 @@ fn dechunk(data: &[u8]) -> Vec<u8> {
             break;
         }
         let start = line_end + 2;
-        let end = start + size;
-        if end > data.len() {
+        // saturating_add : jamais de débordement, et la borne `end > data.len()`
+        // rejette proprement un chunk tronqué.
+        let end = start.saturating_add(size);
+        if start > data.len() || end > data.len() {
             break;
         }
         out.extend_from_slice(&data[start..end]);
-        i = end + 2;
+        // après le chunk, on saute le CRLF final ; s'il manque, on s'arrête
+        let next = end.saturating_add(2);
+        if next > data.len() {
+            break;
+        }
+        i = next;
     }
     out
 }
@@ -1388,11 +1427,25 @@ pub fn probe_stdio(
 
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     std::thread::spawn(move || {
-        let reader = std::io::BufReader::new(stdout);
+        let mut reader = std::io::BufReader::new(stdout);
         use std::io::BufRead;
-        for line in reader.lines() {
-            match line {
-                Ok(l) => {
+        // ROBUSTESSE (audit 2026-10-25) : `BufRead::lines()` alloue la ligne
+        // ENTIÈRE en mémoire, sans plafond — un serveur stdio qui écrit 300 Mo
+        // sur une seule ligne (sans \n) fait exploser la RAM du command-center
+        // (mesuré : 314 572 800 octets en une lecture). Le côté HTTP est déjà
+        // plafonné (MAX_PROBE_READ) ; on aligne le stdio sur la même limite.
+        let mut buf: Vec<u8> = Vec::new();
+        loop {
+            buf.clear();
+            match reader.read_until(b'\n', &mut buf) {
+                Ok(0) => break, // EOF
+                Ok(_) => {
+                    if buf.len() > MAX_PROBE_READ {
+                        // ligne anormalement longue : on la tronque (le parse JSON
+                        // la rejetera) au lieu d'allouer des centaines de Mo
+                        buf.truncate(MAX_PROBE_READ);
+                    }
+                    let l = String::from_utf8_lossy(&buf).to_string();
                     if tx.send(l).is_err() {
                         break;
                     }
@@ -1831,6 +1884,38 @@ mod tests {
         assert_eq!(dechunk(tronque), b"hello".to_vec());
         // premier chunk déjà tronqué : rien de récupérable
         assert_eq!(dechunk(b"ff\r\ncourt"), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn dechunk_responses_hostiles_ne_paniquent_pas() {
+        // Régression audit 2026-10-25 : deux panics dans dechunk() —
+        //  (1) slice `&data[i..]` hors bornes quand i dépasse len ;
+        //  (2) `start + size` en overflow usize sur une taille hexa absurde.
+        // Un chunked tronqué suffisait à TUER le thread du poller en silence.
+        // Aucune de ces entrées ne doit paniquer.
+        let hostiles: Vec<&[u8]> = vec![
+            b"5\r\nhello",           // chunk tronqué (pas de CRLF final)
+            b"5\r\nhello\r\n",       // chunk complet, CRLF final absent
+            b"3\r\nab",              // taille > contenu
+            b"ffffffffffffffff\r\n", // taille hexa absurde → overflow
+            b"ffffffff\r\nx\r\n",    // absurdité suivie d'un chunk
+            b"0\r\n\r\n",            // fin normale
+            b"\r\n",                 // ligne vide
+            b"zz\r\nabc",            // taille non hexa
+        ];
+        for h in hostiles {
+            let out = dechunk(h);
+            // on vérifie surtout l'absence de panic (le test échoue si ça panic)
+            assert!(
+                out.len() <= h.len(),
+                "dechunk ne doit jamais produire plus que l'entrée"
+            );
+        }
+        // un chunked valide reste correctement décodé
+        assert_eq!(
+            dechunk(b"5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n"),
+            b"hello world".to_vec()
+        );
     }
 
     #[test]
@@ -2279,6 +2364,42 @@ LISTEN  0      128              *:3141             *:*";
         let p = probe_http(port, "/mcp", 800);
         assert!(!p.mcp_up);
         assert!(!p.port_open);
+    }
+
+    #[test]
+    fn probe_http_reponse_courte_sans_separateur_ne_panique_pas() {
+        // Régression audit 2026-10-25 : une réponse de 1-3 octets sans CRLFCRLF
+        // faisait panicer sur `data[sep + 4..]` → le thread du POLLER mourait
+        // en silence et la supervision des serveurs s'arrêtait définitivement.
+        // Le probe doit renvoyer une erreur, jamais paniquer.
+        for reponse in [
+            b"X".to_vec(),
+            b"OK".to_vec(),
+            b"abc".to_vec(),
+            b"\r\n".to_vec(),
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let value = reponse.clone();
+            thread::spawn(move || {
+                for _ in 0..3 {
+                    let Ok((mut s, _)) = listener.accept() else {
+                        return;
+                    };
+                    let mut buf = [0u8; 8192];
+                    let _ = s.read(&mut buf);
+                    let _ = s.write_all(&value);
+                    let _ = s.flush();
+                }
+            });
+            let p = probe_http(port, "/mcp", 2000);
+            assert!(!p.mcp_up, "une réponse non-HTTP ne doit pas être UP");
+            assert!(
+                p.error.is_some(),
+                "le probe doit signaler une erreur, pas paniquer (réponse {:?})",
+                String::from_utf8_lossy(&reponse)
+            );
+        }
     }
 
     #[test]

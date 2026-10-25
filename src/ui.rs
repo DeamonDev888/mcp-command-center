@@ -219,7 +219,7 @@ details.fold .kv{margin-top:12px}
 .langchip.unk{color:var(--t4);border-color:var(--border-soft);background:transparent;font-weight:400}
 /* Logo Rust (langage inféré) : « R » cerclé d'un engrenage, comme l'icône .rs des éditeurs */
 .rustwrap{display:inline-flex;align-items:center;flex-shrink:0;margin:0 1px}
-.rustlogo{width:15px;height:15px}
+.rustlogo{width:18px;height:18px}
 #storeDlg{width:min(1180px,96vw)}
 .store-bar{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
 .store-count{color:var(--t3);font-weight:400;font-size:12.5px;margin-left:2px}
@@ -538,7 +538,7 @@ const LANG_META = {
 // Glyphe Rust : « R » dans un engrenage (lecture de l'icône .rs des éditeurs).
 // NB : attributs en simples quotes — guillemet-double suivi de dièse interdit
 // dans ce bloc (cette séquence fermerait la raw string Rust d'INDEX_HTML).
-const RUST_LOGO = "<svg class='rustlogo' viewBox='0 0 24 24' aria-hidden='true'><g stroke='#dea584' stroke-width='1.5' stroke-linecap='round' fill='none'><circle cx='12' cy='12' r='7.9'/><path d='M19.9 12h2M17.6 17.6l1.4 1.4M12 19.9v2M6.4 17.6 5 19M4.1 12h-2M6.4 6.4 5 5M12 4.1v-2M17.6 6.4 19 5'/></g><text x='12' y='15.7' text-anchor='middle' font-size='10' font-weight='700' font-family='inherit' fill='#dea584'>R</text></svg>";
+const RUST_LOGO = "<svg class='rustlogo' viewBox='0 0 24 24' aria-hidden='true'><g stroke='#dea584' stroke-width='1.4' stroke-linecap='round' fill='none'><circle cx='12' cy='12' r='7.9'/><path d='M19.9 12h2M17.6 17.6l1.4 1.4M12 19.9v2M6.4 17.6 5 19M4.1 12h-2M6.4 6.4 5 5M12 4.1v-2M17.6 6.4 19 5'/></g><text x='12' y='16.2' text-anchor='middle' font-size='12' font-weight='800' font-family='inherit' fill='#dea584'>R</text></svg>";
 function langChip(s) {
   if (s.lang === 'rust') return `<span class="rustwrap" title="Langage inféré : Rust">${RUST_LOGO}</span>`;
   const m = LANG_META[s.lang];
@@ -695,7 +695,7 @@ function renderPeers() {
     const st = p.stats || {};
     return `<div class="peer-row">
       <div class="l1"><span class="dot UP"></span><span class="nm">${esc(p.ip)}</span></div>
-      <div class="l2">UI :${p.ui_port} &mdash; ${st.up ?? '?'} UP / ${st.total ?? '?'} serveurs</div>
+      <div class="l2">UI :${esc(p.ui_port)} &mdash; ${esc(st.up ?? '?')} UP / ${esc(st.total ?? '?')} serveurs</div>
       <button onclick="importPeer(${js(p.ip)})">Importer ses serveurs</button>
     </div>`;
   }).join('');
@@ -940,23 +940,23 @@ function renderMachines() {
     '<div class="empty-sec">aucune machine enregistr&eacute;e — entre une IP et un utilisateur SSH ci-dessus</div>';
   html += hosts.map(h => {
     const peer = peers.find(p => p.ip === h.ip);
-    const st = peer ? `command center d&eacute;tect&eacute; — ${(peer.stats||{}).up ?? '?'} UP / ${(peer.stats||{}).total ?? '?'} serveurs`
+    const st = peer ? `command center d&eacute;tect&eacute; — ${esc((peer.stats||{}).up ?? '?')} UP / ${esc((peer.stats||{}).total ?? '?')} serveurs`
                     : 'machine enregistr&eacute;e';
     return `<div class="machine-row">
       <div class="l1"><span class="dot UP"></span><span class="nm">${esc(h.ip)}</span><span class="tag http">${esc(h.user)}</span>${peer ? '<span class="tag sse">pair</span>' : ''}</div>
       <div class="l2">${st}</div>
       <div class="macts">
-        <button class="primary" onclick="sshDiscover('${esc(h.ip)}','${esc(h.user)}')">🔗 SSH &amp; d&eacute;couvrir</button>
-        ${peer ? `<button onclick="importPeer('${esc(h.ip)}')">Importer ses serveurs</button>` : ''}
-        <button class="danger" onclick="sshForget('${esc(h.ip)}')">Oublier</button>
+        <button class="primary" onclick="sshDiscover(${js(h.ip)},${js(h.user)})">🔗 SSH &amp; d&eacute;couvrir</button>
+        ${peer ? `<button onclick="importPeer(${js(h.ip)})">Importer ses serveurs</button>` : ''}
+        <button class="danger" onclick="sshForget(${js(h.ip)})">Oublier</button>
       </div>
     </div>`;
   }).join('');
   const autres = peers.filter(p => !hosts.find(h => h.ip === p.ip));
   html += autres.map(p => `<div class="machine-row">
       <div class="l1"><span class="dot UP"></span><span class="nm">${esc(p.ip)}</span><span class="tag sse">pair</span></div>
-      <div class="l2">UI :${p.ui_port} &mdash; ${(p.stats||{}).up ?? '?'} UP / ${(p.stats||{}).total ?? '?'} serveurs</div>
-      <div class="macts"><button onclick="importPeer('${esc(p.ip)}')">Importer ses serveurs</button></div>
+      <div class="l2">UI :${esc(p.ui_port)} &mdash; ${esc((p.stats||{}).up ?? '?')} UP / ${esc((p.stats||{}).total ?? '?')} serveurs</div>
+      <div class="macts"><button onclick="importPeer(${js(p.ip)})">Importer ses serveurs</button></div>
     </div>`).join('');
   box.innerHTML = html;
 }
