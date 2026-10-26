@@ -18,6 +18,21 @@ pub const INDEX_HTML: &str = r#"<!doctype html>
   --mono:'JetBrains Mono',ui-monospace,'Cascadia Code',Consolas,monospace;
   --sans:-apple-system,'Segoe UI',system-ui,sans-serif;
 }
+/* Thème clair — bascule <html data-theme="light"> (préférence ⚙ Réglages).
+   Toutes les surfaces passent par ces variables : un seul bloc suffit. */
+:root[data-theme="light"]{
+  --chrome:#f4f5f7;--sidebar:#ecedf0;--card:#ffffff;--elevated:#f7f8fa;
+  --t1:rgba(15,18,25,.92);--t2:rgba(15,18,25,.68);--t3:rgba(15,18,25,.5);--t4:rgba(15,18,25,.34);
+  --border:rgba(15,18,25,.16);--border-soft:rgba(15,18,25,.09);
+  --hover:rgba(74,132,254,.07);--active:rgba(74,132,254,.13);--active2:rgba(74,132,254,.25);
+  --ok:#2f7a5e;--bad:#c9405e;--warn:#96610f;--orange:#b4542f;--cyan:#4f7d89;--purple:#766ec2;
+}
+/* Correctifs clairs pour les rares couleurs fixes du thème sombre */
+:root[data-theme="light"] .netbanner{color:#a93250}
+:root[data-theme="light"] .netbanner b{color:#c9405e}
+:root[data-theme="light"] .tag.http,
+:root[data-theme="light"] .tag.https,
+:root[data-theme="light"] .tag.stdio{color:var(--t2);border-color:rgba(15,18,25,.35);background:rgba(15,18,25,.05)}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{background:var(--chrome);color:var(--t1);font:13px/1.5 var(--sans);display:flex;flex-direction:column;overflow:hidden}
@@ -54,6 +69,8 @@ button{background:transparent;color:var(--t2);border:1px solid var(--border);bor
 button:hover{background:var(--hover);border-color:var(--accent);color:var(--accent)}
 button.primary{background:var(--active);border-color:var(--active2);color:var(--accent);font-weight:500}
 button.primary:hover{background:var(--active2)}
+/* Thème : le bouton actif est marqué (accent) */
+#tDark.sel,#tLight.sel{background:var(--active);border-color:var(--accent);color:var(--accent)}
 button.danger:hover{border-color:var(--bad);color:var(--bad);background:rgba(231,94,120,.06)}
 button:disabled{opacity:.35;cursor:not-allowed}
 
@@ -318,6 +335,9 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
 </style>
 </head>
 <body>
+<script>/* thème AVANT le premier rendu (anti-flash) : préférence ⚙ Réglages */
+try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='light'?'light':'dark'}catch(e){}
+</script>
 
 <div id="netBanner" class="netbanner" hidden></div>
 
@@ -511,6 +531,13 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
       </div>
     </div>
     <div class="conf-block">
+      <div class="conf-head">Th&egrave;me</div>
+      <div style="display:flex;gap:8px">
+        <button id="tDark" class="sel" onclick="applyTheme('dark')" title="Th&egrave;me sombre (d&eacute;faut)">&#9899; Sombre</button>
+        <button id="tLight" onclick="applyTheme('light')" title="Th&egrave;me clair">&#9898; Clair</button>
+      </div>
+    </div>
+    <div class="conf-block">
       <div class="conf-head">Mises &agrave; jour (release GitHub du repo)</div>
       <div class="machine-form">
         <label>Install&eacute;e</label><input id="sVersion" disabled>
@@ -570,6 +597,18 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
    un 401 rouvre le dialogue (code tourné ou faux). */
 const accessCode = () => { try { return localStorage.getItem('mcc.access') || ''; } catch (e) { return ''; } };
 const MCC_VERSION = '__MCC_VERSION__';
+
+/* ===== Thème sombre/clair (⚙ Réglages) =====
+   Préférence locale (mcc.theme) appliquée AVANT le premier rendu par le
+   script inline anti-flash du <body> — ici on bascule et on marque l'actif. */
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark';
+  try { localStorage.setItem('mcc.theme', document.documentElement.dataset.theme); } catch (e) {}
+  const dk = document.getElementById('tDark');
+  const lt = document.getElementById('tLight');
+  if (dk) dk.classList.toggle('sel', document.documentElement.dataset.theme !== 'light');
+  if (lt) lt.classList.toggle('sel', document.documentElement.dataset.theme === 'light');
+}
 const _mccFetch = window.fetch.bind(window);
 window.fetch = async (url, opts = {}) => {
   const isApi = typeof url === 'string' && url.startsWith('/api/');
@@ -708,7 +747,7 @@ function srvRow(s) {
     : 'stdio &middot; ' + esc(s.transport_info.program);
   const off = s.tools_disabled.length ? ` &middot; ${s.tools_disabled.length} off` : '';
   return `<div class="srow ${selectedId===s.id?'sel':''} ${s.enabled?'':'off'}" draggable="true" data-id="${esc(s.id)}"
-    onclick="select(${js(s.id)})" oncontextmenu="rowCtx(event,${js(s.id)});return false"
+    onclick="select(${js(s.id)})"
     ondragstart="rowDragStart(event,${js(s.id)})" ondragover="rowDragOver(event)"
     ondragleave="rowDragLeave(event)" ondrop="rowDrop(event)" ondragend="rowDragEnd(event)">
     <div class="l1"><span class="dot ${s.state}"></span><span class="nm" title="${esc(s.label)}">${esc(s.label)}</span>${langChip(s)}${typeBadge(s)}${frameworkBadge(s)}${s.transport==='stdio'?'<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>':''}<span class="cnt">${s.tools_count}</span>${rowAuto(s)}${rowToggle(s)}${rowCtl(s)}</div>
@@ -1145,7 +1184,7 @@ function renderDetail() {
   const fold = (name, title, inner) =>
     `<details class="fold" data-fold="${name}"${foldOpen(name) ? ' open' : ''} ontoggle="saveFold(this)"><summary>${title}</summary>${inner}</details>`;
   const tools = (s.tools_list || []).map(t =>
-    `<div class="tool ${t.disabled?'off':''}">
+    `<div class="tool ${t.disabled?'off':''}" data-tool="${esc(t.name)}">
        <code>${esc(t.name)}</code>
        <span class="desc" title="${esc(t.desc)}">${esc(t.desc) || '&mdash;'}</span>
        <button class="tgl ${t.disabled?'off':'on'}" title="${t.disabled?'R&eacute;activer ce tool':'D&eacute;sactiver ce tool'}"
@@ -1352,6 +1391,11 @@ function rowCtx(ev, id) {
         () => act(s.state === 'UP' ? 'kill' : 'start', s.id));
   }
   add('🔄 Sonder maintenant', () => act('refresh', s.id));
+  showMenu(ev, items);
+}
+// Affiche un menu d'entrées {lbl, fn, dis} à la position du curseur.
+// '—' insère un séparateur. Une seule mécanique pour les lignes serveur et outil.
+function showMenu(ev, items) {
   const m = document.getElementById('ctxmenu');
   m.innerHTML = items.map((it, i) => it.lbl === '—'
     ? '<div class="ctxsep"></div>'
@@ -1369,8 +1413,51 @@ function rowCtx(ev, id) {
   const w = m.offsetWidth, h = m.offsetHeight;
   m.style.left = Math.max(6, Math.min(ev.clientX, window.innerWidth - w - 8)) + 'px';
   m.style.top = Math.max(6, Math.min(ev.clientY, window.innerHeight - h - 8)) + 'px';
-  ctxId = id;
 }
+// Clic droit sur un OUTIL du panneau de détail.
+function toolCtx(ev, id, name) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  // state.servers ne porte PAS tools_list : seul detailCache l'expose.
+  const s = (state && state.servers ? state.servers : []).find(x => x.id === id) || {};
+  const d = (detailCache && detailCache.id === id) ? detailCache : {};
+  const t = (d.tools_list || []).find(x => x.name === name) || {name: name, desc: ''};
+  const items = [];
+  const add = (lbl, fn, dis) => items.push({lbl: lbl, fn: fn, dis: !!dis});
+  add('📋 Copier le nom de l outil', () => copyText(name));
+  add('📋 Copier « serveur.outil »', () => copyText((d.label || s.label || id) + '.' + name));
+  if (t.desc) add('📃 Copier la description', () => copyText(t.desc));
+  add('🧾 Copier l appel JSON-RPC', () => copyText(JSON.stringify({
+    jsonrpc: '2.0', id: 1, method: 'tools/call',
+    params: {name: name, arguments: {}}
+  }, null, 2)));
+  if (ctxUrl(s)) add('🔗 Copier l URL + outil', () => copyText(ctxUrl(s) + '   # outil : ' + name));
+  add('—', null, false);
+  add(t.disabled ? '✅ Réactiver cet outil' : '⛔ Désactiver cet outil',
+      () => toggleTool(id, name));
+  showMenu(ev, items);
+}
+// Clic droit : délégation (plus fiable que des attributs inline sur du HTML
+// régénéré à chaque rendu). Ligne serveur → menu serveur, ligne outil → menu outil.
+document.addEventListener('contextmenu', (ev) => {
+  const t = ev.target && ev.target.closest ? ev.target : null;
+  if (!t) return;
+  const row = t.closest('.srow');
+  if (row && row.dataset.id) { ev.preventDefault(); ev.stopPropagation(); rowCtx(ev, row.dataset.id); return; }
+  const tool = t.closest('.tool');
+  if (tool && tool.dataset.tool && selectedId) {
+    ev.preventDefault(); ev.stopPropagation(); toolCtx(ev, selectedId, tool.dataset.tool);
+  }
+});
+// Diagnostic : une exception JS non capturée s'écrit dans le TITRE de la
+// fenêtre (lisible depuis l'extérieur, ex. PowerShell MainWindowTitle) — le
+// webview n'a pas de console accessible sur la build packagée.
+window.addEventListener('error', (e) => {
+  try { document.title = 'JSERR ' + (e.message || e.error || 'inconnu'); } catch (_) {}
+});
+window.addEventListener('unhandledrejection', (e) => {
+  try { document.title = 'JSERR promesse ' + ((e.reason && e.reason.message) || e.reason || 'inconnu'); } catch (_) {}
+});
 document.addEventListener('click', ctxClose);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') ctxClose(); });
 window.addEventListener('resize', ctxClose);
@@ -1450,6 +1537,7 @@ function openSettingsDlg() {
   document.getElementById('updMsg').style.color = state.update_available ? 'var(--warn)' : '';
   document.getElementById('resetMsg').textContent = '';
   document.getElementById('settingsMsg').textContent = '';
+  applyTheme(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
   document.getElementById('settingsDlg').showModal();
 }
 async function checkUpdateNow() {
