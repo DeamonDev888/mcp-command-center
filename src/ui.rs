@@ -720,8 +720,8 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
           <div class="set-label"><span>Th&egrave;me</span>
             <em>Apparence de l'interface. Conserv&eacute; sur ce poste.</em></div>
           <div class="set-ctrl seg" role="group" aria-label="Th&egrave;me">
-            <button id="tDark" class="seg-btn" onclick="applyTheme('dark')" title="Th&egrave;me sombre (d&eacute;faut)">Sombre</button>
-            <button id="tLight" class="seg-btn" onclick="applyTheme('light')" title="Th&egrave;me clair">Clair</button>
+            <button id="tDark" class="seg-btn" onclick="applyThemeAndSave('dark')" title="Th&egrave;me sombre (d&eacute;faut)">Sombre</button>
+            <button id="tLight" class="seg-btn" onclick="applyThemeAndSave('light')" title="Th&egrave;me clair">Clair</button>
           </div>
         </div>
       </div>
@@ -860,14 +860,22 @@ const MCC_VERSION = '__MCC_VERSION__';
 /* ===== Thème sombre/clair (⚙ Réglages) =====
    Préférence locale (mcc.theme) appliquée AVANT le premier rendu par le
    script inline anti-flash du <body> — ici on bascule et on marque l'actif. */
+// Applique le thème SANS toucher à la préférence enregistrée.
+// applyTheme est aussi appelé à l'ouverture des Réglages (pour aligner les
+// boutons) : écrire ici écrasait le choix de l'utilisateur — le thème clair
+// ne tenait jamais (il revenait à « sombre » à la réouverture des Réglages).
 function applyTheme(t) {
   document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark';
-  try { localStorage.setItem('mcc.theme', document.documentElement.dataset.theme); } catch (e) {}
   const light = document.documentElement.dataset.theme === 'light';
   const dk = document.getElementById('tDark');
   const lt = document.getElementById('tLight');
   if (dk) dk.classList.toggle('sel', !light);
   if (lt) lt.classList.toggle('sel', light);
+}
+// Choix EXPLICITE de l'utilisateur : applique ET enregistre.
+function applyThemeAndSave(t) {
+  applyTheme(t);
+  try { localStorage.setItem('mcc.theme', document.documentElement.dataset.theme); } catch (e) {}
 }
 const _mccFetch = window.fetch.bind(window);
 window.fetch = async (url, opts = {}) => {

@@ -1562,7 +1562,13 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
                 hdrs,
             ) {
                 Ok((r, h)) => {
-                    attempt = Some((r, host.to_string(), h, t0.elapsed().as_millis() as u64, stateless));
+                    attempt = Some((
+                        r,
+                        host.to_string(),
+                        h,
+                        t0.elapsed().as_millis() as u64,
+                        stateless,
+                    ));
                     break 'probe;
                 }
                 Err(e) => last_err = e,
@@ -1590,6 +1596,22 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
                 timeout_ms,
                 &discover_hdrs,
             ) {
+                // VALIDATION STRICTE du repli stateless : `server/discover`
+                // doit prouver qu'il est un serveur MCP, sinon un port qui
+                // répond {"result":{}} à n'importe quoi passe (faux positif).
+                // La preuve est serverInfo sous _meta (spec 2026-07-28).
+                let proof = r
+                    .get("_meta")
+                    .and_then(|m| m.get("io.modelcontextprotocol/serverInfo"))
+                    .and_then(|si| si.get("name"))
+                    .and_then(|n| n.as_str())
+                    .map(|n| !n.trim().is_empty())
+                    .unwrap_or(false);
+                if !proof {
+                    last_err =
+                        "server/discover sans serverInfo : ce port ne parle pas MCP".to_string();
+                    continue;
+                }
                 discovered = Some(r);
                 attempt = Some((
                     serde_json::Value::Null,
@@ -2250,8 +2272,18 @@ pub fn looks_like_ip(s: &str) -> bool {
 /// moteur existant au lieu d'en lancer un second — deux moteurs sur la même
 /// config se disputeraient les spawns et réécriraient le config.json en boucle.
 pub fn command_center_ui_at(port: u16) -> Option<String> {
-    for host in ["127.0.0.1", "::1"] {
-        if let Ok((bytes, _)) = http_get_host(host, port, "/api/hello", 800) {
+    command_center_ui_at_hosts(port, &["127.0.0.1", "::1"])
+}
+
+/// Cherche un moteur command-center sur le port donné, en interrogeant les
+/// hôtes indiqués (le bind configuré en premier : un moteur en bind LAN
+/// n'est PAS joignable sur 127.0.0.1 si le bind est une IP précise).
+/// Timeout large : sous forte charge (scan réseau), 800 ms ne suffisaient pas
+/// et la détection échouait — la nouvelle instance prenait alors le port
+/// suivant et fuyait un moteur de plus à chaque lancement.
+pub fn command_center_ui_at_hosts(port: u16, hosts: &[&str]) -> Option<String> {
+    for host in hosts.iter().copied() {
+        if let Ok((bytes, _)) = http_get_host(host, port, "/api/hello", 2000) {
             if let Ok(v) = serde_json::from_slice::<Value>(&bytes) {
                 if v.get("app").and_then(|x| x.as_str()) == Some("mcp-command-center") {
                     let h = if host.contains(':') {
@@ -2271,6 +2303,48 @@ pub fn command_center_ui_at(port: u16) -> Option<String> {
 mod tests {
     use super::*;
     use std::thread;
+
+    /// RÉGRESSION faux positifs : un port HTTP qui répond du JSON-RPC SANS
+    /// serverInfo (`{"result":{}}`) ne doit JAMAIS être découvert comme
+    /// serveur MCP — ni par `initialize`, ni par le repli `server/discover`
+    /// (stateless 2026-07-28). Avant la validation stricte, ce port était
+    /// accepté et le scan réseau inventait un serveur « port-XXXX ».
+    #[test]
+    fn port_non_mcp_avec_result_vide_est_rejete() {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        thread::spawn(move || {
+            for stream in l.incoming() {
+                let Ok(mut s) = stream else { continue };
+                let mut buf = [0u8; 16384];
+                use std::io::Read;
+                let _ = s.read(&mut buf);
+                use std::io::Write;
+                let body = r#"{"jsonrpc":"2.0","id":1,"result":{}}"#;
+                let resp = format!(
+                    "HTTP/1.1 200 OK
+\nContent-Type: application/json
+\nContent-Length: {}
+\n
+\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = s.write_all(resp.as_bytes());
+                let _ = s.flush();
+            }
+        });
+        // laisse le thread démarrer
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        // aucune des trois routes ne doit produire un serveur MCP
+        assert!(
+            probe_mcp_any_path(port, 2500).is_none(),
+            "un port non-MCP ne doit jamais être découvert (faux positif)"
+        );
+        // et la sonde directe doit échouer aussi
+        let p = probe_http(port, "/mcp", 2500);
+        assert!(!p.mcp_up, "probe_http doit refuser un result vide");
+    }
 
     #[test]
     fn find_sub_trouve_et_pas_trouve() {
@@ -2972,6 +3046,32 @@ LISTEN  0      128              *:3141             *:*";
         let port3 = l3.local_addr().unwrap().port();
         drop(l3);
         assert!(command_center_ui_at(port3).is_none());
+    }
+
+    #[test]
+    fn command_center_ui_at_hosts_trouve_un_moteur_bindi_sur_une_ip_precise() {
+        // Serveur qui ne répond QUE sur l'adresse de loopback : on vérifie
+        // que la liste d'hôtes est bien respectée (le bind configuré d'abord).
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        thread::spawn(move || {
+            for stream in l.incoming() {
+                let Ok(mut s) = stream else { return };
+                let mut buf = [0u8; 4096];
+                let _ = s.read(&mut buf);
+                let body = r#"{"app":"mcp-command-center","version":"0.7.2","nonce":"x"}"#;
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = s.write_all(resp.as_bytes());
+            }
+        });
+        // Le bind configuré est prioritaire : il est trouvé.
+        assert!(command_center_ui_at_hosts(port, &["127.0.0.1", "::1"]).is_some());
+        // Un bind sur une adresse qui n'écoute pas → pas de faux positif.
+        assert!(command_center_ui_at_hosts(port, &["192.0.2.1"]).is_none());
     }
 
     #[test]

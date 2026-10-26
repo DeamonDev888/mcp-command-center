@@ -335,19 +335,65 @@ pub fn run_headless() -> RunOutcome {
                 // unique — deux moteurs sur la même config se disputeraient les
                 // spawns, réécriraient config.json et doublerraient les scans).
                 // Occupant étranger → port suivant (comportement historique).
+                // Un moteur peut être détecté puis mourir dans la seconde
+                // (relance pendant un build, arrêt manuel) : on ne réutilise
+                // une URL que si elle répond DEUX fois de suite, espacées de
+                // 300 ms. Un moteur moribond ne survivra pas à la seconde
+                // mesure — sinon la fenêtre s'ouvre sur un port mort.
+                // Le moteur à détecter écoute sur le bind de la config : on
+                // interroge CETTE adresse (un bind 0.0.0.0 ou une IP LAN
+                // précise n'est pas joignable par défaut sur 127.0.0.1).
+                let bind_host: Option<&str> = match ui_bind.as_str() {
+                    "" | "0.0.0.0" | "*" => None,
+                    h => Some(h),
+                };
+                let mut probe_hosts: Vec<&str> = Vec::new();
+                if let Some(h) = bind_host {
+                    probe_hosts.push(h);
+                }
+                for h in ["127.0.0.1", "::1"] {
+                    if !probe_hosts.contains(&h) {
+                        probe_hosts.push(h);
+                    }
+                }
+                let mut dead_motor = false;
                 for _ in 0..2 {
-                    if let Some(url) = probe::command_center_ui_at(ui_port) {
-                        manage::add_log(
-                            &state,
-                            "info",
-                            &format!(
-                                "moteur déjà en cours sur {} — réutilisé : aucun second moteur lancé (sondes, autostart et scan restent à l'instance existante)",
-                                url
-                            ),
-                        );
-                        return RunOutcome { url, reused: true };
+                    if let Some(url) = probe::command_center_ui_at_hosts(ui_port, &probe_hosts) {
+                        thread::sleep(Duration::from_millis(300));
+                        if probe::command_center_ui_at_hosts(ui_port, &probe_hosts).is_some() {
+                            manage::add_log(
+                                &state,
+                                "info",
+                                &format!(
+                                    "moteur déjà en cours sur {} — réutilisé : aucun second moteur lancé (sondes, autostart et scan restent à l'instance existante)",
+                                    url
+                                ),
+                            );
+                            return RunOutcome { url, reused: true };
+                        }
+                        dead_motor = true;
+                        break;
                     }
                     thread::sleep(Duration::from_millis(250));
+                }
+                if dead_motor {
+                    // Le moteur détecté était en train de mourir : on attend
+                    // que le port se libère pour lancer NOTRE moteur, sinon
+                    // la fenêtre pointerait vers un port mort.
+                    manage::add_log(
+                        &state,
+                        "warn",
+                        &format!(
+                            "moteur précédent sur le port {} : arrêt en cours, attente de libération",
+                            ui_port
+                        ),
+                    );
+                    for _ in 0..12 {
+                        if TcpListener::bind((ui_bind.as_str(), ui_port)).is_ok() {
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(250));
+                    }
                 }
                 manage::add_log(
                     &state,
