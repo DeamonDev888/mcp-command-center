@@ -80,6 +80,18 @@ button:disabled{opacity:.35;cursor:not-allowed}
 .srow .l1 .cnt{font:10px var(--mono);color:var(--t4)}
 .legacy{font:9px var(--mono);text-transform:uppercase;letter-spacing:.4px;color:var(--t4);
   border:1px dashed var(--border);border-radius:4px;padding:0 5px;white-space:nowrap;flex-shrink:0}
+.ctxmenu{position:fixed;z-index:9999;min-width:262px;background:var(--card);border:1px solid var(--border);
+  border-radius:8px;padding:4px;box-shadow:0 14px 34px rgba(0,0,0,.55);font-size:12px}
+.ctxmenu[hidden]{display:none}
+.ctxitem{padding:6px 9px;border-radius:5px;cursor:pointer;color:var(--t2);white-space:nowrap;
+  display:flex;gap:8px;align-items:center}
+.ctxitem:hover{background:var(--hover);color:var(--t1)}
+.ctxitem.dis{opacity:.35;cursor:default;pointer-events:none}
+.ctxsep{height:1px;background:var(--border);margin:4px 6px}
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(8px);
+  background:var(--card);color:var(--t1);border:1px solid var(--border);border-radius:8px;
+  padding:7px 14px;font-size:12px;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:10000}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
 .netbanner{background:rgba(231,94,120,.12);border-bottom:1px solid rgba(231,94,120,.45);
   color:#f0a8b6;font-size:11.5px;padding:5px 12px;display:flex;gap:8px;align-items:center}
 .netbanner b{color:#ffd7de}
@@ -99,6 +111,26 @@ button:disabled{opacity:.35;cursor:not-allowed}
 .srow.dragging{opacity:.35}
 .srow.drop-above{box-shadow:0 -2px 0 var(--accent)}
 .srow.drop-below{box-shadow:0 2px 0 var(--accent)}
+/* ===== Sections repliables de l'explorateur =====
+   Serveurs locaux à plat, puis UN GROUPE REPLIABLE PAR MACHINE DISTANTE
+   (VPS/LAN) : les serveurs importés d'une machine sont rangés sous son IP. */
+.sec-label[hidden]{display:none}
+.grphead{display:flex;align-items:center;gap:6px;margin:1px 8px;padding:5px 8px;border-radius:7px;
+  cursor:pointer;user-select:none;color:var(--t3);border:1px solid transparent;transition:background .1s}
+.grphead:hover{background:var(--hover);color:var(--t2)}
+.grphead .gchev{font-size:9px;width:10px;flex-shrink:0;color:var(--t4);transition:transform .12s}
+.grphead.closed .gchev{transform:rotate(-90deg)}
+.grphead .gname{flex:1;font-size:11px;font-weight:600;letter-spacing:.3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.grphead .gcount{font:10px var(--mono);color:var(--t4);flex-shrink:0}
+.grphead .gact{background:none;border:none;padding:0 3px;font-size:11px;line-height:16px;color:var(--t4);flex-shrink:0}
+.grphead .gact:hover{color:var(--bad);background:none;border:none}
+.grphead.closed .gact{display:none}
+.grphead.drag-over-group{border-color:var(--accent);background:var(--active)}
+.grpbody.closed{display:none}
+/* Rangées distantes : légère indentation sous leur groupe machine */
+.mbody .srow{padding-left:24px}
+.mbody .srow.sel::before{left:10px}
 .sw{min-width:34px;text-align:center;font:9px var(--mono);font-weight:600;border-radius:9px;padding:1px 6px;flex-shrink:0}
 .sw.on{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08)}
 .sw.on:hover{border-color:var(--bad);color:var(--bad);background:rgba(231,94,120,.06)}
@@ -220,18 +252,21 @@ details.fold .kv{margin-top:12px}
 .tag{font:10px var(--mono);padding:1px 7px;border-radius:3px;border:1px solid var(--border);color:var(--t3)}
 .tag.npm{color:#bc8cff;border-color:#bc8cff44}
 .tag.py{color:#39c5cf;border-color:#39c5cf44}
-.tag.stdio{color:#39c5cf;border-color:#39c5cf44}
-.tag.http{color:#bc8cff;border-color:#bc8cff44}
+/* Transports : MONOCHROME, trois niveaux de gris distincts (aucune teinte de
+   langage). http = le plus clair, stdio = médian, ws = le plus sourd. */
+.tag.stdio{color:#b9bdc7;border-color:rgba(185,189,199,.42);background:rgba(185,189,199,.06)}
+.tag.http{color:#e8e8ec;border-color:rgba(232,232,236,.45);background:rgba(232,232,236,.07)}
 .tag.sse{color:var(--ok);border-color:rgba(85,165,131,.45)}
-.tag.ws{color:#f0a35e;border-color:#f0a35e55;background:#f0a35e11}
-.tag.https{color:#d2a8ff;border-color:#d2a8ff44;background:#d2a8ff11;box-shadow:0 0 8px rgba(210,168,255,.35)}
-/* Framework détecté par fingerprint (litemcp) : badge violet « glow HTTPS » — halo pulsant */
-.tag.litemcp{color:#e9d5ff;border-color:#d2a8ff88;background:#d2a8ff1f;box-shadow:0 0 10px rgba(210,168,255,.55);animation:glowPulse 2.4s ease-in-out infinite}
-/* Framework FastMCP (mcp-proxy httpStream) : badge teal — distinct du violet litemcp */
+.tag.ws{color:#8b909b;border-color:rgba(139,144,155,.42);background:rgba(139,144,155,.06)}
+.tag.https{color:#e8e8ec;border-color:rgba(232,232,236,.45);background:rgba(232,232,236,.07)}
+/* LiteMCP (fingerprint) : le SEUL badge à halo — orange, la couleur de Rust. */
+.tag.litemcp{color:#fdba74;border-color:#f9731699;background:#f973161f;box-shadow:0 0 10px rgba(249,115,22,.55);animation:glowLite 2.4s ease-in-out infinite}
+/* FastMCP (mcp-proxy httpStream) : repli neutre — le JS inline impose la couleur du langage */
 .tag.fastmcp{color:#8fd3dE;border-color:#6f9ba688;background:#6f9ba61f;box-shadow:0 0 8px rgba(111,155,166,.45)}
 /* autres frameworks MCP détectés par nom (rmcp, mcp-go, Spring AI, xmcp…) */
 .tag.fw{color:#a5b4fc;border-color:#a5b4fc55;background:#a5b4fc11}
 @keyframes glowPulse{50%{box-shadow:0 0 18px rgba(210,168,255,.9)}}
+@keyframes glowLite{50%{box-shadow:0 0 18px rgba(249,115,22,.9)}}
 .srow .l1 .tag{font-size:8.5px;padding:0 5px;line-height:14px;flex-shrink:0}
 .langchip{font:8.5px var(--mono);font-weight:700;border:1px solid;border-radius:4px;padding:0 4px;line-height:14px;flex-shrink:0}
 .langchip.unk{color:var(--t4);border-color:var(--border-soft);background:transparent;font-weight:400}
@@ -302,6 +337,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
     <button onclick="doScanNet()">&#127760; Scan r&eacute;seau</button>
     <button onclick="openMachineDlg()">🖥️ Machines</button>
     <button onclick="openStore()">&#128722; Boutique</button>
+    <button onclick="openSettingsDlg()" title="R&eacute;glages du client">&#9881; R&eacute;glages</button>
     <button onclick="refreshAll()" title="Re-sonder tous les serveurs connus et d&eacute;couvrir les nouveaux (tous ports en &eacute;coute)">&#8635;</button>
   </div>
   <div id="winCtrls">
@@ -322,9 +358,19 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
         <option value="port">port</option>
         <option value="latence">latence</option>
         <option value="tools">tools</option>
+        <option value="framework">framework</option>
+        <option value="transport">transport</option>
       </select>
     </div>
-    <div id="srvList"></div>
+    <div id="localSec">
+      <div class="grphead" id="localHead" onclick="toggleGroup('local')"
+        title="Serveurs MCP locaux &agrave; cette machine (loopback) — cliquer pour replier/d&eacute;plier">
+        <span class="gchev">&#9662;</span><span class="gname">Serveurs locaux</span><span class="gcount" id="localCount"></span>
+      </div>
+      <div class="grpbody" id="srvList"></div>
+    </div>
+    <div class="sec-label" id="remoteLabel" hidden>Machines distantes</div>
+    <div id="remoteGroups"></div>
     <div class="sec-label">Machines &amp; pairs</div>
     <div id="peerList"></div>
     <div id="addWrap"><button onclick="toggleAdd()">+ Ajouter un serveur</button></div>
@@ -417,6 +463,81 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
     <div id="machineMsg" class="machine-msg"></div>
     <div id="machineList"></div>
     <div style="margin-top:12px"><button onclick="doPeers();setTimeout(renderMachines,3000)">🔄 D&eacute;tecter les command centers sur le LAN</button></div>
+  </div>
+</dialog>
+
+<dialog id="settingsDlg">
+  <div class="dlg-head">
+    <h2>&#9881; R&eacute;glages</h2>
+    <button class="close" onclick="settingsDlg.close()">&times;</button>
+  </div>
+  <div class="dlg-body">
+    <div class="conf-block">
+      <div class="conf-head">Sondage</div>
+      <div class="machine-form">
+        <label>Intervalle de sondage (secondes, 5&ndash;3600)</label>
+        <input id="sRefresh" type="number" min="5" max="3600" step="5">
+      </div>
+      <div class="conf-note">Appliqu&eacute; d&egrave;s le prochain cycle &mdash; inutile de red&eacute;marrer.</div>
+    </div>
+    <div class="conf-block">
+      <div class="conf-head">Scan de ports</div>
+      <div class="machine-form">
+        <label>De</label><input id="sScanFrom" type="number" min="1" max="65535">
+        <label>&agrave;</label><input id="sScanTo" type="number" min="1" max="65535">
+      </div>
+      <div class="conf-note">Plage sond&eacute;e par &laquo; Scan ports &raquo;. La d&eacute;couverte native litemcp n&rsquo;en d&eacute;pend pas.</div>
+    </div>
+    <div class="conf-block">
+      <div class="conf-head">R&eacute;seau &amp; pairs</div>
+      <label style="display:flex;gap:8px;align-items:center;font:12px var(--sans);color:var(--t2);margin:6px 0">
+        <input type="checkbox" id="sNetEnabled"> D&eacute;tection des pairs command center + scan r&eacute;seau
+      </label>
+      <div class="machine-form">
+        <label>Ports UI &agrave; sonder chez les pairs</label>
+        <input id="sNetPorts" placeholder="5090, 5091">
+      </div>
+    </div>
+    <div class="conf-block">
+      <div class="conf-head">Interface (appliqu&eacute; au prochain d&eacute;marrage)</div>
+      <div class="machine-form">
+        <label>Bind UI</label>
+        <select id="sUiBind" style="flex:1;min-width:170px;background:var(--sidebar);border:1px solid var(--border-soft);border-radius:8px;color:var(--t1);padding:6px 9px;font:12px var(--mono)">
+          <option value="127.0.0.1">127.0.0.1 &mdash; local seulement</option>
+          <option value="0.0.0.0">0.0.0.0 &mdash; accessible du LAN (code d&rsquo;acc&egrave;s exig&eacute;)</option>
+        </select>
+        <label>Port UI</label><input id="sUiPort" type="number" disabled
+          title="Le port est fig&eacute; au d&eacute;marrage (listener) &mdash; modifiable dans config.json">
+      </div>
+    </div>
+    <div class="conf-block">
+      <div class="conf-head">Mises &agrave; jour (release GitHub du repo)</div>
+      <div class="machine-form">
+        <label>Install&eacute;e</label><input id="sVersion" disabled>
+        <label>Derni&egrave;re release</label><input id="sLatest" disabled>
+        <button onclick="checkUpdateNow()" title="Interroge l&rsquo;API GitHub releases/latest maintenant">&#8635; V&eacute;rifier</button>
+        <button class="primary" onclick="openUpdate()" title="Ouvre la page de la derni&egrave;re release du repo">&#11014; Mettre &agrave; jour</button>
+      </div>
+      <div id="updMsg" class="machine-msg"></div>
+    </div>
+    <div class="conf-block">
+      <div class="conf-head">R&eacute;initialiser</div>
+      <div class="machine-form">
+        <select id="sResetWhat" style="flex:1;min-width:170px;background:var(--sidebar);border:1px solid var(--border-soft);border-radius:8px;color:var(--t1);padding:6px 9px;font:12px var(--mono)">
+          <option value="placement">Placement des serveurs (ordre)</option>
+          <option value="detection">D&eacute;tection &amp; importations (d&eacute;couverts, litemcp, pairs)</option>
+          <option value="oublis">Oublis (seeds retir&eacute;s + machines SSH)</option>
+          <option value="tout">Tout r&eacute;initialiser</option>
+        </select>
+        <button class="danger" onclick="resetState(document.getElementById('sResetWhat').value)">&#128465; R&eacute;initialiser</button>
+      </div>
+      <div id="resetMsg" class="machine-msg"></div>
+    </div>
+    <div id="settingsMsg" class="machine-msg"></div>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="primary" onclick="saveSettings()">&#128190; Enregistrer</button>
+      <button onclick="settingsDlg.close()">Annuler</button>
+    </div>
   </div>
 </dialog>
 
@@ -562,29 +683,92 @@ function render() {
 }
 
 /* ===== Explorateur ===== */
+/* Clé de groupement : 'local' (loopback de cette machine) ou host/IP de la
+   machine distante (LAN/VPS). L'explorateur affiche les locaux à plat puis
+   UN GROUPE REPLIABLE PAR MACHINE distante. */
+function hostOf(s) {
+  if (s.transport !== 'http') return 'local';
+  return s.transport_info.host || 'local';
+}
+/* Helper global : serveur par id (applySort a son propre byId local, ombre légale). */
+function byId(id) {
+  return state && state.servers ? state.servers.find(s => s.id === id) : null;
+}
+function groupKeys() {
+  // hosts des serveurs distants (ordre d'affichage) + machines enregistrées
+  // (ssh_hosts) même sans serveur importé — le groupe vide montre où ranger.
+  const keys = [];
+  state.servers.forEach(s => { const k = hostOf(s); if (k !== 'local' && !keys.includes(k)) keys.push(k); });
+  (state.settings.ssh_hosts || []).forEach(h => { if (!keys.includes(h.ip)) keys.push(h.ip); });
+  return keys;
+}
+function srvRow(s) {
+  const ti = s.transport === 'http'
+    ? (s.transport_info.host ? `${esc(s.transport_info.host)}:` : '') + s.transport_info.port
+    : 'stdio &middot; ' + esc(s.transport_info.program);
+  const off = s.tools_disabled.length ? ` &middot; ${s.tools_disabled.length} off` : '';
+  return `<div class="srow ${selectedId===s.id?'sel':''} ${s.enabled?'':'off'}" draggable="true" data-id="${esc(s.id)}"
+    onclick="select(${js(s.id)})" oncontextmenu="rowCtx(event,${js(s.id)});return false"
+    ondragstart="rowDragStart(event,${js(s.id)})" ondragover="rowDragOver(event)"
+    ondragleave="rowDragLeave(event)" ondrop="rowDrop(event)" ondragend="rowDragEnd(event)">
+    <div class="l1"><span class="dot ${s.state}"></span><span class="nm" title="${esc(s.label)}">${esc(s.label)}</span>${langChip(s)}${typeBadge(s)}${frameworkBadge(s)}${s.transport==='stdio'?'<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>':''}<span class="cnt">${s.tools_count}</span>${rowAuto(s)}${rowToggle(s)}${rowCtl(s)}</div>
+    <div class="l2"><span class="st ${esc(s.state)}">${esc(s.state)}</span> ${ti}${off}</div>
+  </div>`;
+}
+/* Replis des groupes mémorisés (localStorage) : 'local' + une clé par machine. */
+function groupClosed(key) {
+  try { return localStorage.getItem('mcc.group.' + key) === '1'; } catch (e) { return false; }
+}
+function toggleGroup(key) {
+  try { localStorage.setItem('mcc.group.' + key, groupClosed(key) ? '0' : '1'); } catch (e) {}
+  renderServers();
+}
+function groupHeadHtml(key, label, up, total, machine) {
+  const tip = machine
+    ? `Machine distante ${esc(label)} &mdash; cliquer pour replier/d&eacute;plier`
+    : 'Serveurs MCP locaux &agrave; cette machine (loopback) &mdash; cliquer pour replier/d&eacute;plier';
+  const act = machine
+    ? `<button class="gact" title="Oublier cette machine (les serveurs d&eacute;j&agrave; import&eacute;s restent)" onclick="event.stopPropagation();sshForget(${js(label)})">&#128465;</button>` : '';
+  return `<div class="grphead ${groupClosed(key)?'closed':''}" onclick="toggleGroup(${js(key)})"
+    ondragover="groupDragOver(event)" ondragleave="groupDragLeave(event)" ondrop="groupDrop(event,${js(key)})"
+    title="${tip}"><span class="gchev">&#9662;</span><span class="gname">${esc(label)}</span>${act}<span class="gcount">${up}/${total}</span></div>`;
+}
 function renderServers() {
-  const box = document.getElementById('srvList');
-  if (!state.servers.length) { box.innerHTML = '<div class="empty-sec">aucun serveur — lance un scan</div>'; return; }
-  box.innerHTML = state.servers.map(s => {
-    const ti = s.transport === 'http'
-      ? (s.transport_info.host ? `${esc(s.transport_info.host)}:` : '') + s.transport_info.port
-      : 'stdio &middot; ' + esc(s.transport_info.program);
-    const off = s.tools_disabled.length ? ` &middot; ${s.tools_disabled.length} off` : '';
-    return `<div class="srow ${selectedId===s.id?'sel':''} ${s.enabled?'':'off'}" draggable="true" data-id="${esc(s.id)}"
-      onclick="select(${js(s.id)})"
-      ondragstart="rowDragStart(event,${js(s.id)})" ondragover="rowDragOver(event)"
-      ondragleave="rowDragLeave(event)" ondrop="rowDrop(event)" ondragend="rowDragEnd(event)">
-      <div class="l1"><span class="dot ${s.state}"></span><span class="nm" title="${esc(s.label)}">${esc(s.label)}</span>${langChip(s)}${typeBadge(s)}${frameworkBadge(s)}${s.transport==='stdio'?'<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>':''}<span class="cnt">${s.tools_count}</span>${rowAuto(s)}${rowToggle(s)}${rowCtl(s)}</div>
-      <div class="l2"><span class="st ${esc(s.state)}">${esc(s.state)}</span> ${ti}${off}</div>
-    </div>`;
+  const localBox = document.getElementById('srvList');
+  const groupsBox = document.getElementById('remoteGroups');
+  const label = document.getElementById('remoteLabel');
+  const count = document.getElementById('localCount');
+  const localHead = document.getElementById('localHead');
+  if (!state.servers.length) {
+    localHead.hidden = true; count.textContent = '';
+    localBox.innerHTML = '<div class="empty-sec">aucun serveur — lance un scan</div>';
+    label.hidden = true; groupsBox.innerHTML = '';
+    return;
+  }
+  const local = state.servers.filter(s => hostOf(s) === 'local');
+  const remotes = state.servers.filter(s => hostOf(s) !== 'local');
+  const byKey = {};
+  remotes.forEach(s => { const k = hostOf(s); (byKey[k] = byKey[k] || []).push(s); });
+  const upOf = rows => rows.filter(s => s.state === 'UP').length;
+  localHead.hidden = false;
+  count.textContent = upOf(local) + '/' + local.length;
+  localBox.innerHTML = local.map(srvRow).join('');
+  const keys = groupKeys();
+  label.hidden = !keys.length;
+  groupsBox.innerHTML = keys.map(k => {
+    const rows = byKey[k] || [];
+    const body = rows.length ? rows.map(srvRow).join('')
+      : '<div class="empty-sec" style="padding:2px 16px 8px 26px">aucun serveur import&eacute; de cette machine</div>';
+    return groupHeadHtml(k, k, upOf(rows), rows.length, true)
+      + `<div class="grpbody mbody ${groupClosed(k)?'closed':''}">${body}</div>`;
   }).join('');
 }
 
 // Chip du langage MCP (inféré : commande stdio ou en-têtes HTTP) — monogramme coloré façon logo
 const LANG_META = {
   node:   { t: 'JS',  c: '#f7df1e', n: 'Node.js / TypeScript' },
-  python: { t: 'PY',  c: '#4b8bbe', n: 'Python' },
-  rust:   { t: 'RS',  c: '#dea584', n: 'Rust' },
+  python: { t: 'PY',  c: '#3fb950', n: 'Python' },
+  rust:   { t: 'RS',  c: '#f97316', n: 'Rust' },
   go:     { t: 'GO',  c: '#00add8', n: 'Go' },
   java:   { t: 'JV',  c: '#e76f00', n: 'Java' },
   dotnet: { t: 'C#',  c: '#512bd4', n: '.NET' },
@@ -594,7 +778,7 @@ const LANG_META = {
 // Glyphe Rust : « R » dans un engrenage (lecture de l'icône .rs des éditeurs).
 // NB : attributs en simples quotes — guillemet-double suivi de dièse interdit
 // dans ce bloc (cette séquence fermerait la raw string Rust d'INDEX_HTML).
-const RUST_LOGO = "<svg class='rustlogo' viewBox='0 0 24 24' aria-hidden='true'><g stroke='#dea584' stroke-width='1.4' stroke-linecap='round' fill='none'><circle cx='12' cy='12' r='7.9'/><path d='M19.9 12h2M17.6 17.6l1.4 1.4M12 19.9v2M6.4 17.6 5 19M4.1 12h-2M6.4 6.4 5 5M12 4.1v-2M17.6 6.4 19 5'/></g><text x='12' y='16.2' text-anchor='middle' font-size='12' font-weight='800' font-family='inherit' fill='#dea584'>R</text></svg>";
+const RUST_LOGO = "<svg class='rustlogo' viewBox='0 0 24 24' aria-hidden='true'><g stroke='#f97316' stroke-width='1.4' stroke-linecap='round' fill='none'><circle cx='12' cy='12' r='7.9'/><path d='M19.9 12h2M17.6 17.6l1.4 1.4M12 19.9v2M6.4 17.6 5 19M4.1 12h-2M6.4 6.4 5 5M12 4.1v-2M17.6 6.4 19 5'/></g><text x='12' y='16.2' text-anchor='middle' font-size='12' font-weight='800' font-family='inherit' fill='#f97316'>R</text></svg>";
 function langChip(s) {
   if (s.lang === 'rust') return `<span class="rustwrap" title="Langage inféré : Rust">${RUST_LOGO}</span>`;
   const m = LANG_META[s.lang];
@@ -637,10 +821,17 @@ async function loadFrameworks() {
 function frameworkBadge(s) {
   if (!s.framework) return '';
   const f = FRAMEWORKS[s.framework] || {label: s.framework, lang: s.lang || '?'};
-  const cls = s.framework === 'litemcp' ? 'litemcp'
-            : s.framework.indexOf('fastmcp') === 0 ? 'fastmcp' : 'fw';
   const lan = s.transport_info && s.transport_info.host ? ' — serveur distant (LAN)' : '';
-  return `<span class="tag ${cls}" title="Framework ${esc(f.label)} · ${esc(f.lang)}${lan}">${esc(f.label)}</span>`;
+  const tip = `Framework ${esc(f.label)} · ${esc(f.lang)}${lan}`;
+  // LiteMCP est le seul badge qui garde un halo (classe .litemcp, animation glow).
+  if (s.framework === 'litemcp') {
+    return `<span class="tag litemcp" title="${tip}">${esc(f.label)}</span>`;
+  }
+  // Les autres badges prennent la couleur du LANGAGE du framework, comme les
+  // puces de code : Rust orange, Python vert, JS jaune, Go cyan…
+  const m = LANG_META[f.lang] || LANG_META[s.lang];
+  if (!m) return `<span class="tag fw" title="${tip}">${esc(f.label)}</span>`;
+  return `<span class="tag fw" style="color:${m.c};border-color:${m.c}66;background:${m.c}14" title="${tip}">${esc(f.label)}</span>`;
 }
 
 function rowToggle(s) {
@@ -685,6 +876,8 @@ function rowDragStart(ev, id) {
 }
 function rowDragOver(ev) {
   if (!dragId) return;
+  // un serveur distant ne se déplace pas dans la zone plate locale
+  if (hostOf(byId(dragId)) !== 'local') return;
   ev.preventDefault();
   ev.dataTransfer.dropEffect = 'move';
   const row = ev.currentTarget;
@@ -705,6 +898,8 @@ function rowDrop(ev) {
   const moved = dragId;
   dragId = null;
   if (!moved || row.dataset.id === moved) return;
+  // un serveur distant ne se déplace pas dans la zone plate locale
+  if (hostOf(byId(moved)) !== 'local') return;
   // le glisser-déposer reprend la main : le menu de tri revient sur « manuel »
   manualOrder = null;
   const sel = document.getElementById('sortSel');
@@ -715,6 +910,34 @@ function rowDrop(ev) {
   const at = ids.indexOf(row.dataset.id);
   ids.splice(row._dropAbove ? at : at + 1, 0, moved);
   postReorder(ids);
+}
+/* Drop d'une ligne de serveur sur l'EN-TÊTE d'un groupe machine : re-host du
+   serveur (sa clé de groupe = le host du groupe). Cas d'usage : une machine a
+   changé d'IP, ou une importation a posé le mauvais host — on déplace la ligne
+   vers la bonne machine sans réimporter. */
+function groupDragOver(ev) {
+  if (!dragId) return;
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = 'move';
+  ev.currentTarget.classList.add('drag-over-group');
+}
+function groupDragLeave(ev) {
+  ev.currentTarget.classList.remove('drag-over-group');
+}
+async function groupDrop(ev, key) {
+  ev.preventDefault();
+  ev.currentTarget.classList.remove('drag-over-group');
+  const moved = dragId;
+  dragId = null;
+  if (!moved) return;
+  const s = byId(moved);
+  if (!s || s.transport !== 'http') { alert('Seuls les serveurs HTTP peuvent \u00eatre h\u00e9berg\u00e9s par une machine distante.'); return; }
+  if (!confirm('H\u00e9berger « ' + (s.label || moved) + ' » sur ' + key + ' ? (le host du transport devient ' + key + ')')) return;
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'set_host', id: moved, host: key})});
+  const j = await r.json().catch(() => ({}));
+  if (!j.ok) alert('set_host : ' + (j.error || '\u00e9chec'));
+  await load();
 }
 
 /* ===== Menu de reclassement (⇅) =====
@@ -736,6 +959,8 @@ function applySort(mode) {
     return;
   }
   if (manualOrder === null) manualOrder = state.servers.map(s => s.id);
+  // Tri à plat sur l'ordre persisté — chaque groupe (locaux, puis machines)
+  // affiche ses serveurs dans cet ordre commun, jamais un tri global mélangé.
   let ids = state.servers.map(s => s.id);
   if (mode === 'az') {
     ids.sort((a, b) => frCmp(byId[a].label, byId[b].label));
@@ -749,6 +974,20 @@ function applySort(mode) {
     ids.sort((a, b) => ((byId[a].latency_ms ?? 1e12) - (byId[b].latency_ms ?? 1e12)));
   } else if (mode === 'tools') {
     ids.sort((a, b) => ((byId[b].tools_count || 0) - (byId[a].tools_count || 0))
+      || frCmp(byId[a].label, byId[b].label));
+  } else if (mode === 'framework') {
+    // Regroupe par framework MCP (label humain), les serveurs sans framework
+    // identifiable en fin de liste. À l'intérieur d'un framework : A→Z.
+    const fwKey = s => {
+      const f = FRAMEWORKS[s.framework];
+      return f ? f.label : (s.framework || '\uffff');
+    };
+    ids.sort((a, b) => frCmp(fwKey(byId[a]), fwKey(byId[b]))
+      || frCmp(byId[a].label, byId[b].label));
+  } else if (mode === 'transport') {
+    // stdio → HTTP → WS (WS est un HTTP avec upgrade), puis A→Z.
+    const tRank = s => (s.transport === 'stdio' ? 0 : (s.ws ? 2 : 1));
+    ids.sort((a, b) => (tRank(byId[a]) - tRank(byId[b]))
       || frCmp(byId[a].label, byId[b].label));
   }
   postReorder(ids);
@@ -945,7 +1184,7 @@ function renderDetail() {
     </div>
     ${s.origin === 'seed' ? '<div class="seed-note">Serveur seed : <b>Retirer durablement</b> l&rsquo;efface m&ecirc;me apr&egrave;s red&eacute;marrage (consign&eacute; dans config.json) ; <b>D&eacute;sactiver</b> l&rsquo;&eacute;teint sans le supprimer.</div>' : ''}
     ${s.last_error ? `<div class="d-err">&#9888; ${esc(s.last_error)}</div>` : ''}
-    ${fold('demarrage', 'D&eacute;marrage', `<div class="kv">${kvd}</div>`)}
+    ${fold('demarrage', 'D&eacute;marrage', `<div class="kv">${kvd}</div>${startCmdForm(s)}`)}
     ${fold('infos', 'Informations', `<div class="kv">${kv}</div>`)}
     <div class="tabs">
       <button class="tab ${detailTab === 'outils' ? 'sel' : ''}" onclick="detailTab='outils';renderDetail()">Outils (${nTot})</button>
@@ -955,6 +1194,36 @@ function renderDetail() {
 }
 
 function select(id) { selectedId = id; detailCache = null; detailTab = 'outils'; render(); load(); }
+
+/* Formulaire « commande de lancement » : pour un serveur local découvert par
+   scan (port connu, commande inconnue) — poser la commande fait apparaître les
+   boutons ▶/■ et l'autoboot, comme un serveur ajouté à la main. */
+function startCmdForm(s) {
+  if (s.can_start || s.transport === 'stdio') return '';
+  const host = s.transport_info && s.transport_info.host;
+  if (host) return '<div class="conf-note" style="margin-top:10px">Serveur distant : la commande de lancement appartient &agrave; sa machine (' + esc(host) + '), pas au command center.</div>';
+  const port = (s.transport_info || {}).port || 0;
+  return `<div class="startcmd-form" style="margin-top:10px">
+    <div class="conf-note">Aucune commande de lancement connue : c'est pourquoi les boutons <b>&#9654;/&#9632;</b> et <b>&#9889;</b> sont absents. Indique comment lancer ce serveur :</div>
+    <div class="machine-form">
+      <input id="scProgram" placeholder="programme (node, python, C:\\chemin\\serveur.exe)">
+      <input id="scArgs" placeholder="arguments (ex : server.js --port ${esc(String(port))})">
+      <input id="scWorkdir" placeholder="dossier de travail (optionnel)">
+      <button class="primary" onclick="setStartCmd(${js(s.id)})">Enregistrer</button>
+    </div>
+  </div>`;
+}
+async function setStartCmd(id) {
+  const program = (document.getElementById('scProgram').value || '').trim();
+  const args = (document.getElementById('scArgs').value || '').split(/\s+/).filter(Boolean);
+  const workdir = (document.getElementById('scWorkdir').value || '').trim();
+  if (!program) { alert('Programme requis (ex : node, python, chemin .exe)'); return; }
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'set_start_cmd', id, program, args, workdir: workdir || null})});
+  const j = await r.json();
+  if (!j.ok) alert(j.error || 'erreur');
+  else { await load(); detailCache = null; if (selectedId) renderDetail(); }
+}
 function removeSrv(id) { selectedId = null; detailCache = null; act('remove', id); }
 function removeSeedForever(id) {
   if (!confirm('Retirer ce seed DURABLEMENT ? Il ne sera pas réinjecté au redémarrage du command center.')) return;
@@ -964,6 +1233,148 @@ function removeSeedForever(id) {
 }
 
 /* ===== Actions ===== */
+/* ---- Menu contextuel (clic droit sur une ligne de serveur) ---------------- */
+let ctxId = null;
+function ctxClose() {
+  const m = document.getElementById('ctxmenu');
+  if (m) { m.hidden = true; m.innerHTML = ''; }
+  ctxId = null;
+}
+function toast(msg) {
+  const t = document.getElementById('toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('on');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('on'), 1200);
+}
+function copyText(txt) {
+  const done = () => toast('copié');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt).then(done).catch(() => { copyFallback(txt); done(); });
+  } else { copyFallback(txt); done(); }
+}
+function copyFallback(txt) {
+  const ta = document.createElement('textarea');
+  ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); } catch (e) {}
+  document.body.removeChild(ta);
+}
+function normPath(p) { return String(p || '').replace(/\\/g, '/').replace(/\/+$/, ''); }
+// Chemin absolu + relatif (au workdir) : programme du start_cmd, ou fichier de
+// script passé en argument quand le programme est un lanceur nu (node, npx,
+// python…). Aucun chemin inventé : si rien n'est résolvable, la valeur est vide.
+function srvPaths(s) {
+  const ti = s.transport_info || {}, sc = s.start_cmd || {};
+  const wd = normPath(ti.workdir || sc.workdir || '');
+  const prog = ti.program || sc.program || '';
+  const args = ti.args || sc.args || [];
+  let abs = '';
+  if (s.transport === 'stdio') {
+    if (prog && /[\\/]/.test(prog)) abs = prog;
+    else {
+      const fileArg = args.find(a => /\.(js|mjs|cjs|jsx|ts|py|exe|jar|rb|php|sh|bat|cmd)$/i.test(a));
+      // à défaut, un chemin absolu passé en argument (ex. server-filesystem C:/Users/X)
+      const dirArg = args.find(a => /^[A-Za-z]:[\\/]/.test(a) || /^\/(?![-])/.test(a));
+      if (fileArg) abs = (wd ? wd + '/' : '') + String(fileArg).replace(/\\/g, '/').replace(/^\/+/, '');
+      else if (dirArg) abs = dirArg;
+    }
+  } else if (prog) abs = prog;
+  const a = normPath(abs);
+  const rel = (a && wd && a.toLowerCase().startsWith(wd.toLowerCase() + '/')) ? a.slice(wd.length + 1) : '';
+  return { abs: a, rel: rel, workdir: wd };
+}
+// URL d'un serveur HTTP — variante gardée (la constante srvUrl plus haut ne
+// vérifie pas le transport et sert au bloc « Conf agent »).
+function ctxUrl(s) {
+  if (s.transport !== 'http') return '';
+  const ti = s.transport_info || {};
+  return 'http://' + (ti.host || '127.0.0.1') + ':' + ti.port + (ti.path || '/mcp');
+}
+function srvCmd(s) {
+  const sc = s.start_cmd || {};
+  if (!sc.program) return '';
+  return [sc.program].concat(sc.args || []).join(' ');
+}
+function srvInfoText(s) {
+  const p = srvPaths(s);
+  const fw = (typeof FRAMEWORKS === 'object' && FRAMEWORKS[s.framework]) ? FRAMEWORKS[s.framework].label : (s.framework || '—');
+  const L = [
+    'serveur      : ' + s.label,
+    'id           : ' + s.id,
+    'état         : ' + s.state + (s.enabled ? '' : ' (désactivé)') + (s.auto_restart ? ' · autoboot' : ''),
+    'transport    : ' + s.transport + (s.ws ? ' (WS)' : ''),
+    'url          : ' + (ctxUrl(s) || '—'),
+    'commande     : ' + (srvCmd(s) || '—'),
+    'framework    : ' + fw,
+    'langage      : ' + (s.lang || '—'),
+    'version      : ' + (s.version || '—') + ' · protocole ' + (s.protocol || '—'),
+    'nom annoncé  : ' + (s.server_name || '—'),
+    'outils       : ' + s.tools_count + '/' + s.tools_total + ((s.tools_disabled || []).length ? ' (' + s.tools_disabled.length + ' off)' : ''),
+    'latence      : ' + (s.latency_ms != null ? s.latency_ms + ' ms' : '—'),
+    'pid          : ' + (s.pid != null ? s.pid : '—')
+  ];
+  if (p.abs) L.push('chemin       : ' + p.abs);
+  if (p.rel) L.push('chemin rel.  : ' + p.rel);
+  if (p.workdir) L.push('workdir      : ' + p.workdir);
+  if (s.last_error) L.push('dernière err : ' + s.last_error);
+  return L.join('\n');
+}
+async function openInExplorer(path) {
+  if (!path) return;
+  try {
+    const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action: 'open_path', path: path})});
+    const j = await r.json();
+    toast(j.ok ? 'explorateur ouvert' : ('échec : ' + (j.error || 'inconnu')));
+  } catch (e) { toast('échec : ' + e); }
+}
+function rowCtx(ev, id) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  const s = (state && state.servers ? state.servers : []).find(x => x.id === id);
+  if (!s) return;
+  if (selectedId !== id) select(id);
+  const p = srvPaths(s);
+  const items = [];
+  const add = (lbl, fn, dis) => items.push({lbl: lbl, fn: fn, dis: !!dis});
+  add('📋 Copier toutes les infos', () => copyText(srvInfoText(s)));
+  add('🏷 Copier le nom', () => copyText(s.label));
+  if (ctxUrl(s)) add('🔗 Copier l URL', () => copyText(ctxUrl(s)));
+  if (srvCmd(s)) add('⌨ Copier la commande', () => copyText(srvCmd(s)));
+  add('🗂 Copier le chemin', () => copyText(p.abs), !p.abs);
+  add('🗂 Copier le chemin relatif', () => copyText(p.rel), !p.rel);
+  add('📂 Ouvrir dans l explorateur', () => openInExplorer(p.abs || p.workdir), !(p.abs || p.workdir));
+  if (s.can_start) {
+    add('—', null, false);
+    add(s.state === 'UP' ? '■ Arrêter ce serveur' : '▶ Démarrer ce serveur',
+        () => act(s.state === 'UP' ? 'kill' : 'start', s.id));
+  }
+  add('🔄 Sonder maintenant', () => act('refresh', s.id));
+  const m = document.getElementById('ctxmenu');
+  m.innerHTML = items.map((it, i) => it.lbl === '—'
+    ? '<div class="ctxsep"></div>'
+    : '<div class="ctxitem' + (it.dis ? ' dis' : '') + '" data-i="' + i + '">' + it.lbl + '</div>').join('');
+  m.querySelectorAll('.ctxitem').forEach(el => {
+    el.onclick = (e) => {
+      e.stopPropagation();
+      const it = items[+el.dataset.i];
+      if (!it || it.dis) return;
+      ctxClose();
+      it.fn();
+    };
+  });
+  m.hidden = false;
+  const w = m.offsetWidth, h = m.offsetHeight;
+  m.style.left = Math.max(6, Math.min(ev.clientX, window.innerWidth - w - 8)) + 'px';
+  m.style.top = Math.max(6, Math.min(ev.clientY, window.innerHeight - h - 8)) + 'px';
+  ctxId = id;
+}
+document.addEventListener('click', ctxClose);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') ctxClose(); });
+window.addEventListener('resize', ctxClose);
+
 async function act(action, id) {
   await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action, id})});
@@ -1021,6 +1432,88 @@ async function importPeer(ip) {
 function openMachineDlg() {
   document.getElementById('machineDlg').showModal();
   renderMachines();
+}
+
+/* ===== Réglages du client (dialog ⚙) ===== */
+function openSettingsDlg() {
+  const s = state.settings || {};
+  document.getElementById('sRefresh').value = s.refresh_secs || 15;
+  document.getElementById('sScanFrom').value = s.scan_from || 3000;
+  document.getElementById('sScanTo').value = s.scan_to || 3200;
+  document.getElementById('sNetEnabled').checked = !!s.network_enabled;
+  document.getElementById('sNetPorts').value = (s.network_ports || []).join(', ');
+  document.getElementById('sUiBind').value = s.ui_bind || '127.0.0.1';
+  document.getElementById('sUiPort').value = s.ui_port || 5090;
+  document.getElementById('sVersion').value = 'v' + MCC_VERSION;
+  document.getElementById('sLatest').value = state.latest_version ? 'v' + state.latest_version : '—';
+  document.getElementById('updMsg').textContent = state.update_available ? '⬆ une mise à jour est disponible' : '';
+  document.getElementById('updMsg').style.color = state.update_available ? 'var(--warn)' : '';
+  document.getElementById('resetMsg').textContent = '';
+  document.getElementById('settingsMsg').textContent = '';
+  document.getElementById('settingsDlg').showModal();
+}
+async function checkUpdateNow() {
+  const msg = document.getElementById('updMsg');
+  msg.style.color = '';
+  msg.textContent = '⏳ vérification de la release GitHub…';
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'check_update'})});
+  const j = await r.json();
+  if (j.ok && j.update_available) {
+    document.getElementById('sLatest').value = 'v' + j.latest;
+    msg.textContent = '⬆ v' + j.latest + ' disponible (installée : v' + j.current + ')';
+    msg.style.color = 'var(--warn)';
+  } else if (j.ok) {
+    document.getElementById('sLatest').value = j.latest ? 'v' + j.latest : '—';
+    msg.textContent = '✓ à jour — dernière release : v' + (j.latest || j.current);
+    msg.style.color = 'var(--ok)';
+  } else {
+    msg.textContent = '✗ vérification impossible (réseau ?) — le check auto tourne au boot puis chaque heure';
+  }
+}
+function openUpdate() {
+  window.open('https://github.com/DeamonDev888/mcp-command-center/releases/latest', '_blank', 'noopener,noreferrer');
+}
+async function resetState(what) {
+  const sel = document.getElementById('sResetWhat');
+  const label = sel.options[sel.selectedIndex].text;
+  if (!confirm('Réinitialiser « ' + label + ' » ? Action irréversible.')) return;
+  const msg = document.getElementById('resetMsg');
+  msg.textContent = '⏳ réinitialisation…';
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'reset_state', what})});
+  const j = await r.json();
+  if (!j.ok) msg.textContent = '✗ ' + (j.error || 'échec');
+  else {
+    const det = (j.reinjected ? ' · ' + j.reinjected + ' seed(s) réinjecté(s)' : '') + (j.removed ? ' · ' + j.removed + ' serveur(s) retiré(s)' : '');
+    msg.textContent = '✓ Réinitialisé (' + (j.cleared || []).join(', ') + ')' + det;
+    await load();
+    openSettingsDlg();
+  }
+}
+async function saveSettings() {
+  const ports = document.getElementById('sNetPorts').value
+    .split(/[\s,]+/).filter(Boolean).map(Number)
+    .filter(n => Number.isInteger(n) && n >= 1 && n <= 65535);
+  const body = {
+    action: 'set_settings',
+    refresh_secs: +document.getElementById('sRefresh').value || 15,
+    scan_from: +document.getElementById('sScanFrom').value || 3000,
+    scan_to: +document.getElementById('sScanTo').value || 3200,
+    ui_bind: document.getElementById('sUiBind').value,
+    network_enabled: document.getElementById('sNetEnabled').checked,
+    network_ports: ports,
+  };
+  const msg = document.getElementById('settingsMsg');
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)});
+  const j = await r.json();
+  if (!j.ok) msg.textContent = '✗ ' + (j.error || 'échec');
+  else {
+    const n = (j.changed || []).length;
+    msg.textContent = n ? '✓ Enregistré (' + j.changed.join(', ') + ')' : '✓ Aucun changement';
+    await load();
+  }
 }
 function renderMachines() {
   if (!state) return;
@@ -1277,6 +1770,8 @@ setInterval(load, 5000);
 // retour de la fenêtre (tray → visible) : reprise immédiate du rafraîchissement
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 </script>
+<div id="ctxmenu" class="ctxmenu" hidden></div>
+<div id="toast"></div>
 </body>
 </html>
 "#;

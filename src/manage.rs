@@ -888,7 +888,8 @@ pub const STORE: &[StoreItem] = &[
         kind: "npm",
         program: "npx",
         args: &["-y", "--package=task-master-ai", "task-master-ai"],
-    },];
+    },
+];
 
 /// Item de boutique par id — principal, puis aitmpl, puis glama.
 fn find_store_item(sid: &str) -> Option<&'static StoreItem> {
@@ -1278,7 +1279,184 @@ pub fn tools_actifs(s: &Server) -> usize {
 /// dont 15 en SSH, un cycle séquentiel dépassait largement le refresh de 15 s.
 const POLL_WIDTH: usize = 8;
 
+/// Lit une annonce du registre litemcp (`%TEMP%/litemcp-registry/<nom>.json`).
+/// Écrites par les serveurs litemcp intégrés (ex : moltbook) au bind réussi —
+/// contient exe/args/cwd/port : tout pour Start/Stop natifs sans scan ni
+/// saisie manuelle. Aucune erreur : fichier absent/corrompu = annonce absente.
+fn read_litemcp_registry(name: &str) -> Option<Value> {
+    let mut base = std::env::temp_dir();
+    if base.as_os_str().is_empty() {
+        base = std::path::PathBuf::from("/tmp");
+    }
+    if name.contains("..") || name.contains('/') || name.contains('\\') {
+        return None;
+    }
+    let path = base.join("litemcp-registry").join(format!("{name}.json"));
+    let body = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&body).ok()
+}
+
+/// Applique une annonce litemcp à l'état : création si aucun serveur HTTP
+/// LOCAL du même nom n'existe (exe/args/cwd deviennent la commande de
+/// lancement → Start/Stop/autoboot natifs), sinon resync du port et
+/// **adoption** — un serveur découvert par scan (sans commande) reçoit celui
+/// de l'annonce et est promu `manual` (un discovered n'est pas persisté, la
+/// commande serait perdue au reboot). Un serveur avec déjà une commande la
+/// garde : l'annonce ne réécrit jamais un choix de l'utilisateur.
+/// Renvoie true si l'état a changé.
+fn apply_announcement(state: &Arc<AppState>, ann: &Value) -> bool {
+    let port = ann.get("port").and_then(|x| x.as_u64()).unwrap_or(0) as u16;
+    let exe = ann.get("exe").and_then(|x| x.as_str()).unwrap_or("");
+    if port == 0 || exe.is_empty() {
+        return false;
+    }
+    let args: Vec<String> = ann
+        .get("args")
+        .and_then(|x| x.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|i| i.as_str().map(String::from))
+                .skip(1) // args[0] = chemin de l'exe lui-même
+                .collect()
+        })
+        .unwrap_or_default();
+    let workdir = ann.get("cwd").and_then(|x| x.as_str()).map(String::from);
+    let label = ann
+        .get("name")
+        .and_then(|x| x.as_str())
+        .unwrap_or("litemcp")
+        .to_string();
+    let version = ann
+        .get("version")
+        .and_then(|x| x.as_str())
+        .map(String::from);
+    let ts = ann.get("ts").and_then(|x| x.as_u64()).unwrap_or(0);
+
+    let mut servers = lockv(&state.servers);
+    let existing = servers.iter_mut().find(|s| {
+        matches!(&s.transport, Transport::Http { host: None, .. })
+            && s.label.eq_ignore_ascii_case(&label)
+    });
+    match existing {
+        Some(srv) => {
+            let mut changed = false;
+            // resync du port si le serveur a changé de port d'écoute
+            if let Transport::Http {
+                port: ref mut p, ..
+            } = srv.transport
+            {
+                if *p != port {
+                    add_log(
+                        state,
+                        "info",
+                        &format!("[litemcp] {} : port {} -> {} (annonce)", srv.id, *p, port),
+                    );
+                    *p = port;
+                    changed = true;
+                }
+            }
+            // adoption : découvert par scan sans commande → commande native
+            if srv.start_cmd.is_none() {
+                srv.start_cmd = Some(StartCmd {
+                    program: exe.to_string(),
+                    args,
+                    workdir,
+                });
+                // un discovered n'est pas persisté : promotion en manual pour
+                // que la commande adoptée survive au redémarrage
+                srv.origin = Origin::Manual;
+                if srv.framework.is_none() {
+                    srv.framework = Some("litemcp".into());
+                }
+                if version.is_some() && srv.version.is_none() {
+                    srv.version = version;
+                }
+                add_log(
+                    state,
+                    "info",
+                    &format!(
+                        "[litemcp] adoption : {} reçoit sa commande de lancement",
+                        srv.id
+                    ),
+                );
+                changed = true;
+            } else if version.is_some() && srv.version.is_none() {
+                srv.version = version;
+                changed = true;
+            }
+            let seen = srv.last_seen_ts.unwrap_or(0);
+            if ts > seen {
+                srv.last_seen_ts = Some(ts);
+                changed = true;
+            }
+            changed
+        }
+        None => {
+            let id = format!("litemcp-{label}");
+            add_log(
+                state,
+                "info",
+                &format!("[litemcp] import natif : {} (port {port})", label),
+            );
+            servers.push(Server {
+                id,
+                label,
+                transport: Transport::Http {
+                    host: None,
+                    port,
+                    path: "/mcp".into(),
+                },
+                origin: Origin::Manual,
+                enabled: true,
+                state: SState::Down,
+                pid: None,
+                bound_host: None,
+                server_name: None,
+                version,
+                protocol: None,
+                sse: false,
+                sse_endpoint: false,
+                ws: false,
+                lang: Some("rust".into()),
+                framework: Some("litemcp".into()),
+                via_ssh: false,
+                tools: vec![],
+                latency_ms: None,
+                last_seen_ts: Some(ts),
+                last_error: None,
+                start_cmd: Some(StartCmd {
+                    program: exe.to_string(),
+                    args,
+                    workdir,
+                }),
+                auto_restart: true,
+                tools_disabled: vec![],
+            });
+            true
+        }
+    }
+}
+
+/// Import auto des serveurs litemcp annoncés (`%TEMP%/litemcp-registry/`).
+/// Appelé à chaque cycle de `poll_all` : le CC et le serveur litemcp restent
+/// synchronisés (port, commande, vie) sans intervention.
+pub fn import_litemcp_registry(state: &Arc<AppState>) {
+    let names = ["moltbook"];
+    for name in names {
+        let Some(ann) = read_litemcp_registry(name) else {
+            continue;
+        };
+        if apply_announcement(state, &ann) {
+            save_config(state);
+        }
+    }
+}
+
 pub fn poll_all(state: &Arc<AppState>) {
+    // Import natif des serveurs litemcp (moltbook) : l'annonce écrite au bind
+    // fournit exe/args/cwd/port — gestion Start/Stop/autoboot native, même
+    // hors plage de scan (moltbook 8787 est hors 3000-3200).
+    import_litemcp_registry(state);
     // priorité : l'ordre choisi par glisser-déposer gouverne l'ordre de sondage
     // (utile au boot où le premier cycle est séquentiel) — ids absents en dernier
     let order = lockv(&state.settings).server_order.clone();
@@ -3285,6 +3463,125 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
             add_log(state, "info", "[machines] machine enregistrée");
             json!({"ok": true})
         }
+        "set_start_cmd" => {
+            // Un serveur local sans commande de lancement (découvert par scan de
+            // ports) n'a ni Start/Stop ni autoboot : l'utilisateur peut poser la
+            // commande à la main ici. Seeds refusés (la config par défaut
+            // réécraserait) et serveurs distants refusés (le process appartient
+            // à sa machine hôte, pas au command center local).
+            let id = match id {
+                Some(i) => i,
+                None => return json!({"ok": false, "error": "id manquant"}),
+            };
+            let program = match req.get("program").and_then(|x| x.as_str()) {
+                Some(p) if !p.trim().is_empty() => p.trim().to_string(),
+                _ => {
+                    return json!({"ok": false, "error": "program manquant (ex : node, python, chemin .exe)"});
+                }
+            };
+            let args: Vec<String> = req
+                .get("args")
+                .and_then(|x| x.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|i| i.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let workdir = req
+                .get("workdir")
+                .and_then(|x| x.as_str())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+            let mut servers = lockv(&state.servers);
+            let Some(srv) = servers.iter_mut().find(|s| s.id == id) else {
+                return json!({"ok": false, "error": "serveur inconnu"});
+            };
+            if srv.origin == Origin::Seed {
+                return json!({"ok": false, "error": "serveur seed : commande non modifiable (retire-le durablement puis réajoute-le)"});
+            }
+            if matches!(&srv.transport, Transport::Http { host: Some(_), .. }) {
+                return json!({"ok": false, "error": "serveur distant : la commande de lancement appartient à sa machine hôte"});
+            }
+            srv.start_cmd = Some(StartCmd {
+                program: program.clone(),
+                args,
+                workdir,
+            });
+            // Un serveur découvert (scan) n'est PAS persisté (redétecté au boot).
+            // Donner une commande = l'utilisateur le revendique : promotion en
+            // manual pour que commande et boutons survivent au redémarrage.
+            srv.origin = Origin::Manual;
+            drop(servers);
+            save_config(state);
+            add_log(
+                state,
+                "info",
+                &format!("[set_start_cmd] {} : {}", id, program),
+            );
+            json!({"ok": true})
+        }
+        "set_host" => {
+            // Glisser-déposer d'une ligne sur l'en-tête d'un groupe machine :
+            // le host du transport devient la clé du groupe (re-host sans
+            // réimporter). Un stdio n'a pas de host (toujours local) — refus.
+            let id = match id {
+                Some(i) => i,
+                None => return json!({"ok": false, "error": "id manquant"}),
+            };
+            let host_arg = match req.get("host").and_then(|x| x.as_str()) {
+                Some(h) if !h.trim().is_empty() => h.trim().to_string(),
+                _ => {
+                    return json!({"ok": false, "error": "host requis (IP ou hostname de la machine)"});
+                }
+            };
+            let mut servers = lockv(&state.servers);
+            let Some(srv) = servers.iter_mut().find(|s| s.id == id) else {
+                return json!({"ok": false, "error": "serveur inconnu"});
+            };
+            if !matches!(srv.transport, Transport::Http { .. }) {
+                return json!({"ok": false, "error": "set_host : serveurs stdio non concernés (toujours locaux)"});
+            }
+            let old = match &mut srv.transport {
+                Transport::Http { host, .. } => host.take(),
+                _ => unreachable!(),
+            };
+            if let Transport::Http { host, .. } = &mut srv.transport {
+                *host = Some(host_arg.clone());
+            }
+            let is_seed = srv.origin == Origin::Seed;
+            drop(servers);
+            // Un serveur seed ne doit PAS être réécrit : au boot suivant la
+            // config par défaut réimposerait son host. Refus + restauration.
+            save_config(state);
+            if is_seed {
+                let mut servers = lockv(&state.servers);
+                if let Some(srv) = servers.iter_mut().find(|s| s.id == id) {
+                    if let Transport::Http { host, .. } = &mut srv.transport {
+                        *host = old;
+                    }
+                }
+                drop(servers);
+                save_config(state);
+                add_log(
+                    state,
+                    "warn",
+                    &format!("[set_host] refusé sur seed : {}", id),
+                );
+                return json!({"ok": false, "error": "serveur seed : host non modifiable (retire-le durablement puis réajoute-le)"});
+            }
+            add_log(
+                state,
+                "info",
+                &format!(
+                    "[set_host] {} : {} -> {}",
+                    id,
+                    old.as_deref().unwrap_or("local"),
+                    host_arg
+                ),
+            );
+            json!({"ok": true, "old_host": old})
+        }
         "ssh_forget" => {
             let ip = req
                 .get("ip")
@@ -3299,6 +3596,53 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
             };
             save_config(state);
             json!({"ok": removed})
+        }
+        "open_path" => {
+            // « Ouvrir dans l'explorateur » (menu contextuel de l'explorateur).
+            // Chemin local passé en ARGUMENT (jamais via un shell) ; un fichier
+            // est sélectionné dans son dossier, un dossier est ouvert.
+            let path = req
+                .get("path")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if path.is_empty() || path.chars().any(|c| c.is_control()) {
+                return json!({"ok": false, "error": "chemin invalide"});
+            }
+            let pb = std::path::PathBuf::from(&path);
+            if !pb.exists() {
+                return json!({"ok": false, "error": "chemin introuvable"});
+            }
+            #[cfg(windows)]
+            let mut cmd = {
+                let mut c = std::process::Command::new("explorer.exe");
+                if pb.is_file() {
+                    c.arg(format!("/select,{}", pb.display()));
+                } else {
+                    c.arg(&pb);
+                }
+                c
+            };
+            #[cfg(not(windows))]
+            let mut cmd = {
+                let mut c = std::process::Command::new(if cfg!(target_os = "macos") {
+                    "open"
+                } else {
+                    "xdg-open"
+                });
+                if pb.is_file() {
+                    c.arg(pb.parent().unwrap_or(&pb));
+                } else {
+                    c.arg(&pb);
+                }
+                c
+            };
+            probe::hidden(&mut cmd);
+            match cmd.spawn() {
+                Ok(_) => json!({"ok": true}),
+                Err(e) => json!({"ok": false, "error": e.to_string()}),
+            }
         }
         "reorder" => {
             // glisser-déposer de l'explorateur : nouvel ordre d'affichage et de
@@ -3331,6 +3675,160 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                 ),
             );
             json!({"ok": true, "count": new_order.len()})
+        }
+        "set_settings" => {
+            // Réglages principaux du client (dialog ⚙) : sondage, scan, réseau.
+            // Validation stricte : whitelist du bind, clamps, ports 1-65535,
+            // scan_from <= scan_to. ui_bind est figé au boot (listener) : un
+            // changement s'applique au prochain démarrage.
+            let mut st = lockv(&state.settings);
+            let mut changed: Vec<&str> = Vec::new();
+            if let Some(x) = req.get("refresh_secs").and_then(|x| x.as_u64()) {
+                let v = x.clamp(5, 3600);
+                if st.refresh_secs != v {
+                    st.refresh_secs = v;
+                    changed.push("refresh");
+                }
+            }
+            if let (Some(f), Some(t)) = (
+                req.get("scan_from").and_then(|x| x.as_u64()),
+                req.get("scan_to").and_then(|x| x.as_u64()),
+            ) {
+                let f = f.clamp(1, 65535) as u16;
+                let t = t.clamp(1, 65535) as u16;
+                let (f, t) = (f.min(t), f.max(t));
+                if st.scan_from != f || st.scan_to != t {
+                    st.scan_from = f;
+                    st.scan_to = t;
+                    changed.push("scan");
+                }
+            }
+            if let Some(b) = req.get("ui_bind").and_then(|x| x.as_str()) {
+                let b = match b {
+                    "0.0.0.0" => "0.0.0.0",
+                    _ => "127.0.0.1",
+                };
+                if st.ui_bind != b {
+                    st.ui_bind = b.to_string();
+                    changed.push("ui_bind");
+                }
+            }
+            if let Some(en) = req.get("network_enabled").and_then(|x| x.as_bool()) {
+                if st.network_enabled != en {
+                    st.network_enabled = en;
+                    changed.push("network");
+                }
+            }
+            if let Some(ports) = req.get("network_ports").and_then(|x| x.as_array()) {
+                let v: Vec<u16> = ports
+                    .iter()
+                    .filter_map(|p| p.as_u64())
+                    .filter(|p| (1..=65535).contains(p))
+                    .map(|p| p as u16)
+                    .collect();
+                if !v.is_empty() && st.network_ports != v {
+                    st.network_ports = v;
+                    changed.push("network_ports");
+                }
+            }
+            drop(st);
+            save_config(state);
+            add_log(
+                state,
+                "info",
+                &format!(
+                    "[réglages] {}",
+                    if changed.is_empty() {
+                        "aucun changement".to_string()
+                    } else {
+                        changed.join(", ")
+                    }
+                ),
+            );
+            json!({"ok": true, "changed": changed})
+        }
+        "check_update" => {
+            // Re-vérification forcée de la release GitHub — le thread de fond
+            // ne tourne qu'au boot puis chaque heure. Le bouton « Vérifier » du
+            // dialog Réglages obtient un résultat immédiat.
+            check_update(state);
+            let latest = lockv(&state.update_latest).clone();
+            json!({
+                "ok": true,
+                "current": env!("CARGO_PKG_VERSION"),
+                "latest": latest,
+                "update_available": latest.is_some(),
+            })
+        }
+        "reset_state" => {
+            // Réinitialisation depuis le dialog Réglages :
+            // - placement : ordre des serveurs (server_order vidé)
+            // - detection : découverts + imports natifs litemcp retirés (ils
+            //   reviendront à la prochaine annonce/sonde), pairs oubliés
+            // - oublis   : seeds retirés durablement RÉINJECTÉS tout de suite
+            //   (comme au boot) + machines SSH enregistrées oubliées
+            let what = req.get("what").and_then(|x| x.as_str()).unwrap_or("");
+            let mut removed_servers = 0usize;
+            let mut reinjected = 0usize;
+            let mut cleared: Vec<&str> = Vec::new();
+            if what == "placement" || what == "tout" {
+                lockv(&state.settings).server_order.clear();
+                cleared.push("placement");
+            }
+            if what == "detection" || what == "tout" {
+                {
+                    let mut servers = lockv(&state.servers);
+                    let before = servers.len();
+                    servers.retain(|s| {
+                        s.origin != Origin::Discovered && !s.id.starts_with("litemcp-")
+                    });
+                    removed_servers += before - servers.len();
+                }
+                lockv(&state.peers).clear();
+                cleared.push("detection");
+            }
+            if what == "oublis" || what == "tout" {
+                let removed = {
+                    let mut st = lockv(&state.settings);
+                    st.ssh_hosts.clear();
+                    let removed = st.removed_seeds.clone();
+                    st.removed_seeds.clear();
+                    removed
+                };
+                // réinjection immédiate (même logique que le boot) : les
+                // seeds retirés durablement redeviennent visibles sans
+                // attendre un redémarrage
+                {
+                    let mut servers = lockv(&state.servers);
+                    for s in default_servers() {
+                        if removed.contains(&s.id) && !servers.iter().any(|x| x.id == s.id) {
+                            servers.push(s);
+                            reinjected += 1;
+                        }
+                    }
+                }
+                cleared.push("oublis");
+            }
+            if cleared.is_empty() {
+                return json!({"ok": false, "error": "what inconnu (placement | detection | oublis | tout)"});
+            }
+            save_config(state);
+            add_log(
+                state,
+                "info",
+                &format!(
+                    "[reset] {} — {} serveur(s) retiré(s), {} seed(s) réinjecté(s)",
+                    cleared.join("+"),
+                    removed_servers,
+                    reinjected
+                ),
+            );
+            json!({
+                "ok": true,
+                "cleared": cleared,
+                "removed": removed_servers,
+                "reinjected": reinjected,
+            })
         }
         "set_autostart" => {
             let enable = req.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true);
@@ -3695,6 +4193,7 @@ pub fn state_json(state: &Arc<AppState>) -> Value {
             json!({
                 "refresh_secs": settings.refresh_secs,
                 "ui_port": settings.ui_port,
+                "ui_bind": settings.ui_bind,
                 "scan_from": settings.scan_from,
                 "scan_to": settings.scan_to,
                 "network_enabled": settings.network_enabled,
@@ -4720,6 +5219,763 @@ mod tests {
             "{\"action\":\"set_auto_restart\",\"id\":\"inconnu\",\"enabled\":true}",
         );
         assert_eq!(j3["ok"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn set_host_refuse_seed_et_rehost_manuel() {
+        // Explorateur groupé par machine : action « set_host » (drop d'une ligne
+        // sur l'en-tête d'un groupe). Un seed est refusé — la config par défaut
+        // réimposerait son host au boot —, un serveur manuel est re-hosté et
+        // persisté, un stdio est refusé (pas de host), erreurs propres sinon.
+        let path = tmp_config("cfg_sethost.json", Some("{\"servers\":[]}"));
+        let mut base = match Arc::try_unwrap(test_state()) {
+            Ok(s) => s,
+            Err(_) => panic!("test_state doit être unique"),
+        };
+        base.config_path = path.clone();
+        let state = Arc::new(base);
+        {
+            let mut st = lockv(&state.settings);
+            st.autostart = false;
+        }
+        {
+            let mut servers = lockv(&state.servers);
+            // seed HTTP local (comme un seed du launcher)
+            servers.push(Server {
+                id: "seed-1".into(),
+                label: "Seed".into(),
+                transport: Transport::Http {
+                    host: None,
+                    port: 3099,
+                    path: "/mcp".into(),
+                },
+                origin: Origin::Seed,
+                enabled: true,
+                state: SState::Down,
+                pid: None,
+                bound_host: None,
+                server_name: None,
+                version: None,
+                protocol: None,
+                sse: false,
+                sse_endpoint: false,
+                ws: false,
+                lang: None,
+                framework: None,
+                via_ssh: false,
+                tools: vec![],
+                latency_ms: None,
+                last_seen_ts: None,
+                last_error: None,
+                start_cmd: None,
+                auto_restart: true,
+                tools_disabled: vec![],
+            });
+            // serveur manuel HTTP importé d'une machine (host à déplacer)
+            servers.push(Server {
+                id: "man-1".into(),
+                label: "Manuel".into(),
+                transport: Transport::Http {
+                    host: Some("192.168.40.9".into()),
+                    port: 3141,
+                    path: "/mcp".into(),
+                },
+                origin: Origin::Manual,
+                enabled: true,
+                state: SState::Down,
+                pid: None,
+                bound_host: None,
+                server_name: None,
+                version: None,
+                protocol: None,
+                sse: false,
+                sse_endpoint: false,
+                ws: false,
+                lang: None,
+                framework: None,
+                via_ssh: true,
+                tools: vec![],
+                latency_ms: None,
+                last_seen_ts: None,
+                last_error: None,
+                start_cmd: None,
+                auto_restart: true,
+                tools_disabled: vec![],
+            });
+            // stdio : jamais concerné par un re-host
+            servers.push(Server {
+                id: "man-2".into(),
+                label: "Stdio".into(),
+                transport: Transport::Stdio {
+                    program: "node".into(),
+                    args: vec![],
+                    workdir: None,
+                },
+                origin: Origin::Manual,
+                enabled: true,
+                state: SState::Down,
+                pid: None,
+                bound_host: None,
+                server_name: None,
+                version: None,
+                protocol: None,
+                sse: false,
+                sse_endpoint: false,
+                ws: false,
+                lang: Some("node".into()),
+                framework: None,
+                via_ssh: false,
+                tools: vec![],
+                latency_ms: None,
+                last_seen_ts: None,
+                last_error: None,
+                start_cmd: None,
+                auto_restart: true,
+                tools_disabled: vec![],
+            });
+        }
+
+        // 1. re-host d'un seed → refus, host inchangé (reste local/None)
+        let j = handle_action(
+            &state,
+            "{\"action\":\"set_host\",\"id\":\"seed-1\",\"host\":\"10.9.9.9\"}",
+        );
+        assert_eq!(j["ok"], serde_json::json!(false));
+        {
+            let servers = lockv(&state.servers);
+            let Transport::Http { host, .. } = &servers[0].transport else {
+                panic!("transport Http attendu");
+            };
+            assert_eq!(host.as_deref(), None, "le seed garde host:None (local)");
+        }
+
+        // 2. re-host d'un manuel → ok, ancien host rapporté, persisté
+        let j2 = handle_action(
+            &state,
+            "{\"action\":\"set_host\",\"id\":\"man-1\",\"host\":\"10.9.9.9\"}",
+        );
+        assert_eq!(j2["ok"], serde_json::json!(true));
+        assert_eq!(j2["old_host"], serde_json::json!("192.168.40.9"));
+        {
+            let servers = lockv(&state.servers);
+            let Transport::Http { host, .. } = &servers[1].transport else {
+                panic!("transport Http attendu");
+            };
+            assert_eq!(host.as_deref(), Some("10.9.9.9"));
+        }
+        let cfg = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(
+            cfg.contains("10.9.9.9"),
+            "le nouveau host doit être persisté dans config.json : {}",
+            cfg
+        );
+
+        // 3. stdio → refus (pas de host possible)
+        let j3 = handle_action(
+            &state,
+            "{\"action\":\"set_host\",\"id\":\"man-2\",\"host\":\"10.9.9.9\"}",
+        );
+        assert_eq!(j3["ok"], serde_json::json!(false));
+
+        // 4. serveur inconnu → erreur propre
+        let j4 = handle_action(
+            &state,
+            "{\"action\":\"set_host\",\"id\":\"inconnu\",\"host\":\"10.9.9.9\"}",
+        );
+        assert_eq!(j4["ok"], serde_json::json!(false));
+
+        // 5. host vide/blanc → erreur propre
+        let j5 = handle_action(
+            &state,
+            "{\"action\":\"set_host\",\"id\":\"man-1\",\"host\":\"  \"}",
+        );
+        assert_eq!(j5["ok"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn set_start_cmd_refuse_seed_et_distant_persiste_le_local() {
+        // Le bouton ▶/■ apparaît si start_cmd existe : action « set_start_cmd »
+        // pour poser la commande d'un local découvert par scan. Seeds refusés
+        // (la config par défaut réécraserait), distants refusés (le process
+        // appartient à sa machine hôte), locaux OK + persisté.
+        let path = tmp_config("cfg_setstartcmd.json", Some("{\"servers\":[]}"));
+        let mut base = match Arc::try_unwrap(test_state()) {
+            Ok(s) => s,
+            Err(_) => panic!("test_state doit être unique"),
+        };
+        base.config_path = path.clone();
+        let state = Arc::new(base);
+        {
+            let mut st = lockv(&state.settings);
+            st.autostart = false;
+        }
+        {
+            let mut servers = lockv(&state.servers);
+            // local sans commande (découvert par scan de ports)
+            servers.push(Server {
+                id: "scan-1".into(),
+                label: "port-4242".into(),
+                transport: Transport::Http {
+                    host: None,
+                    port: 4242,
+                    path: "/mcp".into(),
+                },
+                origin: Origin::Discovered,
+                enabled: true,
+                state: SState::Down,
+                pid: None,
+                bound_host: None,
+                server_name: None,
+                version: None,
+                protocol: None,
+                sse: false,
+                sse_endpoint: false,
+                ws: false,
+                lang: None,
+                framework: None,
+                via_ssh: false,
+                tools: vec![],
+                latency_ms: None,
+                last_seen_ts: None,
+                last_error: None,
+                start_cmd: None,
+                auto_restart: true,
+                tools_disabled: vec![],
+            });
+            // distant importé (jamais startable ici)
+            servers.push(Server {
+                id: "dist-1".into(),
+                label: "distant".into(),
+                transport: Transport::Http {
+                    host: Some("10.1.2.3".into()),
+                    port: 8080,
+                    path: "/mcp".into(),
+                },
+                origin: Origin::Manual,
+                enabled: true,
+                state: SState::Down,
+                pid: None,
+                bound_host: None,
+                server_name: None,
+                version: None,
+                protocol: None,
+                sse: false,
+                sse_endpoint: false,
+                ws: false,
+                lang: None,
+                framework: None,
+                via_ssh: true,
+                tools: vec![],
+                latency_ms: None,
+                last_seen_ts: None,
+                last_error: None,
+                start_cmd: None,
+                auto_restart: true,
+                tools_disabled: vec![],
+            });
+            // seed local (commande figée par la config par défaut)
+            servers.push(Server {
+                id: "seed-9".into(),
+                label: "seed".into(),
+                transport: Transport::Http {
+                    host: None,
+                    port: 3099,
+                    path: "/mcp".into(),
+                },
+                origin: Origin::Seed,
+                enabled: true,
+                state: SState::Down,
+                pid: None,
+                bound_host: None,
+                server_name: None,
+                version: None,
+                protocol: None,
+                sse: false,
+                sse_endpoint: false,
+                ws: false,
+                lang: None,
+                framework: None,
+                via_ssh: false,
+                tools: vec![],
+                latency_ms: None,
+                last_seen_ts: None,
+                last_error: None,
+                start_cmd: None,
+                auto_restart: true,
+                tools_disabled: vec![],
+            });
+        }
+
+        // 1. distant → refus
+        let j = handle_action(
+            &state,
+            "{\"action\":\"set_start_cmd\",\"id\":\"dist-1\",\"program\":\"node\",\"args\":[\"srv.js\"]}",
+        );
+        assert_eq!(j["ok"], serde_json::json!(false));
+
+        // 2. seed → refus
+        let j2 = handle_action(
+            &state,
+            "{\"action\":\"set_start_cmd\",\"id\":\"seed-9\",\"program\":\"node\"}",
+        );
+        assert_eq!(j2["ok"], serde_json::json!(false));
+
+        // 3. programme vide → erreur propre
+        let j3 = handle_action(
+            &state,
+            "{\"action\":\"set_start_cmd\",\"id\":\"scan-1\",\"program\":\"  \"}",
+        );
+        assert_eq!(j3["ok"], serde_json::json!(false));
+
+        // 4. local découvert → OK : start_cmd posé (args + workdir) et persisté
+        let j4 = handle_action(
+            &state,
+            "{\"action\":\"set_start_cmd\",\"id\":\"scan-1\",\"program\":\"node\",\"args\":[\"server.js\",\"--port\",\"4242\"],\"workdir\":\"C:/tmp\"}",
+        );
+        assert_eq!(j4["ok"], serde_json::json!(true));
+        {
+            let servers = lockv(&state.servers);
+            let cmd = servers[0]
+                .start_cmd
+                .as_ref()
+                .expect("start_cmd doit exister");
+            assert_eq!(cmd.program, "node");
+            assert_eq!(
+                servers[0].origin,
+                Origin::Manual,
+                "le découvert doit être promu manual pour survivre au reboot"
+            );
+            assert_eq!(
+                cmd.args,
+                vec![
+                    "server.js".to_string(),
+                    "--port".to_string(),
+                    "4242".to_string()
+                ]
+            );
+            assert_eq!(cmd.workdir.as_deref(), Some("C:/tmp"));
+        }
+        let cfg = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(
+            cfg.contains("server.js"),
+            "la commande doit être persistée dans config.json : {}",
+            cfg
+        );
+    }
+
+    #[test]
+    fn annonce_litemcp_importe_adopte_et_resynchronise() {
+        // Persistance Command Center <-> litemcp : une annonce (%TEMP%/
+        // litemcp-registry/<nom>.json écrite par la lib au bind) crée le
+        // serveur avec sa commande native, ADOpte un serveur découvert par
+        // scan (sans commande → promotion manual), resynchronise le port,
+        // et ne réécrit jamais une commande déjà posée.
+        let path = tmp_config("cfg_litemcp.json", Some("{\"servers\":[]}"));
+        let mut base = match Arc::try_unwrap(test_state()) {
+            Ok(s) => s,
+            Err(_) => panic!("test_state doit être unique"),
+        };
+        base.config_path = path.clone();
+        let state = Arc::new(base);
+        {
+            let mut st = lockv(&state.settings);
+            st.autostart = false;
+        }
+        {
+            let mut servers = lockv(&state.servers);
+            // découvert par scan : même nom, sans commande (cas moltbook réel)
+            servers.push(Server {
+                id: "disc-8787".into(),
+                label: "moltbook".into(),
+                transport: Transport::Http {
+                    host: None,
+                    port: 3166,
+                    path: "/mcp".into(),
+                },
+                origin: Origin::Discovered,
+                enabled: true,
+                state: SState::Down,
+                pid: None,
+                bound_host: None,
+                server_name: None,
+                version: None,
+                protocol: None,
+                sse: false,
+                sse_endpoint: false,
+                ws: false,
+                lang: Some("rust".into()),
+                framework: Some("litemcp".into()),
+                via_ssh: false,
+                tools: vec![],
+                latency_ms: None,
+                last_seen_ts: None,
+                last_error: None,
+                start_cmd: None,
+                auto_restart: true,
+                tools_disabled: vec![],
+            });
+            // même serveur mais avec une commande déjà posée (choix utilisateur)
+            servers.push(Server {
+                id: "man-cmd".into(),
+                label: "deja-cmd".into(),
+                transport: Transport::Http {
+                    host: None,
+                    port: 9001,
+                    path: "/mcp".into(),
+                },
+                origin: Origin::Manual,
+                enabled: true,
+                state: SState::Down,
+                pid: None,
+                bound_host: None,
+                server_name: None,
+                version: None,
+                protocol: None,
+                sse: false,
+                sse_endpoint: false,
+                ws: false,
+                lang: None,
+                framework: None,
+                via_ssh: false,
+                tools: vec![],
+                latency_ms: None,
+                last_seen_ts: None,
+                last_error: None,
+                start_cmd: Some(StartCmd {
+                    program: "python".into(),
+                    args: vec!["serve.py".into()],
+                    workdir: None,
+                }),
+                auto_restart: true,
+                tools_disabled: vec![],
+            });
+        }
+
+        // 1. création : annonce d'un serveur absent de la liste
+        let j = serde_json::json!({
+            "name": "nouveau", "version": "1.2.3", "port": 9999, "pid": 42,
+            "exe": "C:/apps/nouveau.exe", "args": ["C:/apps/nouveau.exe", "--bind", "9999"],
+            "cwd": "C:/apps", "ts": 1000
+        });
+        assert!(
+            apply_announcement(&state, &j),
+            "une annonce d'inconnu doit créer le serveur"
+        );
+        {
+            let servers = lockv(&state.servers);
+            let s = servers
+                .iter()
+                .find(|s| s.id == "litemcp-nouveau")
+                .expect("créé");
+            assert_eq!(s.origin, Origin::Manual);
+            assert_eq!(s.version.as_deref(), Some("1.2.3"));
+            let cmd = s.start_cmd.as_ref().expect("commande native");
+            assert_eq!(cmd.program, "C:/apps/nouveau.exe");
+            assert_eq!(
+                cmd.args,
+                vec!["--bind".to_string(), "9999".to_string()],
+                "args[0] (l'exe) doit être ignoré"
+            );
+            assert_eq!(cmd.workdir.as_deref(), Some("C:/apps"));
+        }
+
+        // 2. adoption : disc-8787 (moltbook, port 3166 sans commande) reçoit
+        //    la commande de l'annonce + resync du port 8787 + promotion manual
+        let j2 = serde_json::json!({
+            "name": "moltbook", "version": "0.3.0", "port": 8787, "pid": 25044,
+            "exe": "C:/ws/target/debug/moltbook-mcp.exe", "args": ["C:/ws/target/debug/moltbook-mcp.exe"],
+            "cwd": "C:/ws", "ts": 2000
+        });
+        assert!(apply_announcement(&state, &j2));
+        {
+            let servers = lockv(&state.servers);
+            let s = servers
+                .iter()
+                .find(|s| s.id == "disc-8787")
+                .expect("existant");
+            assert_eq!(s.origin, Origin::Manual, "adoption = promotion manual");
+            let Transport::Http { port, .. } = s.transport else {
+                panic!("http")
+            };
+            assert_eq!(port, 8787, "port resynchronisé depuis l'annonce");
+            let cmd = s.start_cmd.as_ref().expect("commande adoptée");
+            assert_eq!(cmd.program, "C:/ws/target/debug/moltbook-mcp.exe");
+            assert!(cmd.args.is_empty(), "moltbook tourne sans argument");
+            assert_eq!(
+                cmd.workdir.as_deref(),
+                Some("C:/ws"),
+                "cwd = là où vivent les état json"
+            );
+            assert_eq!(s.version.as_deref(), Some("0.3.0"));
+        }
+
+        // 3. pas de réécriture : deja-cmd garde SA commande
+        let j3 = serde_json::json!({
+            "name": "deja-cmd", "version": "2.0", "port": 9001, "pid": 7,
+            "exe": "C:/autre/autre.exe", "args": ["C:/autre/autre.exe"], "cwd": "C:/autre", "ts": 3000
+        });
+        assert!(
+            apply_announcement(&state, &j3),
+            "le ts plus récent compte comme changement"
+        );
+        {
+            let servers = lockv(&state.servers);
+            let s = servers
+                .iter()
+                .find(|s| s.id == "man-cmd")
+                .expect("existant");
+            let cmd = s
+                .start_cmd
+                .as_ref()
+                .expect("la commande de l'utilisateur est conservée");
+            assert_eq!(cmd.program, "python");
+            assert_eq!(cmd.args, vec!["serve.py".to_string()]);
+        }
+
+        // 4. annonce invalide (port 0 / exe vide) → ignorée, rien ne change
+        let n_avant = lockv(&state.servers).len();
+        let j4 = serde_json::json!({"name": "cassé", "port": 0, "exe": "x"});
+        assert!(!apply_announcement(&state, &j4));
+        let j5 = serde_json::json!({"name": "cassé", "port": 8080, "exe": ""});
+        assert!(!apply_announcement(&state, &j5));
+        assert_eq!(
+            lockv(&state.servers).len(),
+            n_avant,
+            "aucun serveur cassé créé"
+        );
+    }
+
+    #[test]
+    fn set_settings_valide_borne_et_persiste() {
+        // Dialog ⚙ : réglages principaux. Validation stricte : refresh clamp
+        // 5-3600, scan borné 1-65535 avec from<=to, bind sur whitelist
+        // (sinon loopback forcé), ports réseau 1-65535 uniquement, et
+        // persistance dans config.json.
+        let path = tmp_config("cfg_settings_dialog.json", Some("{\"servers\":[]}"));
+        let mut base = match Arc::try_unwrap(test_state()) {
+            Ok(s) => s,
+            Err(_) => panic!("test_state doit être unique"),
+        };
+        base.config_path = path.clone();
+        let state = Arc::new(base);
+        {
+            let mut st = lockv(&state.settings);
+            st.autostart = false;
+        }
+
+        // 1. valeurs hors bornes → clamps + corrections
+        let j = handle_action(
+            &state,
+            "{\"action\":\"set_settings\",\"refresh_secs\":99999,\"scan_from\":9000,\"scan_to\":100,\"ui_bind\":\"0.0.0.0\",\"network_enabled\":false,\"network_ports\":[5090,0,70000,8081,65536]}",
+        );
+        assert_eq!(j["ok"], serde_json::json!(true));
+        assert_eq!(
+            j["changed"],
+            serde_json::json!(["refresh", "scan", "ui_bind", "network", "network_ports"])
+        );
+        {
+            let st = lockv(&state.settings);
+            assert_eq!(st.refresh_secs, 3600, "clamp haut");
+            assert_eq!((st.scan_from, st.scan_to), (100, 9000), "from<=to imposé");
+            assert_eq!(st.ui_bind, "0.0.0.0");
+            assert!(!st.network_enabled);
+            assert_eq!(st.network_ports, vec![5090, 8081], "0/70000/65536 filtrés");
+        }
+        let cfg = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(cfg.contains("\"refresh_secs\": 3600"), "persisté : {}", cfg);
+        assert!(cfg.contains("\"network_enabled\": false"));
+
+        // 2. bind hors whitelist → loopback forcé (jamais un bind arbitraire)
+        let j2 = handle_action(
+            &state,
+            "{\"action\":\"set_settings\",\"ui_bind\":\"192.168.1.5\"}",
+        );
+        assert_eq!(j2["ok"], serde_json::json!(true));
+        assert_eq!(lockv(&state.settings).ui_bind, "127.0.0.1");
+
+        // 3. refresh trop bas → clamp bas (5 s minimum, pas de poll dément)
+        let j3 = handle_action(&state, "{\"action\":\"set_settings\",\"refresh_secs\":1}");
+        assert_eq!(j3["ok"], serde_json::json!(true));
+        assert_eq!(lockv(&state.settings).refresh_secs, 5);
+
+        // 4. aucun changement → changed vide, pas d'écriture inutile
+        let j4 = handle_action(&state, "{\"action\":\"set_settings\",\"refresh_secs\":5}");
+        assert_eq!(j4["changed"], serde_json::json!([] as [&str; 0]));
+    }
+
+    #[test]
+    fn reset_state_placements_detection_et_oublis() {
+        // Bouton ⚙ → Réinitialiser : placement (ordre), detection (découverts
+        // + imports natifs + pairs), oublis (seeds retirés réinjectés + machines
+        // SSH) — et « what » inconnu refuse proprement.
+        let path = tmp_config("cfg_reset.json", Some("{\"servers\":[]}"));
+        let mut base = match Arc::try_unwrap(test_state()) {
+            Ok(s) => s,
+            Err(_) => panic!("test_state doit être unique"),
+        };
+        base.config_path = path.clone();
+        let state = Arc::new(base);
+        {
+            let mut st = lockv(&state.settings);
+            st.autostart = false;
+            st.server_order = vec!["a".into(), "b".into()];
+            st.ssh_hosts.push(crate::types::SshHost {
+                ip: "192.168.40.9".into(),
+                user: "demon".into(),
+            });
+            // un VRAI seed retiré durablement (le premier de la config par défaut)
+            let seed_id = default_servers()[0].id.clone();
+            st.removed_seeds.push(seed_id);
+        }
+        {
+            let mut servers = lockv(&state.servers);
+            servers.push(Server {
+                id: "disc-1".into(),
+                label: "port-7000".into(),
+                transport: Transport::Http {
+                    host: None,
+                    port: 7000,
+                    path: "/mcp".into(),
+                },
+                origin: Origin::Discovered,
+                enabled: true,
+                state: SState::Down,
+                pid: None,
+                bound_host: None,
+                server_name: None,
+                version: None,
+                protocol: None,
+                sse: false,
+                sse_endpoint: false,
+                ws: false,
+                lang: None,
+                framework: None,
+                via_ssh: false,
+                tools: vec![],
+                latency_ms: None,
+                last_seen_ts: None,
+                last_error: None,
+                start_cmd: None,
+                auto_restart: true,
+                tools_disabled: vec![],
+            });
+            servers.push(Server {
+                id: "litemcp-test".into(),
+                label: "test".into(),
+                transport: Transport::Http {
+                    host: None,
+                    port: 8888,
+                    path: "/mcp".into(),
+                },
+                origin: Origin::Manual,
+                enabled: true,
+                state: SState::Down,
+                pid: None,
+                bound_host: None,
+                server_name: None,
+                version: None,
+                protocol: None,
+                sse: false,
+                sse_endpoint: false,
+                ws: false,
+                lang: None,
+                framework: Some("litemcp".into()),
+                via_ssh: false,
+                tools: vec![],
+                latency_ms: None,
+                last_seen_ts: None,
+                last_error: None,
+                start_cmd: None,
+                auto_restart: true,
+                tools_disabled: vec![],
+            });
+            servers.push(Server {
+                id: "man-keep".into(),
+                label: "keep".into(),
+                transport: Transport::Http {
+                    host: None,
+                    port: 9000,
+                    path: "/mcp".into(),
+                },
+                origin: Origin::Manual,
+                enabled: true,
+                state: SState::Down,
+                pid: None,
+                bound_host: None,
+                server_name: None,
+                version: None,
+                protocol: None,
+                sse: false,
+                sse_endpoint: false,
+                ws: false,
+                lang: None,
+                framework: None,
+                via_ssh: false,
+                tools: vec![],
+                latency_ms: None,
+                last_seen_ts: None,
+                last_error: None,
+                start_cmd: None,
+                auto_restart: true,
+                tools_disabled: vec![],
+            });
+        }
+        lockv(&state.peers).insert(
+            "10.1.1.1".into(),
+            crate::types::Peer {
+                ip: "10.1.1.1".into(),
+                ui_port: 5090,
+                last_seen: 1,
+                servers: serde_json::json!([]),
+            },
+        );
+
+        // 1. placement → server_order vidé, serveurs intacts
+        let j = handle_action(
+            &state,
+            "{\"action\":\"reset_state\",\"what\":\"placement\"}",
+        );
+        assert_eq!(j["ok"], serde_json::json!(true));
+        assert!(lockv(&state.settings).server_order.is_empty());
+        assert_eq!(lockv(&state.servers).len(), 3);
+
+        // 2. detection → découverts + litemcp retirés, manual conservé, pairs vidés
+        let j2 = handle_action(
+            &state,
+            "{\"action\":\"reset_state\",\"what\":\"detection\"}",
+        );
+        assert_eq!(j2["ok"], serde_json::json!(true));
+        assert_eq!(j2["removed"], serde_json::json!(2));
+        {
+            let servers = lockv(&state.servers);
+            assert_eq!(servers.len(), 1);
+            assert_eq!(
+                servers[0].id, "man-keep",
+                "le manual hors litemcp est conservé"
+            );
+        }
+        assert!(lockv(&state.peers).is_empty());
+
+        // 3. oublis → machines SSH vidées + seed réinjecté + removed_seeds vide
+        let j3 = handle_action(&state, "{\"action\":\"reset_state\",\"what\":\"oublis\"}");
+        assert_eq!(j3["ok"], serde_json::json!(true));
+        assert_eq!(j3["reinjected"], serde_json::json!(1));
+        {
+            let st = lockv(&state.settings);
+            assert!(st.ssh_hosts.is_empty());
+            assert!(st.removed_seeds.is_empty());
+        }
+        assert_eq!(
+            lockv(&state.servers).len(),
+            2,
+            "le seed retiré est réinjecté immédiatement"
+        );
+
+        // 4. what inconnu → refus propre, rien ne change
+        let n = lockv(&state.servers).len();
+        let j4 = handle_action(&state, "{\"action\":\"reset_state\",\"what\":\"nimporte\"}");
+        assert_eq!(j4["ok"], serde_json::json!(false));
+        assert_eq!(lockv(&state.servers).len(), n);
     }
 
     #[test]
