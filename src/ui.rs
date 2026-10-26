@@ -3,73 +3,181 @@ pub const INDEX_HTML: &str = r#"<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MCP Command Center</title>
+<title>Console MCP</title>
 <style>
-/* ===== Thème Hermes Desktop (skin "nous", mode sombre) =====
-   Chrome #0d0d0e · Sidebar #0a0a0b · Card #161618 · Accent Nous #4a84fe
-   Textes 94/74/54/36% · hover accent 4% · actif accent 8% · bordure 12% */
+/* ===== Jetons de design ====================================================
+   Une seule échelle pour tout : rayons, hauteurs de contrôle, filets.
+   Toute valeur « à la main » dans un composant est une dette — elle est ici.
+   Chrome #0d0d0e · Sidebar #0a0a0b · Card #161618 · Accent #4a84fe
+   Textes 94/74/54/36 % · hover accent 4 % · actif 8 % · filet 9/12/16 %      */
 :root{
   --chrome:#0d0d0e;--sidebar:#0a0a0b;--card:#161618;--elevated:#1c1c1f;
   --accent:#4a84fe;
   --t1:rgba(255,255,255,.94);--t2:rgba(255,255,255,.74);--t3:rgba(255,255,255,.54);--t4:rgba(255,255,255,.36);
-  --border:rgba(255,255,255,.12);--border-soft:rgba(255,255,255,.07);
+  --border:rgba(255,255,255,.12);--border-soft:rgba(255,255,255,.07);--border-strong:rgba(255,255,255,.2);
   --hover:rgba(74,132,254,.04);--active:rgba(74,132,254,.08);--active2:rgba(74,132,254,.14);
+  --wash:rgba(255,255,255,.035);
   --ok:#55a583;--bad:#e75e78;--warn:#c08532;--orange:#db704b;--cyan:#6f9ba6;--purple:#9e94d5;
   --mono:'JetBrains Mono',ui-monospace,'Cascadia Code',Consolas,monospace;
   --sans:-apple-system,'Segoe UI',system-ui,sans-serif;
+  /* échelle de rayons */
+  --r1:4px;--r2:6px;--r3:8px;--r4:10px;--r5:12px;--rpill:999px;
+  /* hauteurs de contrôle : une seule par rang */
+  --h-ctl:26px;--h-sm:22px;--h-xs:18px;
+  /* ombres : deux niveaux, pas plus */
+  --sh-pop:0 14px 34px rgba(0,0,0,.55),0 2px 6px rgba(0,0,0,.35);
+  --sh-dlg:0 24px 64px rgba(0,0,0,.6),0 2px 8px rgba(0,0,0,.4);
+  /* rythme vertical */
+  --gap:8px;--pad-sec:16px;
 }
 /* Thème clair — bascule <html data-theme="light"> (préférence ⚙ Réglages).
-   Toutes les surfaces passent par ces variables : un seul bloc suffit. */
+   Hiérarchie de surfaces : chrome (fond de la zone de contenu) plus soutenu,
+   sidebar légèrement plus claire, cartes BLANCHES détachées (fond + ombre),
+   filets nettement visibles. Les rayons/hauteurs/ombres viennent des jetons
+   du design system — rien n'est « à la main » ici. */
 :root[data-theme="light"]{
-  --chrome:#f4f5f7;--sidebar:#ecedf0;--card:#ffffff;--elevated:#f7f8fa;
-  --t1:rgba(15,18,25,.92);--t2:rgba(15,18,25,.68);--t3:rgba(15,18,25,.5);--t4:rgba(15,18,25,.34);
-  --border:rgba(15,18,25,.16);--border-soft:rgba(15,18,25,.09);
-  --hover:rgba(74,132,254,.07);--active:rgba(74,132,254,.13);--active2:rgba(74,132,254,.25);
-  --ok:#2f7a5e;--bad:#c9405e;--warn:#96610f;--orange:#b4542f;--cyan:#4f7d89;--purple:#766ec2;
+  --chrome:#e4e7ed;--sidebar:#f1f3f7;--card:#ffffff;--elevated:#fafbfd;
+  --t1:rgba(13,17,24,.94);--t2:rgba(13,17,24,.72);--t3:rgba(13,17,24,.54);--t4:rgba(13,17,24,.40);
+  --border:rgba(13,17,24,.30);--border-soft:rgba(13,17,24,.15);--border-strong:rgba(13,17,24,.44);
+  --hover:rgba(74,132,254,.09);--active:rgba(74,132,254,.16);--active2:rgba(74,132,254,.30);
+  --wash:rgba(13,17,24,.04);
+  --ok:#2e7a5c;--bad:#c23f5c;--warn:#8f5c10;--orange:#a94f2c;--cyan:#3f7180;--purple:#6d64c0;
+  --sh-pop:0 10px 26px rgba(16,22,34,.14),0 2px 6px rgba(16,22,34,.10);
+  --sh-dlg:0 24px 60px rgba(16,22,34,.24),0 3px 10px rgba(16,22,34,.14);
 }
 /* Correctifs clairs pour les rares couleurs fixes du thème sombre */
 :root[data-theme="light"] .netbanner{color:#a93250}
 :root[data-theme="light"] .netbanner b{color:#c9405e}
 :root[data-theme="light"] .tag.http,
 :root[data-theme="light"] .tag.https,
-:root[data-theme="light"] .tag.stdio{color:var(--t2);border-color:rgba(15,18,25,.35);background:rgba(15,18,25,.05)}
-*{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%}
-body{background:var(--chrome);color:var(--t1);font:13px/1.5 var(--sans);display:flex;flex-direction:column;overflow:hidden}
+:root[data-theme="light"] .tag.stdio,
+:root[data-theme="light"] .tag.ws{color:var(--t2);border-color:rgba(13,17,24,.34);background:rgba(13,17,24,.05)}
+:root[data-theme="light"] .dot.DOWN{background:#b6bcc7}
+/* Relief du thème clair : les cartes deviennent BLANCHES sur le fond gris et
+   portent une ombre douce — sans elles, cartes et fond se confondent. */
+:root[data-theme="light"] .tile{background:var(--card);border:1px solid var(--border-soft);
+  box-shadow:0 1px 2px rgba(16,22,34,.10),0 4px 12px rgba(16,22,34,.07)}
+:root[data-theme="light"] .conf-block{background:var(--card);border:1px solid var(--border-soft);
+  box-shadow:0 1px 2px rgba(16,22,34,.08),0 3px 10px rgba(16,22,34,.05)}
+:root[data-theme="light"] .sec-label{color:var(--t3);border-bottom:1px solid var(--border-soft);padding-bottom:8px}
+:root[data-theme="light"] .srow{background:var(--card);border:1px solid var(--border-soft);
+  box-shadow:0 1px 1px rgba(16,22,34,.06)}
+:root[data-theme="light"] .srow:hover{background:var(--elevated);border-color:var(--border);
+  box-shadow:0 2px 7px rgba(16,22,34,.12)}
+:root[data-theme="light"] .srow.sel{background:var(--active);border-color:var(--accent);
+  box-shadow:0 2px 8px rgba(74,132,254,.18)}
+:root[data-theme="light"] .grphead{background:var(--card);border:1px solid var(--border-soft);
+  box-shadow:0 1px 1px rgba(16,22,34,.05)}
+:root[data-theme="light"] .grphead:hover{background:var(--elevated);border-color:var(--border)}
+:root[data-theme="light"] .machine-row,
+:root[data-theme="light"] .peer-row,
+:root[data-theme="light"] .scard{background:var(--card);border:1px solid var(--border-soft);
+  box-shadow:0 1px 2px rgba(16,22,34,.08)}
+:root[data-theme="light"] .machine-row:hover,
+:root[data-theme="light"] .scard:hover{border-color:var(--border);box-shadow:0 2px 7px rgba(16,22,34,.12)}
+:root[data-theme="light"] dialog{background:var(--card);border:1px solid var(--border);
+  box-shadow:var(--sh-dlg)}
+:root[data-theme="light"] dialog::backdrop{background:rgba(16,22,34,.46);backdrop-filter:blur(3px)}
+:root[data-theme="light"] input,
+:root[data-theme="light"] select{background:var(--elevated);border:1px solid var(--border);
+  box-shadow:inset 0 1px 2px rgba(16,22,34,.05)}
+:root[data-theme="light"] input:hover,
+:root[data-theme="light"] select:hover{border-color:var(--border-strong)}
+:root[data-theme="light"] .sw.on{border-color:rgba(46,122,92,.55);background:rgba(46,122,92,.10)}
+:root[data-theme="light"] .sw.off{border-color:var(--border);color:var(--t4)}
+:root[data-theme="light"] .tgl.on{border-color:rgba(46,122,92,.55);background:rgba(46,122,92,.10)}
+:root[data-theme="light"] .legacy{border-color:var(--border)}
+:root[data-theme="light"] .crumb{color:var(--t3)}
+:root[data-theme="light"] .logline{color:var(--t3)}
+:root[data-theme="light"] #logpanel{background:var(--sidebar);border-top:1px solid var(--border)}
+:root[data-theme="light"] .tb-badge{background:var(--card);border-color:var(--border-soft)}
+/* Séparateurs de zone : un filet + un fond très légèrement teinté sous les
+   titres de section, pour que l'explorateur soit lisible d'un coup d'œil. */
+:root[data-theme="light"] #explorer{background:var(--sidebar);border-right:1px solid var(--border);
+  box-shadow:1px 0 0 rgba(16,22,34,.03)}
+:root[data-theme="light"] .sec-label{background:linear-gradient(var(--sidebar),var(--sidebar))}
+:root[data-theme="light"] details.fold,
+:root[data-theme="light"] .tabs{background:var(--card);border:1px solid var(--border-soft);
+  border-radius:var(--r3);box-shadow:0 1px 2px rgba(16,22,34,.07)}
+:root[data-theme="light"] .tool{background:var(--card);border-color:var(--border-soft)}
+:root[data-theme="light"] .pill{background:var(--elevated)}
 
-/* ===== Titlebar ===== */
-#titlebar{height:42px;flex-shrink:0;display:flex;align-items:center;gap:10px;padding:0 12px 0 16px;
-  background:var(--sidebar);border-bottom:1px solid var(--border);user-select:none}
-#titlebar .logo{font-weight:600;font-size:13px;letter-spacing:.2px;white-space:nowrap}
-#titlebar .logo em{color:var(--accent);font-style:normal}
-.tb-logout{background:none;border:1px solid var(--border);border-radius:6px;color:var(--t3);
-  font-size:10px;line-height:16px;padding:0 6px;margin-left:4px}
+*{box-sizing:border-box;margin:0;padding:0}
+/* L'attribut hidden doit gagner contre les display:flex/inline-flex des
+   classes : sans cette règle, un élément masqué reste visible. */
+[hidden]{display:none !important}
+html,body{height:100%}
+body{background:var(--chrome);color:var(--t1);font:13px/1.5 var(--sans);display:flex;flex-direction:column;
+  overflow:hidden;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+
+/* Barres de défilement fines : le défaut du système casse la densité de l'UI. */
+*{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.16) transparent}
+*::-webkit-scrollbar{width:11px;height:11px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:var(--rpill);
+  border:3px solid transparent;background-clip:padding-box}
+*::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.26);background-clip:padding-box}
+*::-webkit-scrollbar-corner{background:transparent}
+:root[data-theme="light"] *{scrollbar-color:rgba(15,18,25,.25) transparent}
+:root[data-theme="light"] *::-webkit-scrollbar-thumb{background:rgba(15,18,25,.22);background-clip:padding-box}
+
+/* Focus clavier : visible partout, jamais au clic souris. */
+:focus{outline:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-radius:var(--r2)}
+::selection{background:var(--active2)}
+
+/* ===== Barre de titre ===== */
+#titlebar{height:44px;flex-shrink:0;display:flex;align-items:center;gap:var(--gap);padding:0 10px 0 var(--pad-sec);
+  background:var(--sidebar);border-bottom:1px solid var(--border);user-select:none;position:relative;z-index:20}
+#titlebar::after{content:'';position:absolute;inset:0 0 auto;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.06),transparent);pointer-events:none}
+/* Marque : monogramme « console » (fenêtre + smile) + wordmark discret.
+   L'ancien point bleu + « MCP Command Center » était trop bruyant. */
+#titlebar .logo{white-space:nowrap;display:flex;align-items:center;gap:7px;margin-right:6px}
+#titlebar .logo .mark{width:17px;height:17px;color:var(--t3);flex-shrink:0}
+#titlebar .logo:hover .mark{color:var(--accent)}
+#titlebar .logo .wordmark{font-weight:600;font-size:12.5px;letter-spacing:.24px;color:var(--t1);
+  text-transform:uppercase}
+#titlebar .logo .wm-dim{color:var(--t4);font-weight:500;margin-left:6px;letter-spacing:.18px}
+.tb-logout{background:none;border:1px solid var(--border);border-radius:var(--r2);color:var(--t3);
+  font-size:10px;line-height:16px;padding:0 6px}
 .tb-logout:hover{color:var(--bad);border-color:var(--bad)}
 .tb-logout[hidden]{display:none}
-.tb-badge{font:11px var(--mono);color:var(--t3);background:var(--hover);border:1px solid var(--border-soft);
-  border-radius:6px;padding:2px 8px;white-space:nowrap}
-.tb-badge b{color:var(--t1);font-weight:600}
+/* Pastilles d'état : une seule hauteur, un seul rayon, une seule typo. */
+.tb-badge{display:inline-flex;align-items:center;gap:4px;height:var(--h-sm);padding:0 8px;
+  font:11px/1 var(--mono);color:var(--t3);background:var(--wash);border:1px solid var(--border-soft);
+  border-radius:var(--r2);white-space:nowrap}
+.tb-badge b{color:var(--t1);font-weight:600;font-variant-numeric:tabular-nums}
 .tb-badge.ok b{color:var(--ok)}
-#stAuto{padding:3px 9px;font-size:11px;border-radius:6px}
+#stAuto{height:var(--h-sm);padding:0 9px;font:11px/1 var(--sans);border-radius:var(--r2);
+  border:1px solid var(--border);color:var(--t3);background:transparent}
+#stAuto:hover{border-color:var(--accent);color:var(--accent);background:var(--hover)}
 #stAuto.auto-off{color:var(--t4);border-style:dashed}
+#stAuto.auto-on{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08)}
 .tb-badge.upd{color:var(--warn);border-color:rgba(192,133,50,.5);background:rgba(192,133,50,.1);cursor:pointer}
 .tb-badge.upd:hover{border-color:var(--warn);color:var(--warn)}
-.tb-spacer{flex:1}
-.tb-actions{display:flex;gap:6px}
+.tb-spacer{flex:1;height:100%}
+/* Groupe d'actions : un seul bloc, filets internes alignés. */
+.tb-actions{display:flex;gap:6px;align-items:center}
+.tb-actions button{height:var(--h-ctl);padding:0 10px;font-size:12px}
 /* Contrôles de fenêtre (mode desktop Tauri, fenêtre sans décorations) */
-#winCtrls{display:none;gap:2px;margin-left:8px}
-.wbtn{width:34px;height:28px;padding:0;display:flex;align-items:center;justify-content:center;
-  border:none;border-radius:6px;background:transparent;color:var(--t3);font-size:12px;cursor:pointer}
-.wbtn:hover{background:var(--hover);color:var(--t1)}
+#winCtrls{display:none;gap:2px;margin-left:6px;align-items:center}
+.wbtn{width:34px;height:var(--h-ctl);padding:0;display:flex;align-items:center;justify-content:center;
+  border:none;border-radius:var(--r2);background:transparent;color:var(--t3);font-size:12px;cursor:pointer}
+.wbtn:hover{background:var(--wash);color:var(--t1)}
 .wbtn.wclose:hover{background:rgba(231,94,120,.16);color:var(--bad)}
 
-/* ===== Boutons (style Hermes : discret, accent au survol) ===== */
-button{background:transparent;color:var(--t2);border:1px solid var(--border);border-radius:7px;
-  padding:4px 11px;cursor:pointer;font:12px var(--sans);transition:background .12s,border-color .12s,color .12s;white-space:nowrap}
-button:hover{background:var(--hover);border-color:var(--accent);color:var(--accent)}
+/* ===== Boutons ===========================================================
+   Une hauteur, un rayon, une transition. Le survol teinte, l'accent marque. */
+button{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  height:var(--h-ctl);padding:0 11px;background:transparent;color:var(--t2);
+  border:1px solid var(--border);border-radius:var(--r2);cursor:pointer;
+  font:12px/1 var(--sans);white-space:nowrap;
+  transition:background .12s,border-color .12s,color .12s,box-shadow .12s}
+button:hover{background:var(--hover);border-color:var(--border-strong);color:var(--t1)}
+button:active{background:var(--active)}
 button.primary{background:var(--active);border-color:var(--active2);color:var(--accent);font-weight:500}
-button.primary:hover{background:var(--active2)}
-/* Thème : le bouton actif est marqué (accent) */
+button.primary:hover{background:var(--active2);border-color:var(--accent);color:var(--accent)}
 #tDark.sel,#tLight.sel{background:var(--active);border-color:var(--accent);color:var(--accent)}
 button.danger:hover{border-color:var(--bad);color:var(--bad);background:rgba(231,94,120,.06)}
 button:disabled{opacity:.35;cursor:not-allowed}
@@ -79,42 +187,49 @@ button:disabled{opacity:.35;cursor:not-allowed}
 
 /* --- Explorateur (gauche) --- */
 #explorer{width:280px;flex-shrink:0;background:var(--sidebar);border-right:1px solid var(--border);
-  display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden}
-.sec-label{font:10px var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.9px;
-  color:var(--t4);padding:14px 16px 6px;user-select:none;display:flex;align-items:center;justify-content:space-between;gap:6px}
-.sec-label select{width:auto;flex-shrink:0;background:var(--chrome);border:1px solid var(--border);border-radius:6px;
-  color:var(--t3);font:10px var(--mono);padding:2px 3px;cursor:pointer;text-transform:none;letter-spacing:0}
+  display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;padding-bottom:2px}
+.sec-label{font:10px/1 var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.09em;
+  color:var(--t4);padding:14px var(--pad-sec) 7px;user-select:none;
+  display:flex;align-items:center;justify-content:space-between;gap:6px}
+.sec-label select{width:auto;flex-shrink:0;height:var(--h-xs);background:var(--chrome);border:1px solid var(--border-soft);
+  border-radius:var(--r1);color:var(--t3);font:10px/1 var(--mono);padding:0 2px;cursor:pointer;
+  text-transform:none;letter-spacing:0}
 .sec-label select:hover{color:var(--accent);border-color:var(--accent)}
-.sec-label select:focus{outline:none}
-.srow{padding:7px 10px 7px 14px;margin:1px 8px;border-radius:8px;cursor:pointer;position:relative;
-  border:1px solid transparent;transition:background .1s}
-.srow:hover{background:var(--hover)}
+/* Lignes de serveur : 34 px de haut, filet de sélection aligné sur le texte. */
+.srow{padding:6px 10px 6px 13px;margin:1px 8px;border-radius:var(--r3);cursor:pointer;position:relative;
+  border:1px solid transparent;transition:background .1s,border-color .1s}
+.srow:hover{background:var(--wash)}
 .srow.sel{background:var(--active);border-color:var(--active2)}
-.srow.sel::before{content:'';position:absolute;left:0;top:7px;bottom:7px;width:2px;border-radius:2px;background:var(--accent)}
+.srow.sel::before{content:'';position:absolute;left:0;top:6px;bottom:6px;width:2px;
+  border-radius:var(--rpill);background:var(--accent)}
 .srow.off{opacity:.45}
-.srow .l1{display:flex;align-items:center;gap:8px;min-width:0}
-.srow .l1 .nm{flex:1;font-size:12.5px;font-weight:500;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.srow .l1 .cnt{font:10px var(--mono);color:var(--t4)}
-.legacy{font:9px var(--mono);text-transform:uppercase;letter-spacing:.4px;color:var(--t4);
-  border:1px dashed var(--border);border-radius:4px;padding:0 5px;white-space:nowrap;flex-shrink:0}
-.ctxmenu{position:fixed;z-index:9999;min-width:262px;background:var(--card);border:1px solid var(--border);
-  border-radius:8px;padding:4px;box-shadow:0 14px 34px rgba(0,0,0,.55);font-size:12px}
+.srow .l1{display:flex;align-items:center;gap:7px;min-width:0;height:16px}
+.srow .l1 .nm{flex:1;font-size:12.5px;font-weight:500;color:var(--t1);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;letter-spacing:.1px}
+.srow .l1 .cnt{font:10px/1 var(--mono);color:var(--t4);font-variant-numeric:tabular-nums}
+.legacy{font:9px/1 var(--mono);text-transform:uppercase;letter-spacing:.04em;color:var(--t4);
+  border:1px dashed var(--border);border-radius:var(--r1);padding:1px 5px;white-space:nowrap;flex-shrink:0}
+.ctxmenu{position:fixed;z-index:9999;min-width:270px;background:var(--elevated);border:1px solid var(--border);
+  border-radius:var(--r3);padding:5px;box-shadow:var(--sh-pop);font-size:12px}
 .ctxmenu[hidden]{display:none}
-.ctxitem{padding:6px 9px;border-radius:5px;cursor:pointer;color:var(--t2);white-space:nowrap;
-  display:flex;gap:8px;align-items:center}
-.ctxitem:hover{background:var(--hover);color:var(--t1)}
+.ctxitem{padding:6px 9px;border-radius:var(--r2);cursor:pointer;color:var(--t2);white-space:nowrap;
+  display:flex;gap:8px;align-items:center;line-height:1.35}
+.ctxitem:hover{background:var(--active);color:var(--t1)}
 .ctxitem.dis{opacity:.35;cursor:default;pointer-events:none}
-.ctxsep{height:1px;background:var(--border);margin:4px 6px}
-#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(8px);
-  background:var(--card);color:var(--t1);border:1px solid var(--border);border-radius:8px;
-  padding:7px 14px;font-size:12px;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:10000}
+.ctxsep{height:1px;background:var(--border-soft);margin:5px 7px}
+#toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(8px);
+  background:var(--elevated);color:var(--t1);border:1px solid var(--border);border-radius:var(--r3);
+  padding:7px 14px;font-size:12px;box-shadow:var(--sh-pop);opacity:0;pointer-events:none;
+  transition:opacity .15s,transform .15s;z-index:10000}
 #toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
 .netbanner{background:rgba(231,94,120,.12);border-bottom:1px solid rgba(231,94,120,.45);
-  color:#f0a8b6;font-size:11.5px;padding:5px 12px;display:flex;gap:8px;align-items:center}
+  color:#f0a8b6;font-size:11.5px;padding:6px 12px;display:flex;gap:8px;align-items:center}
 .netbanner b{color:#ffd7de}
 .netbanner[hidden]{display:none}
-.rowbtn{background:none;border:1px solid var(--border);border-radius:5px;color:var(--t3);
-  padding:0 6px;font-size:9px;line-height:15px;min-width:20px;flex-shrink:0}
+/* Boutons de ligne : 18 px, rayon 4, jamais plus hauts que le texte. */
+.rowbtn{display:inline-flex;align-items:center;justify-content:center;height:var(--h-xs);min-width:20px;
+  padding:0 5px;background:none;border:1px solid var(--border-soft);border-radius:var(--r1);color:var(--t3);
+  font:9px/1 var(--mono);flex-shrink:0}
 .rowbtn:hover{color:var(--accent);border-color:var(--accent);background:var(--hover)}
 /* Autoboot par serveur (⚡) : allumé = relance auto au démarrage/crash */
 .rowbtn.auto{color:var(--t3);opacity:.45}
@@ -132,89 +247,100 @@ button:disabled{opacity:.35;cursor:not-allowed}
    Serveurs locaux à plat, puis UN GROUPE REPLIABLE PAR MACHINE DISTANTE
    (VPS/LAN) : les serveurs importés d'une machine sont rangés sous son IP. */
 .sec-label[hidden]{display:none}
-.grphead{display:flex;align-items:center;gap:6px;margin:1px 8px;padding:5px 8px;border-radius:7px;
+.grphead{display:flex;align-items:center;gap:6px;margin:1px 8px;padding:5px 8px;border-radius:var(--r2);
   cursor:pointer;user-select:none;color:var(--t3);border:1px solid transparent;transition:background .1s}
-.grphead:hover{background:var(--hover);color:var(--t2)}
+.grphead:hover{background:var(--wash);color:var(--t2)}
 .grphead .gchev{font-size:9px;width:10px;flex-shrink:0;color:var(--t4);transition:transform .12s}
 .grphead.closed .gchev{transform:rotate(-90deg)}
-.grphead .gname{flex:1;font-size:11px;font-weight:600;letter-spacing:.3px;
+.grphead .gname{flex:1;font-size:11px;font-weight:600;letter-spacing:.03em;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.grphead .gcount{font:10px var(--mono);color:var(--t4);flex-shrink:0}
+.grphead .gcount{font:10px/1 var(--mono);color:var(--t4);flex-shrink:0;font-variant-numeric:tabular-nums}
 .grphead .gact{background:none;border:none;padding:0 3px;font-size:11px;line-height:16px;color:var(--t4);flex-shrink:0}
 .grphead .gact:hover{color:var(--bad);background:none;border:none}
 .grphead.closed .gact{display:none}
 .grphead.drag-over-group{border-color:var(--accent);background:var(--active)}
 .grpbody.closed{display:none}
 /* Rangées distantes : légère indentation sous leur groupe machine */
-.mbody .srow{padding-left:24px}
+.mbody .srow{padding-left:23px}
 .mbody .srow.sel::before{left:10px}
-.sw{min-width:34px;text-align:center;font:9px var(--mono);font-weight:600;border-radius:9px;padding:1px 6px;flex-shrink:0}
+.sw{display:inline-flex;align-items:center;justify-content:center;height:var(--h-xs);min-width:34px;
+  font:9px/1 var(--mono);font-weight:600;border-radius:var(--rpill);padding:0 6px;flex-shrink:0;
+  border:1px solid var(--border-soft);background:none;color:var(--t3)}
 .sw.on{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08)}
 .sw.on:hover{border-color:var(--bad);color:var(--bad);background:rgba(231,94,120,.06)}
 .sw.off{color:var(--t4);border-color:var(--border);text-decoration:line-through}
 .sw.off:hover{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08);text-decoration:none}
-.srow .l2{display:flex;align-items:center;gap:6px;margin-top:2px;padding-left:18px;
-  font:10.5px var(--mono);color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.srow .l2{display:flex;align-items:center;gap:6px;margin-top:2px;padding-left:20px;
+  font:10.5px/1.35 var(--mono);color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .srow .l2 .st{font-weight:600}
 .srow .l2 .st.UP{color:var(--ok)}.srow .l2 .st.PORT-ONLY{color:var(--orange)}
 .srow .l2 .st.DOWN{color:var(--t4)}.srow .l2 .st.DISABLED{color:var(--t4)}
 .srow .l2 .st.PROBING,.srow .l2 .st.STARTING{color:var(--accent)}
-.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
 .dot.UP{background:var(--ok);box-shadow:0 0 6px var(--ok)}
 .dot.PORT-ONLY{background:var(--orange);box-shadow:0 0 6px var(--orange)}
 .dot.DOWN{background:#3d3d40}
 .dot.DISABLED{background:transparent;border:1px solid var(--border)}
 .dot.PROBING,.dot.STARTING{background:var(--accent);animation:pulse 1s infinite}
 @keyframes pulse{50%{opacity:.25}}
-.peer-row{padding:6px 10px 6px 14px;margin:1px 8px;border-radius:8px}
+.peer-row{padding:6px 10px 6px 13px;margin:1px 8px;border-radius:var(--r3)}
 .peer-row .l1{display:flex;align-items:center;gap:8px}
-.peer-row .l1 .nm{flex:1;font:12px var(--mono);color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.peer-row .l2{font:10.5px var(--mono);color:var(--t3);padding-left:20px;margin-top:1px}
-.peer-row button{margin-top:5px;margin-left:20px;padding:2px 9px;font-size:11px}
+.peer-row .l1 .nm{flex:1;font:12px/1.35 var(--mono);color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.peer-row .l2{font:10.5px/1.35 var(--mono);color:var(--t3);padding-left:20px;margin-top:1px}
+.peer-row button{margin-top:5px;margin-left:20px;height:var(--h-sm);padding:0 9px;font-size:11px}
 #addWrap{margin-top:auto;padding:10px 8px 12px;border-top:1px solid var(--border-soft)}
-#addWrap button{width:100%;display:flex;gap:6px;align-items:center;justify-content:center;padding:7px}
-.empty-sec{font:11px var(--sans);color:var(--t4);padding:4px 16px 10px;font-style:italic}
+#addWrap button{width:100%;height:30px}
+.empty-sec{font:11px/1.4 var(--sans);color:var(--t4);padding:4px var(--pad-sec) 10px;font-style:italic}
 
 /* --- Zone détail (droite) --- */
-#content{flex:1;min-width:0;overflow-y:auto;padding:22px 26px}
-.crumb{font:11px var(--mono);color:var(--t4);margin-bottom:10px}
+#content{flex:1;min-width:0;overflow-y:auto;padding:24px 28px 32px}
+.crumb{font:11px/1 var(--mono);color:var(--t4);margin-bottom:12px;letter-spacing:.02em}
 .crumb b{color:var(--t3);font-weight:400}
-.d-head{display:flex;align-items:center;gap:12px;margin-bottom:4px;flex-wrap:wrap}
-.d-head h1{font-size:19px;font-weight:600;letter-spacing:.2px}
-.d-head .sub{font:12px var(--mono);color:var(--t3)}
-.d-actions{display:flex;gap:7px;margin-left:auto;flex-wrap:wrap}
-.pill{font:10.5px var(--mono);font-weight:600;padding:3px 10px;border-radius:20px;border:1px solid}
+.d-head{display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap}
+.d-head h1{font-size:19px;font-weight:600;letter-spacing:.1px;line-height:1.2}
+.d-head .sub{font:12px/1.35 var(--mono);color:var(--t3)}
+.d-actions{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+.pill{display:inline-flex;align-items:center;height:var(--h-sm);font:10.5px/1 var(--mono);font-weight:600;
+  padding:0 10px;border-radius:var(--rpill);border:1px solid}
 .pill.UP{color:var(--ok);border-color:rgba(85,165,131,.4);background:rgba(85,165,131,.08)}
 .pill.PORT-ONLY{color:var(--orange);border-color:rgba(219,112,75,.4);background:rgba(219,112,75,.08)}
-.pill.DOWN{color:var(--t3);border-color:var(--border);background:var(--hover)}
+.pill.DOWN{color:var(--t3);border-color:var(--border);background:var(--wash)}
 .pill.DISABLED{color:var(--t4);border-color:var(--border);background:transparent;border-style:dashed}
 .pill.PROBING,.pill.STARTING{color:var(--accent);border-color:var(--active2);background:var(--active)}
-.d-err{color:var(--bad);font:11.5px var(--mono);background:rgba(231,94,120,.06);border:1px solid rgba(231,94,120,.25);
-  border-radius:8px;padding:8px 12px;margin:12px 0 0;word-break:break-word}
-.seed-note{font-size:11.5px;color:var(--t3);background:var(--hover);border:1px solid var(--border-soft);
-  border-radius:8px;padding:7px 11px;margin:12px 0 0}
+.d-err{color:var(--bad);font:11.5px/1.5 var(--mono);background:rgba(231,94,120,.06);
+  border:1px solid rgba(231,94,120,.25);border-radius:var(--r3);padding:9px 12px;margin:14px 0 0;word-break:break-word}
+.seed-note{font-size:11.5px/1.5 var(--sans);color:var(--t3);background:var(--wash);border:1px solid var(--border-soft);
+  border-radius:var(--r3);padding:8px 12px;margin:14px 0 0}
 .seed-note b{color:var(--t2)}
-/* Onglets du détail + blocs de conf agent */
-.tabs{display:flex;gap:4px;margin:20px 0 0;border-bottom:1px solid var(--border-soft)}
-.tab{border:1px solid transparent;background:none;border-radius:7px 7px 0 0;padding:5px 12px;color:var(--t3);font:12px var(--sans)}
-.tab:hover{color:var(--accent);background:var(--hover)}
-.tab.sel{color:var(--accent);background:var(--active2);font-weight:600;border-bottom:2px solid var(--accent)}
-.conf-note{font-size:11.5px;color:var(--t4);margin:0 0 12px}
+
+/* ===== Onglets ===========================================================
+   Bandeau plein, filet continu, soulignement 2 px qui RECOUVRE le filet :
+   l'onglet actif est une marque, pas une pastille. */
+.tabs{display:flex;gap:2px;margin:22px 0 0;border-bottom:1px solid var(--border)}
+.tab{height:30px;padding:0 13px;border:1px solid transparent;border-bottom:2px solid transparent;
+  background:none;border-radius:var(--r2) var(--r2) 0 0;color:var(--t3);font:12px/1 var(--sans);
+  margin-bottom:-1px;transition:color .12s,background .12s,border-color .12s}
+.tab:hover{color:var(--t1);background:var(--wash);border-bottom-color:transparent}
+.tab.sel{color:var(--t1);font-weight:600;background:transparent;border-bottom:2px solid var(--accent)}
+.tab.sel:hover{background:var(--hover)}
+.conf-note{font:11.5px/1.5 var(--sans);color:var(--t4);margin:14px 0 12px}
 .conf-note b{color:var(--t3)}
-.conf-block{background:var(--sidebar);border:1px solid var(--border-soft);border-radius:10px;margin-bottom:10px;overflow:hidden}
-.conf-head{display:flex;align-items:center;gap:8px;padding:7px 12px;font:11px var(--sans);color:var(--t3);border-bottom:1px solid var(--border-soft)}
-.conf-head button{margin-left:auto;padding:2px 10px;font-size:11px}
-.conf-block pre{margin:0;padding:12px 14px;font:11.5px var(--mono);color:var(--t2);overflow-x:auto;white-space:pre}
+.conf-block{background:var(--sidebar);border:1px solid var(--border-soft);border-radius:var(--r3);
+  margin-bottom:10px;overflow:hidden}
+.conf-head{display:flex;align-items:center;gap:8px;padding:0 12px;height:32px;font:11px/1 var(--sans);
+  color:var(--t3);border-bottom:1px solid var(--border-soft);background:var(--wash)}
+.conf-head button{margin-left:auto;height:var(--h-sm);padding:0 10px;font-size:11px}
+.conf-block pre{margin:0;padding:12px 14px;font:11.5px/1.6 var(--mono);color:var(--t2);overflow-x:auto;white-space:pre}
 /* Barre latérale ajustable */
 #grip{width:5px;flex-shrink:0;cursor:col-resize;background:transparent;transition:background .12s}
 #grip:hover,#grip.drag{background:var(--active2)}
-h4.sec{font:10px var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.9px;color:var(--t4);
-  margin:24px 0 10px;display:flex;align-items:center;gap:10px}
+h4.sec{font:10px/1 var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--t4);
+  margin:26px 0 11px;display:flex;align-items:center;gap:10px}
 h4.sec::after{content:'';flex:1;height:1px;background:var(--border-soft)}
 /* Replis du détail (Informations / Démarrage) — même style que h4.sec */
-details.fold{margin:24px 0 0}
+details.fold{margin:26px 0 0}
 details.fold summary{list-style:none;cursor:pointer;user-select:none;
-  font:10px var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.9px;color:var(--t4);
+  font:10px/1 var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--t4);
   display:flex;align-items:center;gap:10px;transition:color .12s}
 details.fold summary::-webkit-details-marker{display:none}
 details.fold summary::before{content:'\25B8';font-size:9px;flex-shrink:0;transition:color .12s}
@@ -222,51 +348,57 @@ details.fold[open] summary::before{content:'\25BE'}
 details.fold summary::after{content:'';flex:1;height:1px;background:var(--border-soft)}
 details.fold summary:hover{color:var(--accent)}
 details.fold .kv{margin-top:12px}
-.kv{display:grid;grid-template-columns:170px 1fr;gap:7px 14px;font-size:12.5px}
-.kv .k{color:var(--t4)}
-.kv .v{font:12px var(--mono);color:var(--t2);word-break:break-all}
+.kv{display:grid;grid-template-columns:168px 1fr;gap:7px 16px;font-size:12.5px;align-items:baseline}
+.kv .k{color:var(--t4);font-size:12px}
+.kv .v{font:12px/1.45 var(--mono);color:var(--t2);word-break:break-all}
 
-/* Tools (inspiration Antigravity : lignes nettes, toggle à droite) */
+/* ===== Outils ============================================================
+   Lignes nettes : nom en mono accent, description en gris, bascule à droite. */
 .tool{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border-soft);
-  border-radius:9px;padding:9px 12px;margin-bottom:6px;transition:border-color .1s,background .1s}
+  border-radius:var(--r3);padding:8px 12px;margin-bottom:6px;transition:border-color .1s,background .1s}
 .tool:hover{border-color:var(--border);background:var(--elevated)}
 .tool.off{opacity:.55}
-.tool code{color:var(--accent);font:12px var(--mono);flex-shrink:0}
+.tool code{color:var(--accent);font:12px/1.35 var(--mono);flex-shrink:0}
 .tool .desc{flex:1;font-size:12px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tgl{min-width:52px;text-align:center;font:10.5px var(--mono);font-weight:600;border-radius:20px;padding:3px 12px}
+.tgl{display:inline-flex;align-items:center;justify-content:center;height:var(--h-sm);min-width:52px;
+  font:10.5px/1 var(--mono);font-weight:600;border-radius:var(--rpill);padding:0 12px;
+  border:1px solid var(--border-soft);background:transparent;color:var(--t3)}
 .tgl.on{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08)}
 .tgl.on:hover{border-color:var(--bad);color:var(--bad);background:rgba(231,94,120,.06)}
 .tgl.off{color:var(--t4);border-color:var(--border);text-decoration:line-through}
 .tgl.off:hover{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08);text-decoration:none}
 
 /* Vue d'ensemble */
-.welcome{max-width:560px;margin:60px auto 0;text-align:center}
+.welcome{max-width:560px;margin:64px auto 0;text-align:center}
 .welcome .big{font-size:15px;color:var(--t2);margin-bottom:6px}
 .welcome .hint{font-size:12.5px;color:var(--t4);margin-bottom:22px}
 .welcome .qa{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:6px}
-.tile{background:var(--card);border:1px solid var(--border-soft);border-radius:10px;padding:12px 14px}
-.tile .n{font:22px var(--mono);font-weight:600;color:var(--t1)}
+.tile{background:var(--card);border:1px solid var(--border-soft);border-radius:var(--r4);padding:13px 14px}
+.tile .n{font:22px/1.1 var(--mono);font-weight:600;color:var(--t1);font-variant-numeric:tabular-nums}
 .tile .n.ok{color:var(--ok)}
-.tile .lbl{font-size:11px;color:var(--t4);margin-top:2px}
+.tile .lbl{font-size:11px;color:var(--t4);margin-top:3px}
 
 /* --- Journal (bas, style console IDE) --- */
 #logpanel{flex-shrink:0;height:170px;background:var(--sidebar);border-top:1px solid var(--border);
   display:flex;flex-direction:column}
 #logpanel.min{height:32px}
-#loghead{height:32px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 14px;cursor:pointer;user-select:none}
-#loghead .lbl{font:10px var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.9px;color:var(--t4)}
+#loghead{height:32px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 14px;cursor:pointer;
+  user-select:none;border-bottom:1px solid var(--border-soft)}
+#logpanel.min #loghead{border-bottom:none}
+#loghead .lbl{font:10px/1 var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--t4)}
 #loghead .arrow{color:var(--t4);font-size:10px;transition:transform .15s}
 #logpanel.min #loghead .arrow{transform:rotate(-90deg)}
-#logbody{flex:1;overflow-y:auto;padding:2px 14px 10px;font:11px var(--mono)}
+#logbody{flex:1;overflow-y:auto;padding:4px 14px 10px;font:11px/1.6 var(--mono)}
 #logpanel.min #logbody{display:none}
 .logline{padding:1px 0;color:var(--t3);white-space:pre-wrap}
-.logline .t{color:var(--t4)}
+.logline .t{color:var(--t4);font-variant-numeric:tabular-nums}
 .logline.warn{color:var(--warn)}
 .logline.error{color:var(--bad)}
 
-/* --- Boutique MCP (porté de l'app Hermes : directory à cartes + import) --- */
-.tag{font:10px var(--mono);padding:1px 7px;border-radius:3px;border:1px solid var(--border);color:var(--t3)}
+/* --- Boutique MCP (directory à cartes + import) --- */
+.tag{display:inline-flex;align-items:center;height:var(--h-xs);font:10px/1 var(--mono);padding:0 7px;
+  border-radius:var(--r1);border:1px solid var(--border);color:var(--t3);white-space:nowrap}
 .tag.npm{color:#bc8cff;border-color:#bc8cff44}
 .tag.py{color:#39c5cf;border-color:#39c5cf44}
 /* Transports : MONOCHROME, trois niveaux de gris distincts (aucune teinte de
@@ -284,8 +416,9 @@ details.fold .kv{margin-top:12px}
 .tag.fw{color:#a5b4fc;border-color:#a5b4fc55;background:#a5b4fc11}
 @keyframes glowPulse{50%{box-shadow:0 0 18px rgba(210,168,255,.9)}}
 @keyframes glowLite{50%{box-shadow:0 0 18px rgba(249,115,22,.9)}}
-.srow .l1 .tag{font-size:8.5px;padding:0 5px;line-height:14px;flex-shrink:0}
-.langchip{font:8.5px var(--mono);font-weight:700;border:1px solid;border-radius:4px;padding:0 4px;line-height:14px;flex-shrink:0}
+.srow .l1 .tag{font-size:8.5px;padding:0 5px;height:15px}
+.langchip{display:inline-flex;align-items:center;height:15px;font:8.5px/1 var(--mono);font-weight:700;
+  border:1px solid;border-radius:var(--r1);padding:0 4px;flex-shrink:0}
 .langchip.unk{color:var(--t4);border-color:var(--border-soft);background:transparent;font-weight:400}
 /* Logo Rust (langage inféré) : « R » cerclé d'un engrenage, comme l'icône .rs des éditeurs */
 .rustwrap{display:inline-flex;align-items:center;flex-shrink:0;margin:0 1px}
@@ -296,42 +429,107 @@ details.fold .kv{margin-top:12px}
 /* Machines distantes (dialog SSH) */
 .machine-form{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
 .machine-form input{flex:1;min-width:170px}
-.machine-msg{font:11px var(--mono);color:var(--t2);min-height:16px;margin-bottom:8px}
-.machine-row{background:var(--sidebar);border:1px solid var(--border-soft);border-radius:9px;padding:8px 10px;margin-bottom:8px}
+.machine-msg{font:11px/1.5 var(--mono);color:var(--t2);min-height:16px;margin-bottom:8px}
+.machine-row{background:var(--sidebar);border:1px solid var(--border-soft);border-radius:var(--r3);padding:9px 11px;margin-bottom:8px}
 .machine-row .l1{display:flex;align-items:center;gap:8px}
-.machine-row .nm{font:12.5px var(--mono);color:var(--t1)}
-.machine-row .l2{font:10.5px var(--mono);color:var(--t3);margin:3px 0 6px}
+.machine-row .nm{font:12.5px/1.35 var(--mono);color:var(--t1)}
+.machine-row .l2{font:10.5px/1.4 var(--mono);color:var(--t3);margin:3px 0 7px}
 .machine-row .macts{display:flex;gap:6px;flex-wrap:wrap}
 .store-bar input{flex:1;min-width:180px}
 .store-cats{display:flex;gap:6px;flex-wrap:wrap}
-.scat{padding:3px 12px;border-radius:14px;font-size:11px}
+.scat{height:var(--h-sm);padding:0 12px;border-radius:var(--rpill);font-size:11px}
 .scat.sel{background:var(--active2);border-color:var(--accent);color:var(--accent)}
 .store-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(184px,1fr));gap:7px}
-.scard{background:var(--sidebar);border:1px solid var(--border-soft);border-radius:9px;padding:8px 10px;display:flex;flex-direction:column;gap:4px}
+.scard{background:var(--sidebar);border:1px solid var(--border-soft);border-radius:var(--r3);padding:9px 10px;
+  display:flex;flex-direction:column;gap:4px;transition:border-color .1s}
 .scard:hover{border-color:var(--border)}
 .scard-top{display:flex;align-items:center;gap:6px}
 .scard-top b{flex:1;font-size:12px}
 .slogo{width:18px;height:18px;flex-shrink:0}
-.scard-desc{font-size:10.5px;color:var(--t3);flex:1;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.scard-cmd{font:9.5px var(--mono);color:var(--t4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.scard button{align-self:flex-start;padding:2px 9px;font-size:11px}
+.scard-desc{font-size:10.5px/1.45 var(--sans);color:var(--t3);flex:1;display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden}
+.scard-cmd{font:9.5px/1.4 var(--mono);color:var(--t4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scard button{align-self:flex-start;height:var(--h-sm);padding:0 9px;font-size:11px}
 
-/* --- Formulaire d'ajout (modal) --- */
-dialog{background:var(--card);color:var(--t1);border:1px solid var(--border);border-radius:14px;padding:0;
-  width:min(680px,92vw);max-height:85vh;box-shadow:0 18px 50px rgba(0,0,0,.5)}
-dialog::backdrop{background:rgba(0,0,0,.6)}
-.dlg-head{display:flex;align-items:center;gap:10px;padding:15px 20px;border-bottom:1px solid var(--border-soft)}
-.dlg-head h2{font-size:15px;font-weight:600;flex:1}
-.dlg-head .close{background:none;border:none;font-size:18px;color:var(--t4);cursor:pointer;padding:2px 6px}
-.dlg-head .close:hover{color:var(--t1);background:transparent;border:none}
-.dlg-body{padding:16px 20px 20px}
+/* --- Dialogues (modal) --- */
+dialog{background:var(--card);color:var(--t1);border:1px solid var(--border);border-radius:var(--r5);padding:0;
+  width:min(680px,92vw);max-height:85vh;box-shadow:var(--sh-dlg);
+  /* le reset global `*{margin:0}` supprime le `margin:auto` du navigateur :
+     sans cette ligne les modales s'ouvrent collées en haut à gauche */
+  margin:auto;max-width:92vw}
+dialog::backdrop{background:rgba(0,0,0,.62);backdrop-filter:blur(2px)}
+.dlg-head{display:flex;align-items:center;gap:10px;padding:0 20px;height:52px;
+  border-bottom:1px solid var(--border-soft)}
+.dlg-head h2{font-size:15px;font-weight:600;flex:1;letter-spacing:.1px}
+.dlg-head .close{background:none;border:none;height:var(--h-ctl);width:var(--h-ctl);padding:0;
+  font-size:16px;color:var(--t4);cursor:pointer;border-radius:var(--r2)}
+.dlg-head .close:hover{color:var(--t1);background:var(--wash);border:none}
+/* ===== Dialog « Réglages » : mise en page réglages système =====
+   Groupes en cartes, lignes libellé/description à gauche et contrôle à
+   droite, segmented control pour le thème, switch pour les booleans. */
+.settings-dlg{width:min(760px,95vw)}
+.dlg-title{display:flex;align-items:center;gap:11px;flex:1;min-width:0}
+.dlg-title .mark{width:19px;height:19px;color:var(--t3);flex-shrink:0}
+.dlg-title h2{margin:0;font-size:14.5px;font-weight:600;letter-spacing:.1px}
+.dlg-title p{margin:2px 0 0;font:11.5px/1.3 var(--sans);color:var(--t4)}
+.set-group{margin:0 0 18px}
+.set-group:last-of-type{margin-bottom:6px}
+.set-group-title{font:10px var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.1em;
+  color:var(--t4);margin:0 0 7px 2px}
+.set-list{background:var(--card);border:1px solid var(--border-soft);border-radius:var(--r4);overflow:hidden}
+.set-row{display:flex;align-items:center;gap:18px;padding:12px 15px;min-height:52px}
+.set-row+.set-row{border-top:1px solid var(--border-soft)}
+.set-label{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.set-label span{font:12.5px/1.3 var(--sans);color:var(--t1)}
+.set-label em{font:11.5px/1.45 var(--sans);color:var(--t4);font-style:normal;max-width:46ch}
+.set-ctrl{display:flex;align-items:center;gap:8px;flex-shrink:0;justify-content:flex-end}
+.set-ctrl-wide{justify-content:flex-start;width:100%}
+.set-num{width:86px !important;height:30px !important;text-align:right}
+.set-txt{width:150px !important;height:30px !important}
+.set-unit,.set-dash{font:11.5px var(--mono);color:var(--t4);flex-shrink:0}
+.set-static{font:12px var(--mono);color:var(--t2);min-width:64px;text-align:right}
+.set-note{font:11.5px var(--sans);color:var(--t2)}
+/* Segmented control (thème) */
+.seg{background:var(--chrome);border:1px solid var(--border);border-radius:var(--r2);padding:2px;gap:2px}
+.seg-btn{border:none !important;background:transparent !important;height:24px;padding:0 13px;
+  font-size:11.5px !important;color:var(--t3) !important;border-radius:var(--r1) !important}
+.seg-btn:hover{color:var(--t1) !important;background:var(--hover) !important}
+.seg-btn.sel{background:var(--card) !important;color:var(--accent) !important;font-weight:600;
+  box-shadow:0 1px 2px rgba(0,0,0,.18)}
+/* Switch (booleens) */
+.switch{position:relative;display:inline-flex;align-items:center;cursor:pointer}
+.switch input{position:absolute;opacity:0;width:0;height:0}
+.switch-track{width:34px;height:20px;border-radius:var(--rpill);background:var(--chrome);
+  border:1px solid var(--border);position:relative;transition:background .14s,border-color .14s}
+.switch-track::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+  background:var(--t3);transition:transform .14s,background .14s}
+.switch input:checked+.switch-track{background:var(--accent);border-color:var(--accent)}
+.switch input:checked+.switch-track::after{transform:translateX(14px);background:#fff}
+.switch input:focus-visible+.switch-track{box-shadow:0 0 0 3px var(--active)}
+.set-group-danger .set-group-title{color:var(--bad)}
+.dlg-foot{display:flex;align-items:center;gap:12px;padding:13px 20px;border-top:1px solid var(--border-soft);
+  background:var(--sidebar)}
+.dlg-foot .row{margin-left:auto}
+.dlg-foot-note{font:11.5px var(--sans);color:var(--t4)}
+.settings-dlg .dlg-body{max-height:min(62vh,560px);overflow-y:auto}
+
+.dlg-body{padding:18px 20px 20px}
 form{display:grid;gap:12px}
-form label{font-size:11px;color:var(--t4);display:block;margin-bottom:4px}
-input,select{width:100%;background:var(--chrome);border:1px solid var(--border);border-radius:8px;
-  padding:7px 10px;color:var(--t1);font:12.5px var(--mono)}
-input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--active)}
+form label{font-size:11px;color:var(--t4);display:block;margin-bottom:5px;letter-spacing:.02em}
+input,select{width:100%;height:32px;background:var(--chrome);border:1px solid var(--border);border-radius:var(--r2);
+  padding:0 10px;color:var(--t1);font:12.5px var(--mono);transition:border-color .12s,box-shadow .12s}
+input:hover,select:hover{border-color:var(--border-strong)}
+input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--active)}
 .row{display:flex;gap:10px}
 .row>div{flex:1}
+
+
+/* ===== Utilitaires de mise en page =======================================
+   Ces classes remplacent les anciens style="" dispersés dans le HTML :
+   la mise en page vit dans la feuille de style, pas dans les balises. */
+.tb-push{margin-left:auto}
+/* Case à cocher maison : le carré natif est trop gros et mal aligné
+   avec le texte — on le remplace par un contrôle de 16 px, centré. */
 </style>
 </head>
 <body>
@@ -342,19 +540,26 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
 <div id="netBanner" class="netbanner" hidden></div>
 
 <div id="titlebar" data-tauri-drag-region>
-  <span class="logo" data-tauri-drag-region><em>&#9679;</em> MCP <em>Command Center</em></span>
+  <span class="logo" data-tauri-drag-region>
+    <svg class="mark" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="2.5" y="4.5" width="19" height="15" rx="3.2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <circle cx="8" cy="10" r="1.7" fill="currentColor"/>
+      <path d="M5.5 16.2c1.6-1.5 3.1-2.2 4.6-2.2s3 .7 4.6 2.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <span class="wordmark">Console<span class="wm-dim"> MCP</span></span>
+  </span>
   <span class="tb-badge" title="Version installée">v__MCC_VERSION__</span>
   <button id="stAuto" onclick="toggleAutostart()" title="Lancer l'application au démarrage de l'OS (tray silencieux)"></button>
-  <span class="tb-badge upd" id="stUpdate" style="display:none"></span>
+  <span class="tb-badge upd" id="stUpdate" hidden></span>
   <span class="tb-badge ok">UP <b id="stUp">0</b>/<b id="stTotal">0</b></span>
-  <span class="tb-badge">tools <b id="stTools">0</b></span>
+  <span class="tb-badge">outils <b id="stTools">0</b></span>
   <span class="tb-badge">refresh <b id="stRefresh">15</b>s</span>
   <button id="tbLogout" class="tb-logout" hidden onclick="logout()"
           title="Oublier le code d'accès enregistré dans ce navigateur">&#128275;</button>
   <span class="tb-spacer" data-tauri-drag-region></span>
   <div class="tb-actions">
-    <button class="primary" onclick="doScan()">&#128269; Scan ports</button>
-    <button onclick="doScanNet()">&#127760; Scan r&eacute;seau</button>
+    <button class="primary" onclick="doScan()" title="Balayer les ports locaux pour d&eacute;couvrir les serveurs MCP">&#128269; Scanner les ports</button>
+    <button onclick="doScanNet()" title="Balayer le r&eacute;seau local pour d&eacute;couvrir les serveurs MCP distants">&#127760; Scanner le r&eacute;seau</button>
     <button onclick="openMachineDlg()">🖥️ Machines</button>
     <button onclick="openStore()">&#128722; Boutique</button>
     <button onclick="openSettingsDlg()" title="R&eacute;glages du client">&#9881; R&eacute;glages</button>
@@ -402,7 +607,7 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
 <div id="logpanel">
   <div id="loghead" onclick="toggleLog()">
     <span class="arrow">&#9662;</span><span class="lbl">Journal</span>
-    <span class="tb-badge" style="margin-left:auto">auto-d&eacute;tection : HTTP streamable &middot; stdio JSON-RPC</span>
+    <span class="tb-badge tb-push">auto-d&eacute;tection : HTTP streamable &middot; stdio JSON-RPC</span>
   </div>
   <div id="logbody"></div>
 </div>
@@ -427,23 +632,23 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
           <div><label>Port</label><input id="fPort" type="number" placeholder="3099"></div>
           <div><label>Chemin MCP</label><input id="fPath" value="/mcp"></div>
         </div>
-        <div style="margin-top:12px">
+        <div class="stack">
           <label>Commande de lancement (option — permet Start/Stop par le command center)</label>
-          <div class="row" style="margin-bottom:8px">
+          <div class="row row-gap">
             <div><input id="fHttpProgram" placeholder="ex. node ou uvx mcp-server-x"></div>
             <div><input id="fHttpWorkdir" placeholder="workdir (option)"></div>
           </div>
           <input id="fHttpArgs" placeholder="args (ex. dist/server.js --port 3099)">
         </div>
       </div>
-      <div id="stdioFields" style="display:none">
+      <div id="stdioFields" hidden>
         <div class="row">
           <div><label>Programme</label><input id="fProgram" placeholder="node"></div>
           <div><label>Workdir (option)</label><input id="fWorkdir" placeholder="C:\chemin\serveur"></div>
         </div>
-        <div style="margin-top:12px"><label>Args (s&eacute;par&eacute;s par espace)</label><input id="fArgs" placeholder="dist/index.js --port 3000"></div>
+        <div class="stack"><label>Args (s&eacute;par&eacute;s par espace)</label><input id="fArgs" placeholder="dist/index.js --port 3000"></div>
       </div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
+      <div class="row row-end">
         <button type="button" onclick="dlg.close()">Annuler</button>
         <button type="submit" class="primary">Ajouter &amp; sonder</button>
       </div>
@@ -456,7 +661,7 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
     <h2>&#128722; Boutique &mdash; serveurs MCP <span id="storeCount" class="store-count"></span></h2>
     <button class="close" onclick="storeDlg.close()">&times;</button>
   </div>
-  <div class="dlg-body" style="padding-top:12px">
+  <div class="dlg-body dlg-body-tight">
     <div class="store-bar">
       <input id="storeSearch" placeholder="Rechercher dans la boutique&hellip;" oninput="renderStoreItems()">
       <div id="storeCats" class="store-cats"></div>
@@ -482,88 +687,142 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
     </div>
     <div id="machineMsg" class="machine-msg"></div>
     <div id="machineList"></div>
-    <div style="margin-top:12px"><button onclick="doPeers();setTimeout(renderMachines,3000)">🔄 D&eacute;tecter les command centers sur le LAN</button></div>
+    <div class="stack"><button onclick="doPeers();setTimeout(renderMachines,3000)">🔄 D&eacute;tecter les command centers sur le LAN</button></div>
   </div>
 </dialog>
 
-<dialog id="settingsDlg">
+<dialog id="settingsDlg" class="settings-dlg">
   <div class="dlg-head">
-    <h2>&#9881; R&eacute;glages</h2>
-    <button class="close" onclick="settingsDlg.close()">&times;</button>
+    <div class="dlg-title">
+      <svg class="mark" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="3.1" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M12 2.6v3.2M12 18.2v3.2M2.6 12h3.2M18.2 12h3.2M5.3 5.3l2.3 2.3M16.4 16.4l2.3 2.3M18.7 5.3l-2.3 2.3M7.6 16.4l-2.3 2.3"
+          fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+      <div>
+        <h2>R&eacute;glages</h2>
+        <p>Pr&eacute;f&eacute;rences du client Console MCP</p>
+      </div>
+    </div>
+    <button class="close" onclick="settingsDlg.close()" title="Fermer">&times;</button>
   </div>
   <div class="dlg-body">
-    <div class="conf-block">
-      <div class="conf-head">Sondage</div>
-      <div class="machine-form">
-        <label>Intervalle de sondage (secondes, 5&ndash;3600)</label>
-        <input id="sRefresh" type="number" min="5" max="3600" step="5">
+    <section class="set-group">
+      <h3 class="set-group-title">G&eacute;n&eacute;ral</h3>
+      <div class="set-list">
+        <div class="set-row">
+          <div class="set-label"><span>Intervalle de sondage</span>
+            <em>D&eacute;lai entre deux cycles de sonde. Appliqu&eacute; au cycle suivant.</em></div>
+          <div class="set-ctrl"><input id="sRefresh" type="number" min="5" max="3600" step="5" class="set-num">
+            <span class="set-unit">secondes</span></div>
+        </div>
+        <div class="set-row">
+          <div class="set-label"><span>Th&egrave;me</span>
+            <em>Apparence de l'interface. Conserv&eacute; sur ce poste.</em></div>
+          <div class="set-ctrl seg" role="group" aria-label="Th&egrave;me">
+            <button id="tDark" class="seg-btn" onclick="applyTheme('dark')" title="Th&egrave;me sombre (d&eacute;faut)">Sombre</button>
+            <button id="tLight" class="seg-btn" onclick="applyTheme('light')" title="Th&egrave;me clair">Clair</button>
+          </div>
+        </div>
       </div>
-      <div class="conf-note">Appliqu&eacute; d&egrave;s le prochain cycle &mdash; inutile de red&eacute;marrer.</div>
-    </div>
-    <div class="conf-block">
-      <div class="conf-head">Scan de ports</div>
-      <div class="machine-form">
-        <label>De</label><input id="sScanFrom" type="number" min="1" max="65535">
-        <label>&agrave;</label><input id="sScanTo" type="number" min="1" max="65535">
+    </section>
+
+    <section class="set-group">
+      <h3 class="set-group-title">D&eacute;couverte</h3>
+      <div class="set-list">
+        <div class="set-row">
+          <div class="set-label"><span>Plage de scan de ports</span>
+            <em>Ports balay&eacute;s par &laquo; Scan ports &raquo;. La d&eacute;couverte native litemcp n'en d&eacute;pend pas.</em></div>
+          <div class="set-ctrl"><input id="sScanFrom" type="number" min="1" max="65535" class="set-num">
+            <span class="set-dash">&ndash;</span>
+            <input id="sScanTo" type="number" min="1" max="65535" class="set-num"></div>
+        </div>
+        <div class="set-row">
+          <div class="set-label"><span>Pairs &amp; r&eacute;seau</span>
+            <em>D&eacute;tecte les autres Command Center du LAN et leurs serveurs distants.</em></div>
+          <div class="set-ctrl">
+            <label class="switch"><input type="checkbox" id="sNetEnabled"><span class="switch-track"></span></label>
+          </div>
+        </div>
+        <div class="set-row">
+          <div class="set-label"><span>Ports UI des pairs</span>
+            <em>Ports interrog&eacute;s chez les pairs pour les rep&eacute;rer.</em></div>
+          <div class="set-ctrl"><input id="sNetPorts" placeholder="5090, 5091" class="set-txt"></div>
+        </div>
       </div>
-      <div class="conf-note">Plage sond&eacute;e par &laquo; Scan ports &raquo;. La d&eacute;couverte native litemcp n&rsquo;en d&eacute;pend pas.</div>
-    </div>
-    <div class="conf-block">
-      <div class="conf-head">R&eacute;seau &amp; pairs</div>
-      <label style="display:flex;gap:8px;align-items:center;font:12px var(--sans);color:var(--t2);margin:6px 0">
-        <input type="checkbox" id="sNetEnabled"> D&eacute;tection des pairs command center + scan r&eacute;seau
-      </label>
-      <div class="machine-form">
-        <label>Ports UI &agrave; sonder chez les pairs</label>
-        <input id="sNetPorts" placeholder="5090, 5091">
+    </section>
+
+    <section class="set-group">
+      <h3 class="set-group-title">Interface</h3>
+      <div class="set-list">
+        <div class="set-row">
+          <div class="set-label"><span>&Eacute;coute</span>
+            <em>127.0.0.1 = cette machine seule. 0.0.0.0 = accessible du LAN (code d'acc&egrave;s exig&eacute;).
+            Appliqu&eacute; au prochain d&eacute;marrage.</em></div>
+          <div class="set-ctrl">
+            <select id="sUiBind">
+              <option value="127.0.0.1">127.0.0.1</option>
+              <option value="0.0.0.0">0.0.0.0</option>
+            </select>
+          </div>
+        </div>
+        <div class="set-row">
+          <div class="set-label"><span>Port</span>
+            <em>Fig&eacute; au d&eacute;marrage du listener &mdash; modifiable dans config.json.</em></div>
+          <div class="set-ctrl"><input id="sUiPort" type="number" disabled class="set-num"></div>
+        </div>
       </div>
-    </div>
-    <div class="conf-block">
-      <div class="conf-head">Interface (appliqu&eacute; au prochain d&eacute;marrage)</div>
-      <div class="machine-form">
-        <label>Bind UI</label>
-        <select id="sUiBind" style="flex:1;min-width:170px;background:var(--sidebar);border:1px solid var(--border-soft);border-radius:8px;color:var(--t1);padding:6px 9px;font:12px var(--mono)">
-          <option value="127.0.0.1">127.0.0.1 &mdash; local seulement</option>
-          <option value="0.0.0.0">0.0.0.0 &mdash; accessible du LAN (code d&rsquo;acc&egrave;s exig&eacute;)</option>
-        </select>
-        <label>Port UI</label><input id="sUiPort" type="number" disabled
-          title="Le port est fig&eacute; au d&eacute;marrage (listener) &mdash; modifiable dans config.json">
+    </section>
+
+    <section class="set-group">
+      <h3 class="set-group-title">Mises &agrave; jour</h3>
+      <div class="set-list">
+        <div class="set-row">
+          <div class="set-label"><span>Version install&eacute;e</span>
+            <em>Release GitHub du repo DeamonDev888/mcp-command-center.</em></div>
+          <div class="set-ctrl"><span class="set-static" id="sVersion">v&ndash;</span></div>
+        </div>
+        <div class="set-row">
+          <div class="set-label"><span>Derni&egrave;re release</span>
+            <em id="updMsg">&nbsp;</em></div>
+          <div class="set-ctrl">
+            <span class="set-static" id="sLatest">&ndash;</span>
+            <button onclick="checkUpdateNow()" title="Interroge l'API GitHub releases/latest maintenant">&#8635; V&eacute;rifier</button>
+            <button class="primary" onclick="openUpdate()" title="Ouvre la page de la derni&egrave;re release">&#11014; Mettre &agrave; jour</button>
+          </div>
+        </div>
       </div>
-    </div>
-    <div class="conf-block">
-      <div class="conf-head">Th&egrave;me</div>
-      <div style="display:flex;gap:8px">
-        <button id="tDark" class="sel" onclick="applyTheme('dark')" title="Th&egrave;me sombre (d&eacute;faut)">&#9899; Sombre</button>
-        <button id="tLight" onclick="applyTheme('light')" title="Th&egrave;me clair">&#9898; Clair</button>
+    </section>
+
+    <section class="set-group set-group-danger">
+      <h3 class="set-group-title">R&eacute;initialiser</h3>
+      <div class="set-list">
+        <div class="set-row">
+          <div class="set-label"><span>Remettre &agrave; z&eacute;ro</span>
+            <em>Placement des serveurs, d&eacute;tections import&eacute;es et oublis. Irr&eacute;versible.</em></div>
+          <div class="set-ctrl">
+            <select id="sResetWhat">
+              <option value="placement">Placement des serveurs</option>
+              <option value="detection">D&eacute;tections &amp; importations</option>
+              <option value="oublis">Oublis (seeds + machines)</option>
+              <option value="tout">Tout</option>
+            </select>
+            <button class="danger" onclick="resetState(document.getElementById('sResetWhat').value)">R&eacute;initialiser</button>
+          </div>
+        </div>
+        <div class="set-row" id="resetMsgRow" hidden>
+          <div class="set-ctrl set-ctrl-wide"><span id="resetMsg" class="set-note"></span></div>
+        </div>
       </div>
-    </div>
-    <div class="conf-block">
-      <div class="conf-head">Mises &agrave; jour (release GitHub du repo)</div>
-      <div class="machine-form">
-        <label>Install&eacute;e</label><input id="sVersion" disabled>
-        <label>Derni&egrave;re release</label><input id="sLatest" disabled>
-        <button onclick="checkUpdateNow()" title="Interroge l&rsquo;API GitHub releases/latest maintenant">&#8635; V&eacute;rifier</button>
-        <button class="primary" onclick="openUpdate()" title="Ouvre la page de la derni&egrave;re release du repo">&#11014; Mettre &agrave; jour</button>
-      </div>
-      <div id="updMsg" class="machine-msg"></div>
-    </div>
-    <div class="conf-block">
-      <div class="conf-head">R&eacute;initialiser</div>
-      <div class="machine-form">
-        <select id="sResetWhat" style="flex:1;min-width:170px;background:var(--sidebar);border:1px solid var(--border-soft);border-radius:8px;color:var(--t1);padding:6px 9px;font:12px var(--mono)">
-          <option value="placement">Placement des serveurs (ordre)</option>
-          <option value="detection">D&eacute;tection &amp; importations (d&eacute;couverts, litemcp, pairs)</option>
-          <option value="oublis">Oublis (seeds retir&eacute;s + machines SSH)</option>
-          <option value="tout">Tout r&eacute;initialiser</option>
-        </select>
-        <button class="danger" onclick="resetState(document.getElementById('sResetWhat').value)">&#128465; R&eacute;initialiser</button>
-      </div>
-      <div id="resetMsg" class="machine-msg"></div>
-    </div>
+    </section>
+
     <div id="settingsMsg" class="machine-msg"></div>
-    <div style="margin-top:12px;display:flex;gap:8px">
-      <button class="primary" onclick="saveSettings()">&#128190; Enregistrer</button>
+  </div>
+  <div class="dlg-foot">
+    <span class="dlg-foot-note" id="settingsFootNote"></span>
+    <div class="row">
       <button onclick="settingsDlg.close()">Annuler</button>
+      <button class="primary" onclick="saveSettings()">Enregistrer</button>
     </div>
   </div>
 </dialog>
@@ -580,7 +839,7 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
       <label>Code d'acc&egrave;s</label>
       <input id="loginCode" type="password" autocomplete="off" placeholder="code d'acc&egrave;s">
       <div id="loginMsg" class="machine-msg"></div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+      <div class="row row-between">
         <button type="button" onclick="forgetCode()" title="Supprime le code enregistr&eacute; dans ce navigateur">Oublier le code enregistr&eacute;</button>
         <button type="submit" class="primary">D&eacute;verrouiller</button>
       </div>
@@ -604,10 +863,11 @@ const MCC_VERSION = '__MCC_VERSION__';
 function applyTheme(t) {
   document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark';
   try { localStorage.setItem('mcc.theme', document.documentElement.dataset.theme); } catch (e) {}
+  const light = document.documentElement.dataset.theme === 'light';
   const dk = document.getElementById('tDark');
   const lt = document.getElementById('tLight');
-  if (dk) dk.classList.toggle('sel', document.documentElement.dataset.theme !== 'light');
-  if (lt) lt.classList.toggle('sel', document.documentElement.dataset.theme === 'light');
+  if (dk) dk.classList.toggle('sel', !light);
+  if (lt) lt.classList.toggle('sel', light);
 }
 const _mccFetch = window.fetch.bind(window);
 window.fetch = async (url, opts = {}) => {
@@ -710,11 +970,11 @@ function render() {
   }
   const upd = document.getElementById('stUpdate');
   if (state.update_available && state.latest_version) {
-    upd.style.display = '';
+    upd.hidden = false;
     upd.textContent = '⬆ v' + state.latest_version + ' dispo';
     upd.title = 'Nouvelle version ' + state.latest_version + ' publiée sur GitHub (installée : v' + MCC_VERSION + ') — github.com/DeamonDev888/mcp-command-center/releases';
     upd.onclick = () => window.open('https://github.com/DeamonDev888/mcp-command-center/releases/latest', '_blank', 'noopener,noreferrer');
-  } else upd.style.display = 'none';
+  } else upd.hidden = true;
   renderServers();
   renderPeers();
   renderLog();
@@ -797,7 +1057,7 @@ function renderServers() {
   groupsBox.innerHTML = keys.map(k => {
     const rows = byKey[k] || [];
     const body = rows.length ? rows.map(srvRow).join('')
-      : '<div class="empty-sec" style="padding:2px 16px 8px 26px">aucun serveur import&eacute; de cette machine</div>';
+      : '<div class="empty-sec empty-indent">aucun serveur import&eacute; de cette machine</div>';
     return groupHeadHtml(k, k, upOf(rows), rows.length, true)
       + `<div class="grpbody mbody ${groupClosed(k)?'closed':''}">${body}</div>`;
   }).join('');
@@ -1084,7 +1344,7 @@ function renderOverview() {
         <button onclick="doScanNet()">&#127760; Scanner le r&eacute;seau</button>
         <button onclick="openMachineDlg()">🖥️ Choisir une machine</button>
       </div>
-      <div class="hint" style="margin-top:16px">Le scan utilise la plage configur&eacute;e. Pour une machine du LAN : connexion SSH par cl&eacute;,
+      <div class="hint hint-gap">Le scan utilise la plage configur&eacute;e. Pour une machine du LAN : connexion SSH par cl&eacute;,
       l'app liste ses ports en &eacute;coute, y sonde les serveurs MCP et les importe ici.</div>
     </div>`;
 }
@@ -1194,12 +1454,12 @@ function renderDetail() {
      </div>`).join('');
   const nOn = (s.tools_list || []).filter(t => !t.disabled).length;
   const nTot = (s.tools_list || []).length;
-  const toolsHtml = `<h4 class="sec">Tools &mdash; ${nOn} actif(s) / ${nTot}${nTot - nOn ? ` (${nTot - nOn} OFF)` : ''}</h4>
-    ${tools || '<div style="color:var(--t4);font-size:12px">aucun tool list&eacute;</div>'}`;
+  const toolsHtml = `<h4 class="sec">Outils &mdash; ${nOn} actif${nOn > 1 ? 's' : ''} sur ${nTot}${nTot - nOn ? ` (${nTot - nOn} d&eacute;sactiv&eacute;${nTot - nOn > 1 ? 's' : ''})` : ''}</h4>
+    ${tools || '<div class="empty-note">aucun tool list&eacute;</div>'}`;
   document.getElementById('content').innerHTML = `
     <div class="crumb">serveurs / <b>${esc(s.label)}</b></div>
     <div class="d-head">
-      <span class="dot ${esc(dispState)}" style="width:10px;height:10px"></span>
+      <span class="dot dot-lg ${esc(dispState)}"></span>
       <h1>${esc(s.label)}</h1>
       <span class="pill ${esc(dispState)}" ${starting ? 'title="Process lanc&eacute;, MCP pas encore r&eacute;pondu"' : ''}>${starting ? 'AU D&Eacute;MARRAGE' : esc(s.state)}</span>
       ${langChip(s)}
@@ -1240,9 +1500,9 @@ function select(id) { selectedId = id; detailCache = null; detailTab = 'outils';
 function startCmdForm(s) {
   if (s.can_start || s.transport === 'stdio') return '';
   const host = s.transport_info && s.transport_info.host;
-  if (host) return '<div class="conf-note" style="margin-top:10px">Serveur distant : la commande de lancement appartient &agrave; sa machine (' + esc(host) + '), pas au command center.</div>';
+  if (host) return '<div class="conf-note note-gap">Serveur distant : la commande de lancement appartient &agrave; sa machine (' + esc(host) + '), pas au command center.</div>';
   const port = (s.transport_info || {}).port || 0;
-  return `<div class="startcmd-form" style="margin-top:10px">
+  return `<div class="startcmd-form note-gap">
     <div class="conf-note">Aucune commande de lancement connue : c'est pourquoi les boutons <b>&#9654;/&#9632;</b> et <b>&#9889;</b> sont absents. Indique comment lancer ce serveur :</div>
     <div class="machine-form">
       <input id="scProgram" placeholder="programme (node, python, C:\\chemin\\serveur.exe)">
@@ -1531,12 +1791,18 @@ function openSettingsDlg() {
   document.getElementById('sNetPorts').value = (s.network_ports || []).join(', ');
   document.getElementById('sUiBind').value = s.ui_bind || '127.0.0.1';
   document.getElementById('sUiPort').value = s.ui_port || 5090;
-  document.getElementById('sVersion').value = 'v' + MCC_VERSION;
-  document.getElementById('sLatest').value = state.latest_version ? 'v' + state.latest_version : '—';
-  document.getElementById('updMsg').textContent = state.update_available ? '⬆ une mise à jour est disponible' : '';
-  document.getElementById('updMsg').style.color = state.update_available ? 'var(--warn)' : '';
+  // sVersion/sLatest sont des <span> (affichage), pas des champs éditables
+  document.getElementById('sVersion').textContent = 'v' + MCC_VERSION;
+  document.getElementById('sLatest').textContent = state.latest_version ? 'v' + state.latest_version : '—';
+  const upd = document.getElementById('updMsg');
+  upd.textContent = state.update_available ? '⬆ v' + state.latest_version + ' disponible' : 'Aucune mise à jour détectée.';
+  upd.style.color = state.update_available ? 'var(--warn)' : '';
   document.getElementById('resetMsg').textContent = '';
+  const row = document.getElementById('resetMsgRow');
+  if (row) row.hidden = true;
   document.getElementById('settingsMsg').textContent = '';
+  const foot = document.getElementById('settingsFootNote');
+  if (foot) foot.textContent = 'Les réglages sont enregistrés dans config.json.';
   applyTheme(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
   document.getElementById('settingsDlg').showModal();
 }
@@ -1548,11 +1814,11 @@ async function checkUpdateNow() {
     body: JSON.stringify({action: 'check_update'})});
   const j = await r.json();
   if (j.ok && j.update_available) {
-    document.getElementById('sLatest').value = 'v' + j.latest;
+    document.getElementById('sLatest').textContent = 'v' + j.latest;
     msg.textContent = '⬆ v' + j.latest + ' disponible (installée : v' + j.current + ')';
     msg.style.color = 'var(--warn)';
   } else if (j.ok) {
-    document.getElementById('sLatest').value = j.latest ? 'v' + j.latest : '—';
+    document.getElementById('sLatest').textContent = j.latest ? 'v' + j.latest : '—';
     msg.textContent = '✓ à jour — dernière release : v' + (j.latest || j.current);
     msg.style.color = 'var(--ok)';
   } else {
@@ -1567,6 +1833,8 @@ async function resetState(what) {
   const label = sel.options[sel.selectedIndex].text;
   if (!confirm('Réinitialiser « ' + label + ' » ? Action irréversible.')) return;
   const msg = document.getElementById('resetMsg');
+  const row = document.getElementById('resetMsgRow');
+  if (row) row.hidden = false;
   msg.textContent = '⏳ réinitialisation…';
   const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action: 'reset_state', what})});
@@ -1576,7 +1844,6 @@ async function resetState(what) {
     const det = (j.reinjected ? ' · ' + j.reinjected + ' seed(s) réinjecté(s)' : '') + (j.removed ? ' · ' + j.removed + ' serveur(s) retiré(s)' : '');
     msg.textContent = '✓ Réinitialisé (' + (j.cleared || []).join(', ') + ')' + det;
     await load();
-    openSettingsDlg();
   }
 }
 async function saveSettings() {
@@ -1684,7 +1951,7 @@ function toggleAdd() { document.getElementById('dlg').showModal(); }
 function transportChanged() {
   const stdio = document.getElementById('fTransport').value === 'stdio';
   document.getElementById('httpFields').style.display = stdio ? 'none' : '';
-  document.getElementById('stdioFields').style.display = stdio ? '' : 'none';
+  document.getElementById('stdioFields').hidden = !stdio;
 }
 
 async function addServer(ev) {
