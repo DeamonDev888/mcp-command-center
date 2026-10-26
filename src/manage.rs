@@ -2523,6 +2523,41 @@ pub fn scan_network(state: &Arc<AppState>, range: Option<(u16, u16)>) {
             found
         ),
     );
+    prune_dead_network_servers(state);
+}
+
+/// NETTOYAGE : après un scan complet, un serveur réseau découvert dont la
+/// machine n'a pas répondu pendant CE scan est un fantôme (hôte éteint, IP
+/// recyclée). On ne supprime que ce qui est **découvert via le réseau**
+/// (`net-<ip>.<port>`) — jamais un serveur manuel, seed ou importé d'un pair
+/// (une machine éteinte ne doit pas effacer sa configuration).
+///
+/// Le scan marque les entrées qu'il a vues (`last_seen_ts` rafraîchi) : le
+/// prune retire celles qui n'ont pas été rafraîchies pendant le scan.
+fn prune_dead_network_servers(state: &Arc<AppState>) {
+    // fenêtre du scan : on ne purge que ce qui n'a pas été vu depuis 2 min
+    let horizon = crate::types::now_ts() - 120;
+    let mut servers = lockv(&state.servers);
+    let before = servers.len();
+    servers.retain(|s| {
+        let is_net = s.id.starts_with("net-")
+            && matches!(&s.transport, Transport::Http { host: Some(_), .. });
+        if !is_net {
+            return true;
+        }
+        // entrée réseau : gardée si elle a été vue récemment (le scan ou le
+        // poll l'a sondée) ; sinon c'est un fantôme de machine disparue
+        matches!(s.last_seen_ts, Some(ts) if ts > horizon)
+    });
+    let removed = before - servers.len();
+    drop(servers);
+    if removed > 0 {
+        add_log(
+            state,
+            "info",
+            &format!("[réseau] {} entrée(s) fantôme(s) retirée(s)", removed),
+        );
+    }
 }
 
 /// Toutes les IPv4 locales (toutes interfaces), dédupliquées.
@@ -2638,12 +2673,67 @@ pub fn scan_network_range(
                     found.fetch_add(1, Ordering::Relaxed);
                     let label = p.name.clone().unwrap_or_else(|| format!("{}:{}", ip, port));
                     let mut servers = lockv(&state.servers);
+                    // DÉ-DUPLICATION : un serveur déjà connu (même hôte+port) est
+                    // ignoré ; un serveur qui a CHANGÉ DE PORT (même nom, même
+                    // hôte) remplace l'entrée fantôme au lieu de créer un doublon.
+                    let known: Vec<(Option<String>, Option<String>, u16)> = servers
+                        .iter()
+                        .filter_map(|s| match &s.transport {
+                            Transport::Http { host, port, .. } => {
+                                Some((s.server_name.clone(), host.clone(), *port))
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    let decision = crate::validate::dedup_decide(
+                        &known,
+                        p.name.as_deref(),
+                        Some(ip.as_str()),
+                        *port,
+                    );
+                    let target_id = match decision {
+                        crate::validate::DedupDecision::Duplicate => {
+                            // déjà connu : on met à jour ses métadonnées (framework,
+                            // tools) sans créer d'entrée
+                            if let Some(s) = servers.iter_mut().find(|s| {
+                                matches!(&s.transport,
+                                    Transport::Http { host: Some(h), port: sp, .. } if h == &ip && sp == port)
+                            }) {
+                                s.server_name = p.name.clone();
+                                s.version = p.version.clone();
+                                s.framework = p.framework.clone();
+                                s.lang = p.lang.clone();
+                                s.tools = p.tools;
+                                s.latency_ms = Some(p.latency_ms);
+                                s.last_seen_ts = Some(crate::types::now_ts());
+                            }
+                            drop(servers);
+                            continue;
+                        }
+                        crate::validate::DedupDecision::Replace(idx) => {
+                            // l'ancien port est fantôme : on le remplace
+                            let old = servers.remove(idx);
+                            let id = old.id;
+                            add_log(
+                                &state,
+                                "info",
+                                &format!(
+                                    "[réseau] {} a changé de port ({} → {}) — entrée fantôme remplacée",
+                                    label,
+                                    known.get(idx).map(|(_, _, p)| *p).unwrap_or(0),
+                                    port
+                                ),
+                            );
+                            id
+                        }
+                        crate::validate::DedupDecision::Add => format!("net-{}.{}", ip, port),
+                    };
                     if !servers.iter().any(|s| {
                         matches!(&s.transport,
                         Transport::Http { host: Some(h), port: sp, .. } if h == &ip && sp == port)
                     }) {
                         servers.push(Server {
-                            id: format!("net-{}.{}", ip, port),
+                            id: target_id,
                             label,
                             transport: Transport::Http {
                                 host: Some(ip.clone()),

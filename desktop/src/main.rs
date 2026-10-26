@@ -42,7 +42,7 @@ fn main() {
                 "main",
                 tauri::WebviewUrl::External(ui_url.parse().expect("URL UI invalide")),
             )
-            .title("MCP Command Center")
+            .title("Console MCP")
             .inner_size(1320.0, 880.0)
             .min_inner_size(940.0, 620.0)
             // Barre de titre native supprimée : le header sombre de l'UI sert de
@@ -81,7 +81,7 @@ fn main() {
                         .expect("icône embarquée manquante")
                         .clone(),
                 )
-                .tooltip("MCP Command Center — gestionnaire de serveurs MCP")
+                .tooltip("Console MCP — gestionnaire de serveurs MCP")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, ev| match ev.id.as_ref() {

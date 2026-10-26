@@ -8,6 +8,7 @@ pub mod store_github;
 pub mod store_glama;
 pub mod types;
 pub mod ui;
+pub mod validate;
 
 use crate::types::{lockv, AppState};
 use std::io::{Read, Write};

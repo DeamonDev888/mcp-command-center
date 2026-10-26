@@ -1481,6 +1481,19 @@ pub fn rpc_call(
     if let Some(err) = v.get("error") {
         return Err(format!("rpc error: {}", err));
     }
+    // Même validation stricte que le chemin par hôte : un port local qui
+    // n'est pas un serveur MCP doit être rejeté (faux positifs du scan local).
+    if method == "initialize" {
+        match crate::validate::validate_initialize(&v) {
+            crate::validate::McpValid::Valid { .. } => {}
+            crate::validate::McpValid::NotMcp => {
+                return Err("initialize sans serverInfo : ce port ne parle pas MCP".to_string())
+            }
+            crate::validate::McpValid::NotJsonRpc => {
+                return Err("réponse non JSON-RPC : ce port ne parle pas MCP".to_string())
+            }
+        }
+    }
     Ok((v.get("result").cloned().unwrap_or(Value::Null), host, head))
 }
 
@@ -1989,6 +2002,22 @@ pub fn rpc_call_host_headers(
         extract_json(&bytes).ok_or_else(|| format!("réponse non JSON ({} octets)", bytes.len()))?;
     if let Some(err) = v.get("error") {
         return Err(format!("rpc error: {}", err));
+    }
+    // VALIDATION STRICTE sur `initialize` : c'est LA preuve qu'un port ouvert
+    // parle MCP. Un port qui répond autre chose (API REST, page HTML, 200
+    // vide) est rejeté ici — sinon le scan réseau invente des serveurs.
+    // Les autres méthodes (tools/list, notifications…) ne sont PAS validées :
+    // elles n'ont pas serverInfo par nature.
+    if method == "initialize" {
+        match crate::validate::validate_initialize(&v) {
+            crate::validate::McpValid::Valid { .. } => {}
+            crate::validate::McpValid::NotMcp => {
+                return Err("initialize sans serverInfo : ce port ne parle pas MCP".to_string())
+            }
+            crate::validate::McpValid::NotJsonRpc => {
+                return Err("réponse non JSON-RPC : ce port ne parle pas MCP".to_string())
+            }
+        }
     }
     Ok((v.get("result").cloned().unwrap_or(Value::Null), head))
 }
