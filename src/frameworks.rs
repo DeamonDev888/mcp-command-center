@@ -91,6 +91,11 @@ pub const FRAMEWORKS: &[Framework] = &[
             "@modelcontextprotocol/sdk",
             "modelcontextprotocol/sdk",
             "typescript-sdk",
+            // Les serveurs de référence npm (@modelcontextprotocol/server-*) sont
+            // écrits avec ce SDK : sans ce mot-clé, un serveur stdio lancé par
+            // `npx @modelcontextprotocol/server-everything` n'avait AUCUN badge.
+            // Bornes de mot : "…/server" ne matche pas "…/sdk".
+            "@modelcontextprotocol/server",
         ],
     },
     Framework {
@@ -475,14 +480,21 @@ mod tests {
     fn pas_de_faux_positifs_sur_les_paquets_officiels() {
         // Les serveurs npm officiels s'appellent @modelcontextprotocol/server-*
         // → ils ne doivent PAS être pris pour le SDK C#.
+        // Un serveur npm officiel n'est PAS le SDK C#… mais il EST écrit avec le
+        // SDK TypeScript : il doit porter le badge « MCP SDK », pas « MCP C# SDK ».
         assert_eq!(
             detect_by_name("@modelcontextprotocol/server-everything").map(|f| f.id),
-            None,
-            "un serveur npm officiel n'est pas le SDK C#"
+            Some("mcp-ts-sdk"),
+            "serveur npm officiel → SDK TypeScript, jamais C#"
         );
         assert_eq!(
             detect_by_name("@modelcontextprotocol/server-filesystem").map(|f| f.id),
-            None
+            Some("mcp-ts-sdk")
+        );
+        // et le vrai paquet du SDK .NET reste bien reconnu
+        assert_eq!(
+            detect_by_name("modelcontextprotocol/csharp-sdk").map(|f| f.lang),
+            Some("dotnet")
         );
         // « mcporter » contient « mcpo » : ne doit pas être pris pour mcpo
         assert_eq!(detect_by_name("mcporter").map(|f| f.id), None);
