@@ -1,6 +1,6 @@
 <!doctype html>
 <html>
-<head><meta charset="utf-8"><title>MCP Command Center</title></head>
+<head><meta charset="utf-8"><title>MCP Control</title></head>
 <body>Le moteur démarre…</body>
 <script>
 /* Page de repli (frontendDist Tauri). Le core glisse du port 5090 jusqu'à +9 si occupé :
@@ -12,7 +12,7 @@
       if (r.ok) { location.replace('http://127.0.0.1:' + p + '/'); return; }
     } catch (e) { /* port suivant */ }
   }
-  document.body.textContent = 'MCP Command Center introuvable sur les ports 5090-5099.';
+  document.body.textContent = 'MCP Control introuvable sur les ports 5090-5099.';
 })();
 </script>
 </html>

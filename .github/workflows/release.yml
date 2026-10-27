@@ -22,16 +22,16 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact: mcp-command-center-linux-x86_64
+            artifact: mcp-control-linux-x86_64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact: mcp-command-center-windows-x86_64
+            artifact: mcp-control-windows-x86_64
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact: mcp-command-center-macos-aarch64
+            artifact: mcp-control-macos-aarch64
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact: mcp-command-center-macos-x86_64
+            artifact: mcp-control-macos-x86_64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (épinglé SHA — supply-chain)
@@ -46,13 +46,13 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Tests
-        run: cargo test --release -p mcp-command-center
+        run: cargo test --release -p mcp-control
 
       - name: Clippy (strict, tous les targets)
-        run: cargo clippy --release -p mcp-command-center --all-targets -- -D warnings
+        run: cargo clippy --release -p mcp-control --all-targets -- -D warnings
 
       - name: Build
-        run: cargo build --release -p mcp-command-center --target ${{ matrix.target }}
+        run: cargo build --release -p mcp-control --target ${{ matrix.target }}
 
       - name: Collecter le binaire
         shell: bash
@@ -62,7 +62,7 @@ jobs:
             *windows*) EXT=".exe" ;;
           esac
           FILE="${{ matrix.artifact }}${EXT}"
-          cp "target/${{ matrix.target }}/release/mcp-command-center${EXT}" "$FILE"
+          cp "target/${{ matrix.target }}/release/mcp-control${EXT}" "$FILE"
           echo "FILE=$FILE" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4 (épinglé SHA)
@@ -79,16 +79,16 @@ jobs:
         include:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact: mcp-command-center-desktop-windows-x86_64
+            artifact: mcp-control-desktop-windows-x86_64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact: mcp-command-center-desktop-linux-x86_64
+            artifact: mcp-control-desktop-linux-x86_64
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact: mcp-command-center-desktop-macos-aarch64
+            artifact: mcp-control-desktop-macos-aarch64
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact: mcp-command-center-desktop-macos-x86_64
+            artifact: mcp-control-desktop-macos-x86_64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (épinglé SHA)
@@ -112,7 +112,7 @@ jobs:
           key: desktop-${{ matrix.target }}
 
       - name: Build (Tauri / webview système)
-        run: cargo build --release -p mcp-command-center-desktop --target ${{ matrix.target }}
+        run: cargo build --release -p mcp-control-desktop --target ${{ matrix.target }}
 
       # Installateur Windows (wizard NSIS : langue, dossier, raccourcis).
       # `tauri build` réutilise le binaire déjà compilé et n'ajoute que le bundle.
@@ -134,7 +134,7 @@ jobs:
             *windows*) EXT=".exe" ;;
           esac
           FILE="${{ matrix.artifact }}${EXT}"
-          cp "target/${{ matrix.target }}/release/mcp-command-center-desktop${EXT}" "$FILE"
+          cp "target/${{ matrix.target }}/release/mcp-control-desktop${EXT}" "$FILE"
           echo "FILE=$FILE" >> "$GITHUB_ENV"
           # installateur wizard NSIS (Windows uniquement)
           SETUP=$(ls "target/${{ matrix.target }}/release/bundle/nsis/"*-setup.exe 2>/dev/null | head -1 || true)

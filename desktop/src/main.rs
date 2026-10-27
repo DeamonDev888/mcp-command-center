@@ -22,7 +22,7 @@ fn main() {
     // ci-dessous réaffiche la fenêtre existante si le desktop est relancé ;
     // (2) run_headless se RECONNECTE à un moteur déjà en cours (headless ou
     // desktop) au lieu d'en lancer un second — un seul processus supervise.
-    let ui_url = mcp_command_center::run_headless().url;
+    let ui_url = mcp_control::run_headless().url;
     // lancé au boot de Windows (entrée autostart) → pas de fenêtre, tray seulement
     let hidden = std::env::args().any(|a| a == "--hidden");
 
@@ -42,7 +42,7 @@ fn main() {
                 "main",
                 tauri::WebviewUrl::External(ui_url.parse().expect("URL UI invalide")),
             )
-            .title("Console MCP")
+            .title("MCP Control")
             .inner_size(1320.0, 880.0)
             .min_inner_size(940.0, 620.0)
             // Barre de titre native supprimée : le header sombre de l'UI sert de
@@ -81,7 +81,7 @@ fn main() {
                         .expect("icône embarquée manquante")
                         .clone(),
                 )
-                .tooltip("Console MCP — gestionnaire de serveurs MCP")
+                .tooltip("MCP Control — gestionnaire de serveurs MCP")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, ev| match ev.id.as_ref() {

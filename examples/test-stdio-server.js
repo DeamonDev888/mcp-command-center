@@ -1,4 +1,4 @@
-// Fixture stdio MCP pour tester mcp-command-center (JSON-RPC par lignes, zéro dépendance).
+// Fixture stdio MCP pour tester mcp-control (JSON-RPC par lignes, zéro dépendance).
 // Usage : node examples/test-stdio-server.js
 const readline = require('readline');
 const rl = readline.createInterface({ input: process.stdin });

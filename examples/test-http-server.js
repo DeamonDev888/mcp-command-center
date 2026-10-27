@@ -1,4 +1,4 @@
-// Fixture HTTP MCP pour tester la découverte par scan de mcp-command-center.
+// Fixture HTTP MCP pour tester la découverte par scan de mcp-control.
 // FastMCP-like : bind IPv6 [::1], POST /mcp, réponse chunked (teste le dechunker du client).
 // Usage : node examples/test-http-server.js [port]
 const port = parseInt(process.argv[2] || '3166', 10);

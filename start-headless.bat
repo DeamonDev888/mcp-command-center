@@ -1,8 +1,8 @@
 @echo off
-title MCP Command Center (headless)
+title MCP Control (headless)
 cd /d "%~dp0"
-if not exist "target\release\mcp-command-center.exe" (
+if not exist "target\release\mcp-control.exe" (
   echo [build] compilation release...
-  cargo build --release -p mcp-command-center
+  cargo build --release -p mcp-control
 )
-target\release\mcp-command-center.exe
+target\release\mcp-control.exe

@@ -1,4 +1,4 @@
-# MCP Command Center
+# MCP Control
 
 Une petite application qui **veille sur tes serveurs MCP** : elle les trouve toute seule, te dit lequel marche et lequel est cassé, et te laisse tout allumer ou éteindre d'un clic.
 
@@ -12,29 +12,124 @@ Une petite application qui **veille sur tes serveurs MCP** : elle les trouve tou
 
 ## Installer
 
-Télécharge **`mcp-command-center-desktop-windows-x86_64-setup.exe`** depuis la
-[dernière release](https://github.com/DeamonDev888/mcp-command-center/releases/latest)
+Télécharge **`mcp-control-desktop-windows-x86_64-setup.exe`** depuis la
+[dernière release](https://github.com/DeamonDev888/mcp-control/releases/latest)
 et lance-le : un assistant t'accompagne (langue, dossier d'installation, dossier
 du menu Démarrer, raccourci bureau). Aucun droit administrateur n'est demandé.
 
 Tu peux aussi utiliser le `.exe` portable, sans installation, ou
-`start-command-center.bat` si tu as le dépôt.
+`start-mcp-control.bat` si tu as le dépôt.
 
 ## Démarrer
 
 1. Ouvre l'app (raccourci du bureau ou du menu Démarrer).
 2. La fenêtre s'ouvre. **C'est tout** — la liste se remplit toute seule.
 
-## Lire l'écran
+## Lire l'écran : les 4 états, ce qu'ils veulent dire
 
-| Tu vois | Ça veut dire |
-|---|---|
-| 🟢 **UP** | Le serveur marche |
-| 🟠 **PORT-ONLY** | Le serveur est planté (le port répond, mais pas le serveur) |
-| ⚪ **DOWN** | Le serveur est éteint |
-| ⚫ **DISABLED** | Tu l'as désactivé toi-même |
+L'app ne se contente pas de dire « ça marche / ça marche pas ». Chaque serveur
+a un **état fin**, et l'état dit *pourquoi* il est dans cet état.
 
-Les petits badges à côté du nom (`FastMCP`, `LiteMCP`, `rmcp`, `mcp-go`, `Spring AI`…) indiquent **avec quoi le serveur est construit** — 37 frameworks reconnus, du Python au PHP, avec leur langage. Le badge `STDIO` / `HTTP` / `WS` indique le transport.
+### 🟢 UP — le serveur répond vraiment
+
+Le handshake MCP complet a réussi : `initialize` puis `tools/list` ont reçu des
+réponses valides, et l'app connaît **le nombre d'outils** du serveur.
+
+*Exemple concret* — un serveur LiteMCP sur le port 8787 :
+
+```
+moltbook          [RS] [HTTP] [LiteMCP]        UP  127.0.0.1:8787 · 27 tools · 1 ms
+```
+
+- `RS` = écrit en Rust, `HTTP` = transport HTTP, `LiteMCP` = framework détecté
+- `27 tools` = le serveur a vraiment listé 27 outils
+- `1 ms` = latence mesurée
+
+C'est le seul état où le serveur est **utilisable** par un client MCP.
+
+### 🟠 PORT-ONLY — le port répond, le serveur MCP ne répond pas
+
+C'est l'état le plus important à comprendre : **le port est ouvert** (un
+process y écoute), mais ce processus **ne parle pas MCP**. Souvent ce n'est pas
+un serveur MCP du tout : une API REST, un autre service, un proxy…
+
+*Exemple concret* — un service HTTP qui n'est pas un serveur MCP :
+
+```
+mon-api           [JS] [HTTP]                   PORT-ONLY  127.0.0.1:32100
+```
+
+Le port 32100 répond (`200 OK`) mais le handshake MCP échoue — l'app affiche
+donc PORT-ONLY, et non UP. Le champ « erreur » du détail donne le motif exact.
+
+L'app l'affiche en orange pour que tu ne la croies pas morte : **le port est
+encore pris : une vraie erreur de sortie (« port déjà utilisé ») arrivera
+au prochain démarrage. En pratique : soit le serveur a planté en laissant un
+process fils, soit ce port n'a jamais porté de serveur MCP.
+
+### ⚪ DOWN — le serveur est éteint
+
+Le port est fermé : rien n'écoute. C'est l'état normal d'un serveur arrêté,
+ou d'un serveur qui n'a pas encore été lancé.
+
+*Exemple concret* — un serveur stdio dont le process n'est pas démarré :
+
+```
+Filesystem        [JS] [STDIO] désuet           DOWN  stdio · npx
+```
+
+Différence avec PORT-ONLY : ici **le port est libre**. Le serveur peut être
+redémarré sans rien éteindre d'abord (bouton **▶** s'il a une commande de
+lancement connue, sinon le champ « commande de lancement » dans son détail).
+
+### ⚫ DISABLED — tu l'as mis en pause toi-même
+
+Le serveur est **volontairement** hors supervision : l'app ne le sonde plus,
+ne le relance pas, et ne compte pas ses outils. Il reste visible dans la
+liste (pour ne pas l'oublier) avec l'interrupteur **OFF**.
+
+*Exemple concret* — un serveur mis en pause pendant une migration :
+
+```
+debats            [JS] [HTTP]                   DISABLED  127.0.0.1:3140
+```
+
+Tu le relances d'un clic (**▶ Reprendre**) dans son détail, ou en remettant
+l'interrupteur **ON** dans la liste.
+
+### En résumé
+
+| État | Le port | Le serveur MCP | Cause habituelle | quoi faire |
+|---|---|---|---|---|
+| 🟢 **UP** | ouvert | répond | — | rien, tout va bien |
+| 🟠 **PORT-ONLY** | **ouvert** | ne répond pas | autre service sur le port, process fils resté | identifier le occupant du port, ou retirer le serveur |
+| ⚪ **DOWN** | fermé | ne répond pas | serveur arrêté / planté | **▶** pour le relancer |
+| ⚫ **DISABLED** | — | — | **mis en pause par toi** | **▶ Reprendre** |
+
+### Reproduire les 4 états chez soi
+
+```bash
+# UP — un vrai serveur MCP sur le port
+node examples/test-http-server.js 3166
+
+# PORT-ONLY — un port qui répond mais n'est pas MCP
+node -e "require('http').createServer((q,s)=>s.end('ok')).listen(32100)"
+
+# DOWN — un port fermé (rien n'écoute)
+#   → ajoute un serveur sur le port 32101 et ne le démarre pas
+
+# DISABLED — clique sur ⏸ « Mettre en pause » dans la liste
+```
+
+> **Pourquoi cette précision ?** Parce que « ça ne marche pas » ne dit rien
+> d'utile. PORT-ONLY et DOWN n'appellent pas le même geste : le premier se
+> répare en identifiant qui occupe le port, le second se relance.
+
+Les petits badges à côté du nom (`FastMCP`, `LiteMCP`, `rmcp`, `mcp-go`, `Spring AI`…)
+indiquent **avec quoi le serveur est construit** — **37 frameworks reconnus**, du Python
+au PHP, avec leur langage. Le badge `STDIO` / `HTTP` / `WS` indique le transport.
+
+👉 La liste complète des 37 frameworks : **[docs/frameworks.md](docs/frameworks.md)**
 
 ![Les trois familles de badges](assets/readme-badges.png)
 *Trois familles, trois codes couleur. **Langage** (à gauche) : la couleur du langage — JS jaune, Python vert, Rust orange, Go cyan. **Transport** : monochrome — `HTTP` le plus clair, `STDIO` médian, `WS` le plus sourd — et le chip `désuet` en pointillés pour les serveurs stdio. **Framework** (à droite) : la couleur du langage qu'il fait tourner ; seul **LiteMCP** porte un halo orange.*
@@ -111,11 +206,11 @@ curl -X POST -H "Content-Type: application/json" \
 <summary><b>Compiler soi-même (avancé)</b></summary>
 
 ```bash
-cargo build --release -p mcp-command-center -p mcp-command-center-desktop
+cargo build --release -p mcp-control -p mcp-control-desktop
 cargo test      # 75 tests
 ```
 
-- `start-command-center.bat` → la fenêtre de l'app
+- `start-mcp-control.bat` → la fenêtre de l'app
 - `start-headless.bat` → juste le moteur, sans fenêtre
 - Les serveurs écrits avec [LiteMCP](https://github.com/DeamonDev888/litemcp) (lib Rust) sont reconnus automatiquement.
 

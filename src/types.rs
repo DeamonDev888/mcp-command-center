@@ -177,6 +177,8 @@ pub struct Settings {
     /// appliqué au boot : registre Run sur Windows, autostart XDG / LaunchAgent
     /// ailleurs).
     pub autostart: bool,
+    /// Notifications (desktop + webhook) sur incident serveur.
+    pub notify: crate::notify::NotifyConfig,
 }
 
 impl Default for Settings {
@@ -199,6 +201,7 @@ impl Default for Settings {
             ssh_hosts: vec![],
             server_order: vec![],
             autostart: true,
+            notify: crate::notify::NotifyConfig::default(),
         }
     }
 }
@@ -224,7 +227,7 @@ pub struct AppState {
     pub settings: Mutex<Settings>,
     pub children: Mutex<HashMap<String, crate::probe::StdioHandle>>,
     pub config_path: String,
-    /// Pairs command-center détectés sur le LAN (ip -> infos + serveurs /api/state)
+    /// Pairs MCP Control détectés sur le LAN (ip -> infos + serveurs /api/state)
     pub peers: Mutex<HashMap<String, Peer>>,
     /// Origines HTTP autorisées (reflétées en ACAO, exigées si Origin présent) — remplies au boot.
     pub allowed_origins: Mutex<Vec<String>>,
@@ -232,6 +235,9 @@ pub struct AppState {
     pub allowed_hosts: Mutex<Vec<String>>,
     /// Échecs consécutifs de spawn auto par id — ≥ 3 → auto_restart désactivé.
     pub spawn_fails: Mutex<HashMap<String, u32>>,
+    /// Pilotage runtime : backoff d'autoboot, historique des crashs et
+    /// redémarrages (persisté dans config.json — survit au redémarrage).
+    pub runtime: Mutex<crate::runtime::RuntimeLog>,
     /// Ids en cours de spawn (garde : le poller et une action API ne doublonnent pas)
     pub spawning: Mutex<HashSet<String>>,
     /// Dernière version publiée sur GitHub, SI PLUS RÉCENTE que l'installée

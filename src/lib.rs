@@ -2,7 +2,9 @@ pub mod crypto;
 pub mod frameworks;
 pub mod logos;
 pub mod manage;
+pub mod notify;
 pub mod probe;
+pub mod runtime;
 pub mod store_aitmpl;
 pub mod store_github;
 pub mod store_glama;
@@ -315,6 +317,7 @@ pub fn run_headless() -> RunOutcome {
         allowed_origins: Mutex::new(Vec::new()),
         allowed_hosts: Mutex::new(Vec::new()),
         spawn_fails: Mutex::new(std::collections::HashMap::new()),
+        runtime: Mutex::new(manage::load_runtime(&config_path)),
         spawning: Mutex::new(std::collections::HashSet::new()),
         update_latest: Mutex::new(None),
         lan_ok: Mutex::new(None),
@@ -330,7 +333,7 @@ pub fn run_headless() -> RunOutcome {
         match TcpListener::bind((ui_bind.as_str(), ui_port)) {
             Ok(l) => break l,
             Err(_) => {
-                // port occupé : si un AUTRE moteur command-center y tourne déjà,
+                // port occupé : si un AUTRE moteur MCP Control y tourne déjà,
                 // on s'y RECONNECTE au lieu d'en lancer un second (instance
                 // unique — deux moteurs sur la même config se disputeraient les
                 // spawns, réécriraient config.json et doublerraient les scans).
@@ -358,9 +361,9 @@ pub fn run_headless() -> RunOutcome {
                 }
                 let mut dead_motor = false;
                 for _ in 0..2 {
-                    if let Some(url) = probe::command_center_ui_at_hosts(ui_port, &probe_hosts) {
+                    if let Some(url) = probe::control_ui_at_hosts(ui_port, &probe_hosts) {
                         thread::sleep(Duration::from_millis(300));
-                        if probe::command_center_ui_at_hosts(ui_port, &probe_hosts).is_some() {
+                        if probe::control_ui_at_hosts(ui_port, &probe_hosts).is_some() {
                             manage::add_log(
                                 &state,
                                 "info",
@@ -415,7 +418,7 @@ pub fn run_headless() -> RunOutcome {
     manage::add_log(
         &state,
         "info",
-        &format!("mcp-command-center v{} démarré", env!("CARGO_PKG_VERSION")),
+        &format!("mcp-control v{} démarré", env!("CARGO_PKG_VERSION")),
     );
     {
         let mut st = lockv(&state.settings);
@@ -538,7 +541,7 @@ pub fn run_headless() -> RunOutcome {
             thread::sleep(Duration::from_secs(3600));
         });
     }
-    // découverte des pairs command-center + réseau (après le scan local)
+    // découverte des pairs MCP Control + réseau (après le scan local)
     {
         let st = state.clone();
         thread::spawn(move || {
@@ -757,7 +760,7 @@ pub fn route(
     if method == "GET" && bare_path == "/api/hello" {
         // amorce de la preuve de pair : identité + nonce à usage unique, aucun secret
         let j = serde_json::json!({
-            "app": "mcp-command-center",
+            "app": "mcp-control",
             "version": env!("CARGO_PKG_VERSION"),
             "nonce": issue_hello_nonce(),
         });
@@ -772,6 +775,12 @@ pub fn route(
             let j = manage::detail_json(state, &id);
             return (200, "application/json", j.to_string().into_bytes());
         }
+    }
+    // Historique runtime : crashs, redémarrages, échecs de démarrage et
+    // backoff — l'outil de supervision en lecture seule.
+    if method == "GET" && bare_path == "/api/runtime" {
+        let j = manage::runtime_json(state);
+        return (200, "application/json", j.to_string().into_bytes());
     }
     if method == "GET" && bare_path == "/api/store" {
         let j = manage::store_json();
@@ -1205,6 +1214,7 @@ mod tests {
             allowed_origins: Mutex::new(vec![]),
             allowed_hosts: Mutex::new(vec!["127.0.0.1".to_string()]),
             spawn_fails: Mutex::new(std::collections::HashMap::new()),
+            runtime: Mutex::new(crate::runtime::RuntimeLog::new()),
             spawning: Mutex::new(std::collections::HashSet::new()),
             update_latest: Mutex::new(None),
             lan_ok: Mutex::new(None),
@@ -1237,7 +1247,7 @@ mod tests {
         assert_eq!(status, 200);
         assert!(ctype.starts_with("application/json"));
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(v["app"], "mcp-command-center");
+        assert_eq!(v["app"], "mcp-control");
         assert_eq!(v["nonce"].as_str().unwrap().len(), 64);
         let text = String::from_utf8_lossy(&body).to_string();
         assert!(!text.contains("code-secret-123"), "aucun secret dans hello");

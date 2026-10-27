@@ -200,6 +200,48 @@ pub fn resolve_config_path(manifest_dir: &str, override_env: Option<String>) -> 
     exe_config.to_string_lossy().to_string()
 }
 
+/// Charge le journal runtime persisté (backoff d'autoboot + historique des
+/// crashs et redémarrages) — appelé au boot : le compteur d'échecs survit
+/// ainsi au redémarrage de l'application.
+pub fn load_runtime(path: &str) -> crate::runtime::RuntimeLog {
+    let Ok(file) = std::fs::read_to_string(path) else {
+        return crate::runtime::RuntimeLog::new();
+    };
+    let Ok(v) = serde_json::from_str::<Value>(&file) else {
+        return crate::runtime::RuntimeLog::new();
+    };
+    v.get("runtime")
+        .map(crate::runtime::from_json)
+        .unwrap_or_default()
+}
+
+/// Historique runtime formaté pour l'API /api/runtime : une liste plate
+/// d'événements (du plus récent au plus ancien) + un résumé par serveur.
+pub fn runtime_json(state: &Arc<AppState>) -> Value {
+    let rt = lockv(&state.runtime);
+    let mut events: Vec<crate::runtime::RuntimeEvent> = Vec::new();
+    let mut summary: Vec<Value> = Vec::new();
+    let mut ids: Vec<&String> = rt.keys().collect();
+    ids.sort();
+    for id in ids {
+        let Some(s) = rt.get(id) else { continue };
+        events.extend(s.events.iter().cloned());
+        summary.push(json!({
+            "id": id,
+            "label": s.events.last().map(|e| e.label.clone()).unwrap_or_else(|| id.clone()),
+            "fails": s.fails,
+            "restarts": s.restarts,
+            "crashes": s.crashes,
+            "backoff_secs": s.backoff_secs(),
+            "last_success_ts": s.last_success_ts,
+        }));
+    }
+    events.sort_by_key(|a| std::cmp::Reverse(a.ts));
+    json!({
+        "events": events.iter().take(200).map(|e| e.to_json()).collect::<Vec<_>>(),
+        "servers": summary,
+    })
+}
 pub fn load_config(path: &str) -> (Vec<Server>, crate::types::Settings) {
     let defaults = default_servers();
     let settings = crate::types::Settings::default();
@@ -298,7 +340,7 @@ fn apply_json(srv: &mut Server, s: &Value) {
             };
         }
     }
-    // commande de lancement optionnelle pour un serveur HTTP (Start/Stop par le command center)
+    // commande de lancement optionnelle pour un serveur HTTP (Start/Stop par MCP Control)
     if let Some(program) = s.get("program").and_then(|x| x.as_str()) {
         if !program.is_empty() {
             let args: Vec<String> = s
@@ -371,7 +413,7 @@ fn from_json(s: &Value) -> Option<Server> {
         .and_then(|x| x.as_bool())
         .unwrap_or(true);
     let via_ssh = s.get("via_ssh").and_then(|x| x.as_bool()).unwrap_or(false);
-    // commande de lancement optionnelle (HTTP lancé par le command center)
+    // commande de lancement optionnelle (HTTP lancé par MCP Control)
     let start_cmd = {
         let program = s
             .get("program")
@@ -430,6 +472,9 @@ fn from_json(s: &Value) -> Option<Server> {
 
 fn parse_settings(v: &Value, mut st: crate::types::Settings) -> crate::types::Settings {
     if let Some(s) = v.get("settings") {
+        if let Some(n) = s.get("notify") {
+            st.notify = crate::notify::from_json(n);
+        }
         if let Some(x) = s.get("refresh_secs").and_then(|x| x.as_u64()) {
             // clamp : 0 = busy-loop CPU, trop long = état périmé à l'écran
             st.refresh_secs = x.clamp(5, 3600);
@@ -544,7 +589,7 @@ pub fn save_config(state: &AppState) {
                 if s.via_ssh {
                     o.insert("via_ssh".into(), json!(true));
                 }
-                // commande de lancement (Start/Stop par le command center)
+                // commande de lancement (Start/Stop par MCP Control)
                 if let Some(c) = &s.start_cmd {
                     o.insert("program".into(), json!(c.program));
                     o.insert("args".into(), json!(c.args));
@@ -583,12 +628,15 @@ pub fn save_config(state: &AppState) {
             "removed_seeds": settings.removed_seeds,
             "server_order": settings.server_order,
             "autostart": settings.autostart,
+            "notify": crate::notify::to_json(&settings.notify),
             "ssh_hosts": settings
                 .ssh_hosts
                 .iter()
                 .map(|h| json!({"ip": h.ip, "user": h.user}))
                 .collect::<Vec<_>>(),
-        }
+        },
+        // runtime : backoff d'autoboot + historique des crashs (persiste)
+        "runtime": crate::runtime::to_json(&lockv(&state.runtime)),
     });
     let pretty = serde_json::to_string_pretty(&doc).unwrap_or_default();
     let tmp = format!("{}.tmp", state.config_path);
@@ -1131,7 +1179,7 @@ pub fn import_mcp_text(state: &Arc<AppState>, raw: &str) -> Value {
 
     // 3. URL directe → serveur HTTP (https refusé : pas de TLS dans ce client std)
     if text.starts_with("https://") {
-        return json!({"ok": false, "error": "TLS non supporté : le command center ne sonde que du http:// (passez par un tunnel http local pour un endpoint https)"});
+        return json!({"ok": false, "error": "TLS non supporté : MCP Control ne sonde que du http:// (passez par un tunnel http local pour un endpoint https)"});
     }
     if text.starts_with("http://") {
         if let Some((host, port, path)) = parse_url_parts(text) {
@@ -1480,7 +1528,7 @@ pub fn poll_all(state: &Arc<AppState>) {
 
 /// Clé/valeur du registre Run (Windows) ou fichiers autostart (Linux/macOS).
 #[cfg_attr(not(windows), allow(dead_code))] // utilisé par le registre Run (Windows)
-const AUTOSTART_RUN_NAME: &str = "MCP Command Center";
+const AUTOSTART_RUN_NAME: &str = "MCP Control";
 
 /// Arguments de l'entrée de démarrage automatique (compilé hors tests seulement :
 /// en build test le corps réel est neutralisé, la fonction deviendrait du code mort).
@@ -1596,7 +1644,7 @@ fn apply_autostart_os(state: &Arc<AppState>, enable: bool) {
                 format!(
                     "[Desktop Entry]
 Type=Application
-Name=MCP Command Center
+Name=MCP Control
 Exec=\"{}\" --hidden
 Hidden=false
 X-GNOME-Autostart-enabled=true
@@ -1608,7 +1656,7 @@ X-GNOME-Autostart-enabled=true
                     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
 <plist version=\"1.0\"><dict>
-<key>Label</key><string>com.deamondev.mcp-command-center</string>
+<key>Label</key><string>com.deamondev.mcp-control</string>
 <key>ProgramArguments</key><array>
 <string>{}</string><string>--hidden</string>
 </array>
@@ -1636,15 +1684,12 @@ fn autostart_file_path() -> Option<std::path::PathBuf> {
     {
         Some(
             std::path::PathBuf::from(home)
-                .join("Library/LaunchAgents/com.deamondev.mcp-command-center.plist"),
+                .join("Library/LaunchAgents/com.deamondev.mcp-control.plist"),
         )
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Some(
-            std::path::PathBuf::from(home)
-                .join(".config/autostart/mcp-command-center-desktop.desktop"),
-        )
+        Some(std::path::PathBuf::from(home).join(".config/autostart/mcp-control-desktop.desktop"))
     }
 }
 
@@ -1695,8 +1740,8 @@ fn github_latest_tag() -> Option<String> {
             "-m",
             "10",
             "-H",
-            "User-Agent: mcp-command-center",
-            "https://api.github.com/repos/DeamonDev888/mcp-command-center/releases/latest",
+            "User-Agent: mcp-control",
+            "https://api.github.com/repos/DeamonDev888/mcp-control/releases/latest",
         ])
         .output()
     {
@@ -1712,7 +1757,7 @@ fn github_latest_tag() -> Option<String> {
     cmd.args([
         "-NoProfile",
         "-Command",
-        "(Invoke-RestMethod -TimeoutSec 10 -Headers @{ 'User-Agent' = 'mcp-command-center' }           'https://api.github.com/repos/DeamonDev888/mcp-command-center/releases/latest').tag_name",
+        "(Invoke-RestMethod -TimeoutSec 10 -Headers @{ 'User-Agent' = 'mcp-control' }           'https://api.github.com/repos/DeamonDev888/mcp-control/releases/latest').tag_name",
     ]);
     probe::probe_hidden_cmd(&mut cmd);
     let Ok(out) = cmd.output() else {
@@ -1756,7 +1801,7 @@ pub fn check_update(state: &Arc<AppState>) {
                 state,
                 "info",
                 &format!(
-                    "mise à jour disponible : v{} (installée : v{}) — github.com/DeamonDev888/mcp-command-center/releases",
+                    "mise à jour disponible : v{} (installée : v{}) — github.com/DeamonDev888/mcp-control/releases",
                     tag, current
                 ),
             );
@@ -1936,14 +1981,103 @@ fn filesystem_dossier_manquant(args: &[String]) -> bool {
 /// Compte un échec de spawn auto pour l'id ; à partir de 3 échecs consécutifs,
 /// désactive l'auto-restart (sinon boucle infinie d'essais + warnings sur une
 /// machine cliente où les chemins des seeds n'existent pas).
+/// Enregistre un événement runtime (crash, redémarrage, succès…) et le
+/// persiste — l'historique survit au redémarrage de l'application.
+/// NOTIFICATION d'incident : déclenchée sur une transition UP → DOWN/PORT-ONLY.
+/// Deux canaux : toast desktop (Windows) et webhook HTTP. Le délai minimum
+/// (`min_interval_secs`) évite le spam quand un serveur oscille.
+fn notify_incident(app: &Arc<AppState>, label: &str, new_state: &str, detail: &str) {
+    let cfg = lockv(&app.settings).notify.clone();
+    if !cfg.desktop && cfg.webhook_url.trim().is_empty() {
+        return;
+    }
+    if !cfg.wants(new_state) {
+        return;
+    }
+    // anti-spam : pas deux notifications du même serveur dans l'intervalle
+    let now = crate::types::now_ts();
+    {
+        let mut rt = lockv(&app.runtime);
+        let entry = rt.entry(format!("notify:{label}")).or_default();
+        if entry.last_attempt_ts != 0
+            && now.saturating_sub(entry.last_attempt_ts) < cfg.min_interval_secs
+        {
+            return;
+        }
+        entry.last_attempt_ts = now;
+    }
+    if cfg.desktop {
+        let title = format!("MCP — {label}");
+        let msg = format!("{new_state} : {detail}");
+        // un toast raté ne doit JAMAIS faire tomber le poller
+        if let Err(e) = crate::notify::desktop_toast(&title, &msg) {
+            add_log(app, "warn", &format!("[notif] desktop : {e}"));
+        }
+    }
+    if !cfg.webhook_url.trim().is_empty() {
+        match crate::notify::send_webhook(&cfg, label, new_state, detail) {
+            Ok(()) => add_log(
+                app,
+                "info",
+                &format!("[notif] webhook envoyé : {label} {new_state}"),
+            ),
+            Err(e) => add_log(app, "warn", &format!("[notif] webhook : {e}")),
+        }
+    }
+}
+fn runtime_event(state: &AppState, id: &str, kind: &str, detail: &str) {
+    let label = lockv(&state.servers)
+        .iter()
+        .find(|s| s.id == id)
+        .map(|s| s.label.clone())
+        .unwrap_or_else(|| id.to_string());
+    {
+        let mut rt = lockv(&state.runtime);
+        let entry = rt.entry(id.to_string()).or_default();
+        match kind {
+            "crash" => entry.crashes += 1,
+            "restart" | "recovered" => entry.restarts += 1,
+            _ => {}
+        }
+        if kind == "recovered" || kind == "start-ok" {
+            entry.fails = 0;
+            entry.last_success_ts = crate::types::now_ts();
+        }
+        entry.push_event(crate::runtime::RuntimeEvent {
+            ts: crate::types::now_ts(),
+            id: id.to_string(),
+            label: label.clone(),
+            kind: kind.to_string(),
+            detail: detail.to_string(),
+        });
+    }
+    save_config(state);
+}
 fn note_spawn_failure(state: &AppState, id: &str) {
-    let fails = {
-        let mut f = lockv(&state.spawn_fails);
-        let c = f.entry(id.to_string()).or_insert(0);
-        *c += 1;
-        *c
+    let (fails, backoff, disable) = {
+        let mut rt = lockv(&state.runtime);
+        let entry = rt.entry(id.to_string()).or_default();
+        entry.fails += 1;
+        entry.last_attempt_ts = crate::types::now_ts();
+        let label = lockv(&state.servers)
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| s.label.clone())
+            .unwrap_or_else(|| id.to_string());
+        entry.push_event(crate::runtime::RuntimeEvent {
+            ts: crate::types::now_ts(),
+            id: id.to_string(),
+            label: label.clone(),
+            kind: "start-fail".into(),
+            detail: format!("{} échec(s) consécutif(s)", entry.fails),
+        });
+        (
+            entry.fails,
+            entry.backoff_secs(),
+            crate::runtime::should_disable_autoboot(entry.fails),
+        )
     };
-    if fails >= 3 {
+    if disable {
         {
             let mut servers = lockv(&state.servers);
             if let Some(srv) = servers.iter_mut().find(|s| s.id == id) {
@@ -1958,7 +2092,19 @@ fn note_spawn_failure(state: &AppState, id: &str) {
                 id, fails
             ),
         );
+    } else {
+        add_log(
+            state,
+            "warn",
+            &format!(
+                "[{}] échec de démarrage #{} — nouvelle tentative dans {} s",
+                id, fails, backoff
+            ),
+        );
     }
+    // PERSISTANCE : le compteur d'échecs et le backoff doivent survivre au
+    // redémarrage de l'app (sinon la boucle d'échecs repart de zéro).
+    save_config(state);
 }
 
 #[allow(unused_must_use)]
@@ -2025,7 +2171,20 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                         .unwrap_or(false);
                     (can, alive)
                 };
-                if can_auto && !child_alive && lockv(&state.spawning).insert(id.to_string()) {
+                // BACKOFF : après un échec, on attend (5 s, 10 s, 20 s…) avant la
+                // prochaine tentative — et l'état est PERSISTÉ (le compteur
+                // d'échecs survit au redémarrage de l'app).
+                let now = crate::types::now_ts();
+                let backoff_ok = {
+                    let mut rt = lockv(&state.runtime);
+                    let entry = rt.entry(id.to_string()).or_default();
+                    entry.can_attempt(now)
+                };
+                if can_auto
+                    && !child_alive
+                    && backoff_ok
+                    && lockv(&state.spawning).insert(id.to_string())
+                {
                     // garde posée : le poller et une action API ne peuvent pas
                     // doubler le spawn du même serveur (course refresh vs poll)
                     let cmd = {
@@ -2053,6 +2212,7 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                                     "info",
                                     &format!("[{}] http démarré (pid {}) — re-sonde", id, pid),
                                 );
+                                runtime_event(state, id, "start-ok", &format!("pid {}", pid));
                                 // Re-probe borné : le launcher peut builder avant d'écouter
                                 // (bin/launch.cjs fait `npm run build`), jusqu'à 30 s.
                                 let mut res2 = probe::probe_http(port, &path, 2000);
@@ -2141,6 +2301,11 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                                     res.error.as_deref().unwrap_or("?")
                                 ),
                             ));
+                            // NOTIFICATION d'incident (desktop + webhook) :
+                            // déclenchée une seule fois, à la transition.
+                            let lbl = srv.label.clone();
+                            let det = res.error.clone().unwrap_or_else(|| "?".to_string());
+                            notify_incident(state, &lbl, st_lbl, &det);
                         }
                     }
                 }
@@ -2150,13 +2315,19 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
             }
         }
         Transport::Stdio { .. } => {
-            let alive = {
+            // Le child stdio peut être MORT : on note le crash (code de sortie)
+            // et on garde l'information pour l'historique runtime.
+            let (alive, exit_code) = {
                 let mut children = lockv(&state.children);
                 let mut still = Vec::new();
+                let mut code = None;
                 for (cid, h) in children.iter_mut() {
                     if cid == id {
                         match h.child.try_wait() {
-                            Ok(Some(_)) => still.push(cid.clone()),
+                            Ok(Some(st)) => {
+                                still.push(cid.clone());
+                                code = st.code();
+                            }
                             Ok(None) => {}
                             Err(_) => still.push(cid.clone()),
                         }
@@ -2165,8 +2336,16 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                 for cid in still {
                     children.remove(&cid);
                 }
-                children.contains_key(id)
+                (children.contains_key(id), code)
             };
+            if let Some(code) = exit_code {
+                let detail = match code {
+                    0 => "arrêté proprement (code 0)".to_string(),
+                    c => format!("crash : code de sortie {c}"),
+                };
+                add_log(state, "warn", &format!("[{id}] {detail}"));
+                runtime_event(state, id, "crash", &detail);
+            }
             let (enabled, has_cmd) = {
                 let servers = lockv(&state.servers);
                 match servers.iter().find(|s| s.id == id) {
@@ -2233,6 +2412,7 @@ pub fn poll_one(state: &Arc<AppState>, id: &str) {
                                     p.tools.len()
                                 ),
                             );
+                            runtime_event(state, id, "start-ok", "stdio");
                         }
                         Err(e) => {
                             let mut servers = lockv(&state.servers);
@@ -2524,6 +2704,73 @@ pub fn scan_network(state: &Arc<AppState>, range: Option<(u16, u16)>) {
         ),
     );
     prune_dead_network_servers(state);
+    merge_duplicate_servers(state);
+}
+
+/// FUSION des doublons historiques : les imports répétés (SSH, scan) ont pu
+/// créer plusieurs entrées pour le MÊME serveur (même nom annoncé, même
+/// machine, port changé). On ne garde que la plus RÉCENTE (last_seen_ts max).
+///
+/// Périmètre volontairement RESTREINT (audit 2026-10-26, P1) : seules les
+/// entrées DÉCOUVERTES (origin Discovered), HTTP avec hôte explicite et nom
+/// annoncé non vide sont fusionnables. Jamais un serveur manuel, seed ou
+/// importé d'un pair ; jamais une entrée sans nom annoncé — l'ancien repli
+/// sur le label fusionnait deux serveurs distincts (deux instances légitimes
+/// sur des ports différents, ou deux ajouts sans label) et la suppression
+/// était persistée.
+fn merge_duplicate_servers(state: &Arc<AppState>) -> usize {
+    let mut servers = lockv(&state.servers);
+    let before = servers.len();
+    // clé = nom ANNONCÉ normalisé + hôte (identité faible : le port peut avoir changé)
+    let mut groups: std::collections::HashMap<String, Vec<usize>> =
+        std::collections::HashMap::new();
+    for (i, s) in servers.iter().enumerate() {
+        if s.origin != Origin::Discovered {
+            continue;
+        }
+        let Transport::Http { host: Some(h), .. } = &s.transport else {
+            continue;
+        };
+        // seul le nom annoncé (serverInfo.name) est une identité fiable :
+        // un label (fabriqué « ip:port » ou saisi par l'utilisateur) ne doit
+        // JAMAIS servir de clé de fusion
+        let Some(name) = s
+            .server_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+        else {
+            continue;
+        };
+        let key = format!("{}@{}", name.to_lowercase(), h);
+        groups.entry(key).or_default().push(i);
+    }
+    let mut to_remove: Vec<usize> = Vec::new();
+    for (_key, mut idxs) in groups {
+        if idxs.len() < 2 {
+            continue;
+        }
+        // le plus récemment vu gagne
+        idxs.sort_by_key(|i| std::cmp::Reverse(servers[*i].last_seen_ts.unwrap_or(0)));
+        to_remove.extend(idxs[1..].iter().copied());
+    }
+    if !to_remove.is_empty() {
+        to_remove.sort_unstable();
+        to_remove.dedup();
+        for i in to_remove.iter().rev() {
+            servers.remove(*i);
+        }
+    }
+    let removed = before - servers.len();
+    drop(servers);
+    if removed > 0 {
+        add_log(
+            state,
+            "info",
+            &format!("[réseau] {removed} doublon(s) de serveur fusionné(s)"),
+        );
+    }
+    removed
 }
 
 /// NETTOYAGE : après un scan complet, un serveur réseau découvert dont la
@@ -2791,7 +3038,7 @@ pub fn scan_network_range(
     )
 }
 
-// ---------- découverte des pairs command-center ----------
+// ---------- découverte des pairs MCP Control ----------
 
 #[allow(unused_must_use)]
 pub fn discover_peers(state: &Arc<AppState>) {
@@ -2865,7 +3112,7 @@ pub fn discover_peers(state: &Arc<AppState>) {
                             &state,
                             "info",
                             &format!(
-                                "[pairs] command-center détecté sur {}:{} ({} serveurs)",
+                                "[pairs] MCP Control détecté sur {}:{} ({} serveurs)",
                                 ip, port, count
                             ),
                         );
@@ -3003,8 +3250,14 @@ pub fn ssh_discover(state: &Arc<AppState>, ip: &str, user: &str) -> Value {
     add_log(
         state,
         "info",
-        &format!("[ssh] connexion à {user}@{ip} — netstat distant…"),
+        &format!("[ssh] connexion à {user}@{ip} — vérification de la machine…"),
     );
+    // Health-check AVANT le scan : une machine éteinte ou une clé absente
+    // doit être dit immédiatement (au lieu d'attendre 30 s de scan futile).
+    if let Err(e) = probe::ssh_health(ip, user, 8) {
+        add_log(state, "warn", &e);
+        return json!({"ok": false, "error": e});
+    }
     let ports = match probe::ssh_netstat(ip, user, 8) {
         Ok(p) => p,
         Err(e) => {
@@ -3053,16 +3306,65 @@ pub fn ssh_discover(state: &Arc<AppState>, ip: &str, user: &str) -> Value {
         .map(|f| f.id.to_string());
         let id = format!("net-{ip}.{port}");
         let mut servers = lockv(&state.servers);
-        if let Some(existing) = servers.iter_mut().find(|s| {
-            s.id == id
-                || matches!(&s.transport,
-                    Transport::Http { host: Some(h), port: sp, .. } if h == ip && sp == port)
-        }) {
-            // déjà connu : passe la sonde en interne (via_ssh) et rafraîchit
-            existing.via_ssh = true;
+        // DÉ-DUPLICATION SSH : un même serveur (même nom + même machine)
+        // ne doit créer qu'UNE entrée. On cherche d'abord l'exact
+        // (hôte+port), puis le même nom sur la même machine (le serveur a
+        // changé de port) — sinon chaque import recrée un doublon.
+        let existing_idx = {
+            let mut hit: Option<usize> = None;
+            for (i, sv) in servers.iter().enumerate() {
+                // une entrée désactivée par l'utilisateur ne doit jamais être
+                // détournée ni rafraîchie par la découverte SSH
+                if !sv.enabled {
+                    continue;
+                }
+                let same_port = matches!(&sv.transport,
+                    Transport::Http { host: Some(h), port: sp, .. } if h == ip && sp == port);
+                let same_name = raw_name.is_some()
+                    && sv
+                        .server_name
+                        .as_deref()
+                        .map(|n| n.eq_ignore_ascii_case(raw_name.unwrap_or("")))
+                        .unwrap_or(false)
+                    && matches!(&sv.transport, Transport::Http { host: Some(h), .. } if h == ip);
+                if same_port || same_name {
+                    hit = Some(i);
+                    break;
+                }
+            }
+            hit
+        };
+        if let Some(idx) = existing_idx {
+            let existing = &mut servers[idx];
+            // les entrées manuelles gardent leur mode de sonde : on ne force
+            // pas via_ssh (audit 2026-10-26 — sinon elles échouent ensuite
+            // « machine SSH non enregistrée » dès l'oubli de l'hôte)
+            if existing.origin != Origin::Manual {
+                existing.via_ssh = true;
+            }
+            // le port a pu changer : on suit le port réellement sondé
+            if let Transport::Http {
+                port: ref mut sp, ..
+            } = existing.transport
+            {
+                if *sp != *port {
+                    *sp = *port;
+                }
+            }
             existing.state = SState::Up;
-            existing.server_name = raw_name.map(String::from);
-            existing.version = version.clone();
+            // surcharge CONDITIONNELLE (audit 2026-10-26) : une sonde validée
+            // sans serverInfo/version ne doit pas effacer ce qu'on savait déjà
+            if let Some(n) = raw_name {
+                existing.server_name = Some(n.to_string());
+                // le label fabriqué « ip:port » suit le nom annoncé ; un label
+                // saisi par l'utilisateur est conservé
+                if existing.label.trim().is_empty() || existing.label.contains(':') {
+                    existing.label = n.to_string();
+                }
+            }
+            if version.is_some() {
+                existing.version = version.clone();
+            }
             if protocol.is_some() {
                 existing.protocol = protocol.clone();
             }
@@ -3121,6 +3423,9 @@ pub fn ssh_discover(state: &Arc<AppState>, ip: &str, user: &str) -> Value {
             ),
         );
     }
+    // fusion des doublons (même nom + même machine) : la découverte SSH
+    // pouvait créer plusieurs entrées pour un même serveur
+    merge_duplicate_servers(state);
     if !serveurs.is_empty() {
         save_config(state);
     }
@@ -3182,7 +3487,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     };
                     save_config(state);
                     if !now_enabled {
-                        // OFF réel : tuer le process lancé par le command center (stdio ou HTTP)
+                        // OFF réel : tuer le process lancé par MCP Control (stdio ou HTTP)
                         let mut children = lockv(&state.children);
                         if let Some(h) = children.get_mut(&id) {
                             probe::kill_tree(h.child.id());
@@ -3364,7 +3669,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     Some(p) if (1..=65535).contains(&p) => p as u16,
                     _ => return json!({"ok": false, "error": "port invalide"}),
                 };
-                // commande de lancement optionnelle → le command center peut Start/Stop ce HTTP
+                // commande de lancement optionnelle → MCP Control peut Start/Stop ce HTTP
                 let sstart = {
                     let program = req
                         .get("program")
@@ -3558,7 +3863,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
             // ports) n'a ni Start/Stop ni autoboot : l'utilisateur peut poser la
             // commande à la main ici. Seeds refusés (la config par défaut
             // réécraserait) et serveurs distants refusés (le process appartient
-            // à sa machine hôte, pas au command center local).
+            // à sa machine hôte, pas au moteur local).
             let id = match id {
                 Some(i) => i,
                 None => return json!({"ok": false, "error": "id manquant"}),
@@ -3837,6 +4142,68 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
             );
             json!({"ok": true, "changed": changed})
         }
+        "set_notify" => {
+            // Configuration des notifications (dialog Réglages) :
+            // - desktop : toast Windows
+            // - webhook : URL + en-têtes (une par ligne "K: V") + méthode
+            //   - états notifiés (DOWN, PORT-ONLY par défaut)
+            //   - délai minimum entre deux notifications du même serveur
+            let mut c = lockv(&state.settings).notify.clone();
+            if let Some(b) = req.get("desktop").and_then(|x| x.as_bool()) {
+                c.desktop = b;
+            }
+            if let Some(u) = req.get("webhook_url").and_then(|x| x.as_str()) {
+                let u = u.trim();
+                if !u.is_empty() && !crate::notify::valid_webhook_url(u) {
+                    return json!({"ok": false, "error": "URL de webhook invalide (http:// ou https:// attendu)"});
+                }
+                c.webhook_url = u.to_string();
+            }
+            if let Some(m) = req.get("method").and_then(|x| x.as_str()) {
+                let m = m.trim().to_uppercase();
+                if m == "POST" || m == "PUT" {
+                    c.method = m;
+                }
+            }
+            if let Some(h) = req.get("headers").and_then(|x| x.as_str()) {
+                c.headers = h.to_string();
+            }
+            if let Some(arr) = req.get("states").and_then(|x| x.as_array()) {
+                let v: Vec<String> = arr
+                    .iter()
+                    .filter_map(|x| x.as_str())
+                    .map(|x| x.trim().to_uppercase())
+                    .filter(|x| !x.is_empty())
+                    .collect();
+                if !v.is_empty() {
+                    c.states = v;
+                }
+            }
+            if let Some(i) = req.get("min_interval_secs").and_then(|x| x.as_u64()) {
+                c.min_interval_secs = i.clamp(0, 86400);
+            }
+            lockv(&state.settings).notify = c.clone();
+            save_config(state);
+            add_log(state, "info", "[notif] configuration enregistrée");
+            json!({"ok": true, "notify": crate::notify::to_json(&c)})
+        }
+        "reset_runtime" => {
+            // Effacer l'historique runtime (crashs, redémarrages) et les
+            // compteurs d'échec — utile quand un serveur a été réparé à la
+            // main et que l'app doit repartir sur des bases propres.
+            let mut rt = lockv(&state.runtime);
+            let n = rt.len();
+            rt.clear();
+            drop(rt);
+            lockv(&state.spawn_fails).clear();
+            save_config(state);
+            add_log(
+                state,
+                "info",
+                &format!("[runtime] historique effac\u{e9} ({n} serveur(s))"),
+            );
+            json!({"ok": true, "cleared": n})
+        }
         "check_update" => {
             // Re-vérification forcée de la release GitHub — le thread de fond
             // ne tourne qu'au boot puis chaque heure. Le bouton « Vérifier » du
@@ -3928,7 +4295,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
             json!({"ok": true, "autostart": enable, "active": autostart_active()})
         }
         // Autoboot PAR SERVEUR : « ce serveur est relancé automatiquement au
-        // démarrage du command center (et après un crash) ». Persisté dans
+        // démarrage de MCP Control (et après un crash) ». Persisté dans
         // config.json, indépendant de l'autostart OS de l'application.
         "set_auto_restart" => {
             let Some(id) = id else {
@@ -4196,7 +4563,7 @@ fn server_json(s: &Server, managed: bool) -> Value {
         "sse": s.sse, "sse_endpoint": s.sse_endpoint, "ws": s.ws, "lang": s.lang,
         "framework": s.framework,
         "via_ssh": s.via_ssh,
-        // contrôle du process : maintenu par CE command center (children) ?
+        // contrôle du process : maintenu par CE moteur MCP Control (children) ?
         "managed": managed,
         // commande de lancement (Start/Stop) — panneau Démarrage de l'UI
         "start_cmd": s.start_cmd.as_ref().map(|c| json!({
@@ -4205,7 +4572,7 @@ fn server_json(s: &Server, managed: bool) -> Value {
     })
 }
 
-/// Ids des process actuellement maintenus par le command center (copie —
+/// Ids des process actuellement maintenus par MCP Control (copie —
 /// évite d'imbriquer le lock children sous le lock servers).
 fn managed_ids(state: &Arc<AppState>) -> std::collections::HashSet<String> {
     lockv(&state.children).keys().cloned().collect()
@@ -4505,6 +4872,7 @@ mod tests {
             allowed_origins: Mutex::new(Vec::new()),
             allowed_hosts: Mutex::new(Vec::new()),
             spawn_fails: Mutex::new(std::collections::HashMap::new()),
+            runtime: Mutex::new(crate::runtime::RuntimeLog::new()),
             spawning: Mutex::new(std::collections::HashSet::new()),
             update_latest: Mutex::new(None),
             lan_ok: Mutex::new(None),
@@ -4615,6 +4983,7 @@ mod tests {
                 allowed_origins: Mutex::new(Vec::new()),
                 allowed_hosts: Mutex::new(Vec::new()),
                 spawn_fails: Mutex::new(std::collections::HashMap::new()),
+                runtime: Mutex::new(crate::runtime::RuntimeLog::new()),
                 spawning: Mutex::new(std::collections::HashSet::new()),
                 update_latest: Mutex::new(None),
                 lan_ok: Mutex::new(None),
@@ -4719,6 +5088,7 @@ mod tests {
                 allowed_origins: Mutex::new(Vec::new()),
                 allowed_hosts: Mutex::new(Vec::new()),
                 spawn_fails: Mutex::new(std::collections::HashMap::new()),
+                runtime: Mutex::new(crate::runtime::RuntimeLog::new()),
                 spawning: Mutex::new(std::collections::HashSet::new()),
                 update_latest: Mutex::new(None),
                 lan_ok: Mutex::new(None),
@@ -4847,6 +5217,7 @@ mod tests {
             allowed_origins: Mutex::new(Vec::new()),
             allowed_hosts: Mutex::new(Vec::new()),
             spawn_fails: Mutex::new(std::collections::HashMap::new()),
+            runtime: Mutex::new(crate::runtime::RuntimeLog::new()),
             spawning: Mutex::new(std::collections::HashSet::new()),
             update_latest: Mutex::new(None),
             lan_ok: Mutex::new(None),
@@ -4968,6 +5339,7 @@ mod tests {
             allowed_origins: Mutex::new(Vec::new()),
             allowed_hosts: Mutex::new(Vec::new()),
             spawn_fails: Mutex::new(std::collections::HashMap::new()),
+            runtime: Mutex::new(crate::runtime::RuntimeLog::new()),
             spawning: Mutex::new(std::collections::HashSet::new()),
             update_latest: Mutex::new(None),
             lan_ok: Mutex::new(None),
@@ -5040,6 +5412,7 @@ mod tests {
             allowed_origins: Mutex::new(Vec::new()),
             allowed_hosts: Mutex::new(Vec::new()),
             spawn_fails: Mutex::new(std::collections::HashMap::new()),
+            runtime: Mutex::new(crate::runtime::RuntimeLog::new()),
             spawning: Mutex::new(std::collections::HashSet::new()),
             update_latest: Mutex::new(None),
             lan_ok: Mutex::new(None),
@@ -5165,6 +5538,7 @@ mod tests {
             allowed_origins: Mutex::new(Vec::new()),
             allowed_hosts: Mutex::new(Vec::new()),
             spawn_fails: Mutex::new(std::collections::HashMap::new()),
+            runtime: Mutex::new(crate::runtime::RuntimeLog::new()),
             spawning: Mutex::new(std::collections::HashSet::new()),
             update_latest: Mutex::new(None),
             lan_ok: Mutex::new(None),
@@ -5201,10 +5575,185 @@ mod tests {
             allowed_origins: Mutex::new(Vec::new()),
             allowed_hosts: Mutex::new(Vec::new()),
             spawn_fails: Mutex::new(std::collections::HashMap::new()),
+            runtime: Mutex::new(crate::runtime::RuntimeLog::new()),
             spawning: Mutex::new(std::collections::HashSet::new()),
             update_latest: Mutex::new(None),
             lan_ok: Mutex::new(None),
         })
+    }
+
+    /// Fabrique un serveur HTTP pour les tests de fusion/dé-duplication.
+    fn srv_http(
+        id: &str,
+        name: Option<&str>,
+        label: &str,
+        host: Option<&str>,
+        port: u16,
+        origin: Origin,
+        seen: Option<u64>,
+    ) -> Server {
+        Server {
+            id: id.into(),
+            label: label.into(),
+            transport: Transport::Http {
+                host: host.map(String::from),
+                port,
+                path: "/mcp".into(),
+            },
+            origin,
+            enabled: true,
+            state: SState::Up,
+            pid: None,
+            bound_host: None,
+            server_name: name.map(String::from),
+            version: None,
+            protocol: None,
+            sse: false,
+            sse_endpoint: false,
+            ws: false,
+            lang: None,
+            framework: None,
+            via_ssh: false,
+            tools: vec![],
+            latency_ms: None,
+            last_seen_ts: seen,
+            last_error: None,
+            start_cmd: None,
+            auto_restart: false,
+            tools_disabled: vec![],
+        }
+    }
+
+    /// RÉGRESSION audit 2026-10-26 (P1) : la fusion ne doit toucher QUE les
+    /// entrées découvertes (origin Discovered) avec un nom annoncé non vide.
+    /// Deux serveurs manuels homonymes (ou sans label) sur des ports
+    /// différents doivent TOUJOURS survivre — l'ancienne version fusionnait
+    /// sur nom+label@hôte sans port et persistait la suppression.
+    #[test]
+    fn merge_ne_touche_jamais_les_entrees_manuelles_ou_sans_nom() {
+        let state = test_state();
+        {
+            let mut servers = lockv(&state.servers);
+            // deux manuels homonymes, ports différents
+            servers.push(srv_http(
+                "manual-a",
+                Some("discord"),
+                "discord",
+                None,
+                3000,
+                Origin::Manual,
+                Some(100),
+            ));
+            servers.push(srv_http(
+                "manual-b",
+                Some("discord"),
+                "discord",
+                None,
+                3001,
+                Origin::Manual,
+                Some(200),
+            ));
+            // deux manuels SANS nom annoncé (le bug historique : label vide →
+            // clé « @local » → suppression d'une entrée légitime)
+            servers.push(srv_http(
+                "manual-c",
+                None,
+                "",
+                None,
+                3002,
+                Origin::Manual,
+                Some(300),
+            ));
+            servers.push(srv_http(
+                "manual-d",
+                None,
+                "",
+                None,
+                3003,
+                Origin::Manual,
+                Some(400),
+            ));
+            // un seed homonyme d'un manuel
+            servers.push(srv_http(
+                "seed-x",
+                Some("discord"),
+                "discord",
+                None,
+                3004,
+                Origin::Seed,
+                Some(500),
+            ));
+        }
+        let removed = merge_duplicate_servers(&state);
+        assert_eq!(
+            removed, 0,
+            "aucune entrée manuelle/seed ne doit être fusionnée"
+        );
+        assert_eq!(lockv(&state.servers).len(), 5);
+    }
+
+    #[test]
+    fn merge_fusionne_les_doublons_resolus_meme_nom_meme_machine() {
+        let state = test_state();
+        {
+            let mut servers = lockv(&state.servers);
+            // même serveur découvert deux fois (port changé) : la plus
+            // récemment vue gagne, l'ancienne port est un fantôme
+            servers.push(srv_http(
+                "net-10.0.0.5.3141",
+                Some("discord"),
+                "10.0.0.5:3141",
+                Some("10.0.0.5"),
+                3141,
+                Origin::Discovered,
+                Some(100),
+            ));
+            servers.push(srv_http(
+                "net-10.0.0.5.9999",
+                Some("discord"),
+                "10.0.0.5:9999",
+                Some("10.0.0.5"),
+                9999,
+                Origin::Discovered,
+                Some(200),
+            ));
+            // même nom mais MACHINE DIFFÉRENTE : deux serveurs distincts
+            servers.push(srv_http(
+                "net-10.0.0.6.3141",
+                Some("discord"),
+                "10.0.0.6:3141",
+                Some("10.0.0.6"),
+                3141,
+                Origin::Discovered,
+                Some(300),
+            ));
+            // découvert SANS nom annoncé : jamais fusionné (identité inconnue)
+            servers.push(srv_http(
+                "net-10.0.0.5.4000",
+                None,
+                "10.0.0.5:4000",
+                Some("10.0.0.5"),
+                4000,
+                Origin::Discovered,
+                Some(400),
+            ));
+        }
+        let removed = merge_duplicate_servers(&state);
+        assert_eq!(removed, 1, "seul le doublon même nom+même machine part");
+        let servers = lockv(&state.servers);
+        assert!(
+            servers.iter().any(|s| s.id == "net-10.0.0.5.9999"),
+            "la plus récente est gardée"
+        );
+        assert!(!servers.iter().any(|s| s.id == "net-10.0.0.5.3141"));
+        assert!(
+            servers.iter().any(|s| s.id == "net-10.0.0.6.3141"),
+            "l'autre machine survit"
+        );
+        assert!(
+            servers.iter().any(|s| s.id == "net-10.0.0.5.4000"),
+            "sans nom annoncé : jamais fusionné"
+        );
     }
 
     #[test]
@@ -5655,7 +6204,7 @@ mod tests {
 
     #[test]
     fn annonce_litemcp_importe_adopte_et_resynchronise() {
-        // Persistance Command Center <-> litemcp : une annonce (%TEMP%/
+        // Persistance MCP Control <-> litemcp : une annonce (%TEMP%/
         // litemcp-registry/<nom>.json écrite par la lib au bind) crée le
         // serveur avec sa commande native, ADOpte un serveur découvert par
         // scan (sans commande → promotion manual), resynchronise le port,
@@ -6336,6 +6885,7 @@ mod tests {
             allowed_origins: Mutex::new(Vec::new()),
             allowed_hosts: Mutex::new(Vec::new()),
             spawn_fails: Mutex::new(std::collections::HashMap::new()),
+            runtime: Mutex::new(crate::runtime::RuntimeLog::new()),
             spawning: Mutex::new(std::collections::HashSet::new()),
             update_latest: Mutex::new(None),
             lan_ok: Mutex::new(None),

@@ -246,7 +246,7 @@ fn kill_pid_unix(pid: u32) {
     let _ = c.arg("-9").arg(pid.to_string()).status();
 }
 
-/// Spawn un process serveur (HTTP/HTTPS lancé par le command center) sans handshake
+/// Spawn un process serveur (HTTP/HTTPS lancé par MCP Control) sans handshake
 /// JSON-RPC : le probe HTTP classique fera le handshake. stdout/stderr nullés
 /// (pas de pipe = pas de risque de blocage buffer plein).
 pub fn spawn_process(
@@ -912,6 +912,21 @@ fn ssh_exec(
     Ok(stdout)
 }
 
+/// Health-check SSH : la machine est-elle joignable et l'authentification par
+/// clé fonctionne-t-elle ? Vrai contrôle en une commande (pas de scan) —
+/// à appeler AVANT toute découverte pour éviter un scan de 30 s sur une
+/// machine injoignable, et pour distinguer "machine éteinte" de "clé absente".
+pub fn ssh_health(host: &str, user: &str, timeout_secs: u64) -> Result<(), String> {
+    let out = ssh_exec(host, user, "echo __MCC_OK__", timeout_secs)?;
+    if out.contains("__MCC_OK__") {
+        Ok(())
+    } else {
+        Err(format!(
+            "ssh {user}@{host} : connexion établie mais la commande distante n'a pas répondu"
+        ))
+    }
+}
+
 /// Liste les ports en écoute d'une machine distante (netstat/ss exécutés sur place).
 pub fn ssh_netstat(host: &str, user: &str, timeout_secs: u64) -> Result<Vec<u16>, String> {
     let stdout = ssh_exec(
@@ -977,7 +992,7 @@ fn mcp_remote_payload(method: &str, id: u64) -> String {
         json!({
             "protocolVersion": "2024-11-05",
             "capabilities": {},
-            "clientInfo": {"name": "mcp-command-center", "version": env!("CARGO_PKG_VERSION")}
+            "clientInfo": {"name": "mcp-control", "version": env!("CARGO_PKG_VERSION")}
         })
     };
     json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string()
@@ -1036,7 +1051,10 @@ pub fn ssh_probe_mcp_batch(
             continue;
         };
         if let Some(v) = extract_json(body.as_bytes()) {
-            if v.get("result").and_then(|r| r.get("serverInfo")).is_some() {
+            // VALIDATION STRICTE (même règle que la sonde locale/réseau) :
+            // serverInfo.name, protocolVersion ou capabilities. Un port qui
+            // répond `{"result":{}}` n'est PAS un serveur MCP.
+            if crate::validate::is_mcp(&v) {
                 results.push((port, v));
             }
         }
@@ -1211,6 +1229,187 @@ pub fn http_get_host(
     http_request("GET", host, port, path, None, timeout_ms, &[])
 }
 
+/// POST/PUT HTTP générique (webhook de notification) : pas d'en-tête MCP,
+/// pas de negotiated protocol — un simple appel HTTP avec un corps JSON.
+/// `extra_headers` : paires (nom, valeur) ajoutées à la requête.
+pub fn http_post_raw(
+    host: &str,
+    port: u16,
+    path: &str,
+    body: &str,
+    extra_headers: &[(&str, &str)],
+    method: &str,
+    timeout_ms: u64,
+) -> Result<(), String> {
+    let (bytes, _head) = http_request_trusted(
+        method,
+        host,
+        port,
+        path,
+        Some(body),
+        timeout_ms,
+        extra_headers,
+    )?;
+    // code HTTP : 2e token de la ligne de statut ("HTTP/1.1 200 OK" → 200).
+    let status_line = String::from_utf8_lossy(&bytes)
+        .lines()
+        .next()
+        .unwrap_or("")
+        .to_string();
+    let code = status_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|c| c.parse::<u16>().ok())
+        .unwrap_or(0);
+    if (200..400).contains(&code) {
+        Ok(())
+    } else {
+        Err(format!("HTTP {code} ({status_line})"))
+    }
+}
+/// Variante de [`http_request`] pour les en-têtes de CONFIANCE (webhook
+/// configuré par l'opérateur) : la valeur peut contenir des espaces
+/// (« Authorization: Bearer xxx ») — on exige seulement l'absence de
+/// CR/LF et une longueur bornée (le request splitting reste impossible).
+fn http_request_trusted(
+    method: &str,
+    host: &str,
+    port: u16,
+    path: &str,
+    body: Option<&str>,
+    timeout_ms: u64,
+    trusted_headers: &[(&str, &str)],
+) -> Result<(Vec<u8>, RespHead), String> {
+    let timeout = Duration::from_millis(timeout_ms);
+    let addr: SocketAddr = match socket_addr(host, port) {
+        Ok(a) => a,
+        Err(e) => return Err(format!("addr {}: {}", host, e)),
+    };
+    let mut last_err = String::new();
+    match TcpStream::connect_timeout(&addr, timeout) {
+        Ok(mut stream) => {
+            stream.set_read_timeout(Some(timeout)).ok();
+            stream.set_write_timeout(Some(timeout)).ok();
+            let host_hdr = http_host_header(host, port);
+            let path = sanitize_http_path(path, "/");
+            let mut req = format!("{} {} HTTP/1.1\r\nHost: {}\r\n", method, path, host_hdr);
+            for (n, v) in trusted_headers {
+                // SÉCURITÉ : un CR/LF Allow-Injection d'en-têtes (request
+                // splitting) reste interdit — seuls les espaces et la
+                // ponctuation sont tolérés.
+                if v.is_empty() || v.len() > 512 || v.contains('\r') || v.contains('\n') {
+                    continue;
+                }
+                if n.contains('\r') || n.contains('\n') || n.contains(':') {
+                    continue;
+                }
+                req.push_str(&format!("{}: {}\r\n", n, v));
+            }
+            if body.is_some() {
+                req.push_str("Content-Type: application/json\r\n");
+            }
+            match body {
+                Some(b) => req.push_str(&format!(
+                    "Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    b.len(),
+                    b
+                )),
+                None => req.push_str("Connection: close\r\n\r\n"),
+            }
+            if let Err(e) = stream.write_all(req.as_bytes()) {
+                last_err = format!("écriture: {e}");
+            } else {
+                let mut data = Vec::new();
+                let mut tmp = [0u8; 16384];
+                let deadline = Instant::now() + timeout;
+                let mut header_len: Option<usize> = None;
+                let mut status_ok = false;
+                loop {
+                    let remain = deadline.saturating_duration_since(Instant::now());
+                    if remain.is_zero() {
+                        break;
+                    }
+                    if header_len.is_none() {
+                        if let Some(p) = find_sub(&data, b"\r\n\r\n") {
+                            header_len = Some(p + 4);
+                            let head = String::from_utf8_lossy(&data[..p]).to_lowercase();
+                            status_ok =
+                                head.starts_with("http/1.1 2") || head.starts_with("http/1.0 2");
+                        }
+                    }
+                    if let Some(hl) = header_len {
+                        let head = String::from_utf8_lossy(&data[..hl]).to_lowercase();
+                        let body_bytes = &data[hl..];
+                        let complete = if head.contains("transfer-encoding: chunked") {
+                            find_sub(body_bytes, b"\r\n0\r\n").is_some()
+                        } else if let Some(cl) = head.lines().find_map(|l| {
+                            l.strip_prefix("content-length:")
+                                .map(|v| v.trim().to_string())
+                        }) {
+                            body_bytes.len() >= cl.parse::<usize>().unwrap_or(usize::MAX)
+                        } else {
+                            false
+                        };
+                        if complete {
+                            break;
+                        }
+                    }
+                    match stream.read(&mut tmp) {
+                        Ok(0) => break,
+                        Ok(n) => data.extend_from_slice(&tmp[..n]),
+                        Err(e) => {
+                            last_err = format!("lecture: {e}");
+                            break;
+                        }
+                    }
+                }
+                let head_end = find_sub(&data, b"\r\n\r\n").map(|p| p + 4).unwrap_or(0);
+                let head = String::from_utf8_lossy(&data[..head_end]).to_string();
+                let mut content_type = String::new();
+                let mut server = String::new();
+                let mut powered_by = String::new();
+                let mut session_id = String::new();
+                for line in head.lines() {
+                    let lower = line.to_lowercase();
+                    if let Some(v) = lower.strip_prefix("content-type:") {
+                        content_type = v.trim().to_string();
+                    } else if let Some(v) = lower.strip_prefix("server:") {
+                        server = v.trim().to_string();
+                    } else if let Some(v) = lower.strip_prefix("x-powered-by:") {
+                        powered_by = v.trim().to_string();
+                    } else if let Some(v) = lower.strip_prefix("mcp-session-id:") {
+                        session_id = v.trim().to_string();
+                    }
+                }
+                if status_ok {
+                    return Ok((
+                        data,
+                        RespHead {
+                            content_type,
+                            server,
+                            powered_by,
+                            session_id,
+                        },
+                    ));
+                }
+                // une erreur d'E/S diagnostiquée (« lecture: … ») est plus
+                // parlante qu'un « réponse vide » générique : on la garde
+                if last_err.is_empty() {
+                    last_err = if data.is_empty() {
+                        "réponse vide".to_string()
+                    } else {
+                        format!(
+                            "HTTP non 2xx : {}",
+                            String::from_utf8_lossy(&data).lines().next().unwrap_or("?")
+                        )
+                    };
+                }
+            }
+        }
+        Err(e) => last_err = format!("{e}"),
+    }
+    Err(last_err)
+}
 fn http_request(
     method: &str,
     host: &str,
@@ -1511,7 +1710,7 @@ pub fn probe_http(port: u16, path: &str, timeout_ms: u64) -> McpProbe {
         );
     };
     let client_info = json!({
-        "name": "mcp-command-center",
+        "name": "mcp-control",
         "version": env!("CARGO_PKG_VERSION")
     });
     let init_params = json!({
@@ -1808,7 +2007,7 @@ pub fn probe_stdio(
         // ROBUSTESSE (audit 2026-10-25) : `BufRead::lines()` et `read_until` nu
         // allouent la ligne ENTIÈRE en mémoire, sans plafond — un serveur stdio
         // qui écrit 300 Mo sur une seule ligne (sans \n) ferait exploser la RAM
-        // du command-center. `read_bounded_line` borne la lecture via `Read::take`
+        // du moteur. `read_bounded_line` borne la lecture via `Read::take`
         // AVANT allocation.
         let mut buf: Vec<u8> = Vec::new();
         loop {
@@ -1829,7 +2028,7 @@ pub fn probe_stdio(
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
         "params": {
             "protocolVersion": "2024-11-05", "capabilities": {},
-            "clientInfo": {"name": "mcp-command-center", "version": env!("CARGO_PKG_VERSION")}
+            "clientInfo": {"name": "mcp-control", "version": env!("CARGO_PKG_VERSION")}
         }
     });
     if let Err(e) = writeln!(stdin, "{}", init) {
@@ -2053,7 +2252,7 @@ pub fn probe_http_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> Mc
     let init_params = json!({
         "protocolVersion": "2024-11-05",
         "capabilities": {},
-        "clientInfo": {"name": "mcp-command-center", "version": env!("CARGO_PKG_VERSION")}
+        "clientInfo": {"name": "mcp-control", "version": env!("CARGO_PKG_VERSION")}
     });
     let (res, head) =
         match rpc_call_host(host, port, path, "initialize", init_params, 1, timeout_ms) {
@@ -2149,19 +2348,19 @@ pub fn probe_http_host(host: &str, port: u16, path: &str, timeout_ms: u64) -> Mc
     }
 }
 
-// ---------- découverte de pairs command-center sur le LAN ----------
+// ---------- découverte de pairs MCP Control sur le LAN ----------
 
 pub struct PeerProbe {
     pub alive: bool,
     pub servers: Option<Value>,
 }
 
-/// Sonde /api/state d'un command-center distant (cache de pairs).
+/// Sonde /api/state d'un moteur MCP Control distant (cache de pairs).
 /// `access` : code d'accès API partagé (même valeur des deux côtés).
 ///
 /// SÉCURITÉ (audit 2026-10-24) : le code n'est plus envoyé en clair à la cible —
 /// il était diffusé à toutes les cibles sondées du LAN. Déroulé en deux phases :
-/// 1. GET /api/hello (préauth) → un command-center répond avec un nonce à usage unique ;
+/// 1. GET /api/hello (préauth) → un moteur MCP Control répond avec un nonce à usage unique ;
 /// 2. POST /api/state avec X-MCC-Nonce + X-MCC-Proof = HMAC-SHA256(code, nonce)
 ///    (cf. crypto.rs) — un observateur réseau ne récupère qu'une preuve morte.
 ///
@@ -2169,7 +2368,7 @@ pub struct PeerProbe {
 pub fn probe_peer(ip: &str, port: u16, access: Option<&str>) -> PeerProbe {
     let nonce: Option<String> = match http_get_host(ip, port, "/api/hello", 1200) {
         Ok((bytes, _)) => match serde_json::from_slice::<Value>(&bytes) {
-            Ok(v) if v.get("app").and_then(|x| x.as_str()) == Some("mcp-command-center") => {
+            Ok(v) if v.get("app").and_then(|x| x.as_str()) == Some("mcp-control") => {
                 v.get("nonce").and_then(|x| x.as_str()).map(String::from)
             }
             _ => {
@@ -2267,25 +2466,25 @@ pub fn looks_like_ip(s: &str) -> bool {
     })
 }
 
-/// Un moteur command-center tourne-t-il déjà sur CE port local (127.0.0.1/::1) ?
+/// Un moteur MCP Control tourne-t-il déjà sur CE port local (127.0.0.1/::1) ?
 /// Retourne l'URL de son UI. Utilisé par run_headless pour se RECONNECTER à un
 /// moteur existant au lieu d'en lancer un second — deux moteurs sur la même
 /// config se disputeraient les spawns et réécriraient le config.json en boucle.
-pub fn command_center_ui_at(port: u16) -> Option<String> {
-    command_center_ui_at_hosts(port, &["127.0.0.1", "::1"])
+pub fn control_ui_at(port: u16) -> Option<String> {
+    control_ui_at_hosts(port, &["127.0.0.1", "::1"])
 }
 
-/// Cherche un moteur command-center sur le port donné, en interrogeant les
+/// Cherche un moteur MCP Control sur le port donné, en interrogeant les
 /// hôtes indiqués (le bind configuré en premier : un moteur en bind LAN
 /// n'est PAS joignable sur 127.0.0.1 si le bind est une IP précise).
 /// Timeout large : sous forte charge (scan réseau), 800 ms ne suffisaient pas
 /// et la détection échouait — la nouvelle instance prenait alors le port
 /// suivant et fuyait un moteur de plus à chaque lancement.
-pub fn command_center_ui_at_hosts(port: u16, hosts: &[&str]) -> Option<String> {
+pub fn control_ui_at_hosts(port: u16, hosts: &[&str]) -> Option<String> {
     for host in hosts.iter().copied() {
         if let Ok((bytes, _)) = http_get_host(host, port, "/api/hello", 2000) {
             if let Ok(v) = serde_json::from_slice::<Value>(&bytes) {
-                if v.get("app").and_then(|x| x.as_str()) == Some("mcp-command-center") {
+                if v.get("app").and_then(|x| x.as_str()) == Some("mcp-control") {
                     let h = if host.contains(':') {
                         format!("[{}]:{}", host, port)
                     } else {
@@ -2311,22 +2510,30 @@ mod tests {
     /// accepté et le scan réseau inventait un serveur « port-XXXX ».
     #[test]
     fn port_non_mcp_avec_result_vide_est_rejete() {
+        // RÉGRESSION faux positifs : un port HTTP qui répond du JSON-RPC SANS
+        // serverInfo ne doit JAMAIS être découvert comme serveur MCP — ni par
+        // initialize, ni par le repli server/discover (stateless 2026-07-28).
+        // Avant la validation stricte, ce port était accepté et le scan réseau
+        // inventait un serveur « port-XXXX ».
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = l.local_addr().unwrap().port();
         thread::spawn(move || {
             for stream in l.incoming() {
                 let Ok(mut s) = stream else { continue };
-                let mut buf = [0u8; 16384];
                 use std::io::Read;
-                let _ = s.read(&mut buf);
+                let mut buf = [0u8; 16384];
+                let n = s.read(&mut buf).unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                // ne répondre qu'aux vraies requêtes JSON-RPC : sinon cette
+                // fixture empoisonne les sondes /health, /sse et WS des autres
+                // tests parallèles (tests flaky).
+                if !req.contains("\"method\"") {
+                    continue;
+                }
                 use std::io::Write;
                 let body = r#"{"jsonrpc":"2.0","id":1,"result":{}}"#;
                 let resp = format!(
-                    "HTTP/1.1 200 OK
-\nContent-Type: application/json
-\nContent-Length: {}
-\n
-\n{}",
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
                     body.len(),
                     body
                 );
@@ -2334,7 +2541,6 @@ mod tests {
                 let _ = s.flush();
             }
         });
-        // laisse le thread démarrer
         std::thread::sleep(std::time::Duration::from_millis(150));
         // aucune des trois routes ne doit produire un serveur MCP
         assert!(
@@ -2846,7 +3052,7 @@ LISTEN  0      128              *:3141             *:*";
                 let _ = s.read(&mut buf);
                 let req = String::from_utf8_lossy(&buf).to_string();
                 let resp = if req.starts_with("GET /api/hello") {
-                    let body = r#"{"app":"mcp-command-center","version":"0.7.1","nonce":"aabbccdd00112233aabbccdd00112233aabbccdd00112233aabbccdd00112233"}"#;
+                    let body = r#"{"app":"mcp-control","version":"0.7.1","nonce":"aabbccdd00112233aabbccdd00112233aabbccdd00112233aabbccdd00112233"}"#;
                     format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body)
                 } else if req.starts_with("POST /api/state") {
                     // aucun code en clair ne doit transiter : seulement nonce + preuve
@@ -2863,7 +3069,10 @@ LISTEN  0      128              *:3141             *:*";
             }
         });
         let pr = probe_peer("127.0.0.1", port, None);
-        assert!(pr.alive, "un command-center doit être détecté comme pair");
+        assert!(
+            pr.alive,
+            "un moteur MCP Control doit être détecté comme pair"
+        );
         let servers = pr.servers.expect("servers doit être présent");
         assert_eq!(servers["stats"]["total"], serde_json::json!(7));
         assert_eq!(
@@ -2873,7 +3082,7 @@ LISTEN  0      128              *:3141             *:*";
     }
 
     #[test]
-    fn probe_peer_rejete_un_serveur_qui_ne_est_pas_un_command_center() {
+    fn probe_peer_rejete_un_serveur_qui_ne_est_pas_un_moteur_control() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         thread::spawn(move || {
@@ -2886,7 +3095,7 @@ LISTEN  0      128              *:3141             *:*";
             }
         });
         let pr = probe_peer("127.0.0.1", port, None);
-        assert!(!pr.alive, "un non-command-center ne doit pas être un pair");
+        assert!(!pr.alive, "un service étranger ne doit pas être un pair");
         assert!(pr.servers.is_none());
     }
 
@@ -2973,7 +3182,7 @@ LISTEN  0      128              *:3141             *:*";
              LISTEN 0      128          0.0.0.0:3141       0.0.0.0:*    users:((\"node\",pid=1111,fd=20))\n\
              LISTEN 0      128        [::]:3141            [::]:*       users:((\"python3\",pid=2222,fd=19))\n\
              LISTEN 0      128          0.0.0.0:31410      0.0.0.0:*    users:((\"node\",pid=3333,fd=18))\n\
-             LISTEN 0      128        127.0.0.1:5090       0.0.0.0:*    users:((\"mcp-command-center\",pid={},fd=12))\n",
+             LISTEN 0      128        127.0.0.1:5090       0.0.0.0:*    users:((\"mcp-control\",pid={},fd=12))\n",
             own
         );
         let mut pids = pids_listening_on_ss(&ss, 3141);
@@ -2991,8 +3200,8 @@ LISTEN  0      128              *:3141             *:*";
     }
 
     #[test]
-    fn command_center_ui_at_detecte_le_moteur_et_rejete_les_etrangers() {
-        // un command-center (hello avec app=mcp-command-center) → Some(url)
+    fn control_ui_at_detecte_le_moteur_et_rejete_les_etrangers() {
+        // un moteur MCP Control (hello avec app=mcp-control) → Some(url)
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = l.local_addr().unwrap().port();
         thread::spawn(move || {
@@ -3002,7 +3211,7 @@ LISTEN  0      128              *:3141             *:*";
                 let _ = s.read(&mut buf);
                 let req = String::from_utf8_lossy(&buf).to_string();
                 let body = if req.starts_with("GET /api/hello") {
-                    r#"{"app":"mcp-command-center","version":"0.7.2","nonce":"aa"}"#.to_string()
+                    r#"{"app":"mcp-control","version":"0.7.2","nonce":"aa"}"#.to_string()
                 } else {
                     String::new()
                 };
@@ -3015,8 +3224,8 @@ LISTEN  0      128              *:3141             *:*";
             }
         });
         assert!(
-            command_center_ui_at(port).is_some(),
-            "un moteur command-center doit être détecté (reconnexion au lieu d'un second)"
+            control_ui_at(port).is_some(),
+            "un moteur MCP Control doit être détecté (reconnexion au lieu d'un second)"
         );
 
         // un occupant étranger (autre logiciel HTTP) → None
@@ -3037,19 +3246,19 @@ LISTEN  0      128              *:3141             *:*";
             }
         });
         assert!(
-            command_center_ui_at(port2).is_none(),
-            "un non-command-center ne doit pas être pris pour un moteur"
+            control_ui_at(port2).is_none(),
+            "un service étranger ne doit pas être pris pour un moteur"
         );
 
         // rien n'écoute → None (rapide, sans panic)
         let l3 = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port3 = l3.local_addr().unwrap().port();
         drop(l3);
-        assert!(command_center_ui_at(port3).is_none());
+        assert!(control_ui_at(port3).is_none());
     }
 
     #[test]
-    fn command_center_ui_at_hosts_trouve_un_moteur_bindi_sur_une_ip_precise() {
+    fn control_ui_at_hosts_trouve_un_moteur_bindi_sur_une_ip_precise() {
         // Serveur qui ne répond QUE sur l'adresse de loopback : on vérifie
         // que la liste d'hôtes est bien respectée (le bind configuré d'abord).
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -3059,7 +3268,7 @@ LISTEN  0      128              *:3141             *:*";
                 let Ok(mut s) = stream else { return };
                 let mut buf = [0u8; 4096];
                 let _ = s.read(&mut buf);
-                let body = r#"{"app":"mcp-command-center","version":"0.7.2","nonce":"x"}"#;
+                let body = r#"{"app":"mcp-control","version":"0.7.2","nonce":"x"}"#;
                 let resp = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                     body.len(),
@@ -3069,9 +3278,9 @@ LISTEN  0      128              *:3141             *:*";
             }
         });
         // Le bind configuré est prioritaire : il est trouvé.
-        assert!(command_center_ui_at_hosts(port, &["127.0.0.1", "::1"]).is_some());
+        assert!(control_ui_at_hosts(port, &["127.0.0.1", "::1"]).is_some());
         // Un bind sur une adresse qui n'écoute pas → pas de faux positif.
-        assert!(command_center_ui_at_hosts(port, &["192.0.2.1"]).is_none());
+        assert!(control_ui_at_hosts(port, &["192.0.2.1"]).is_none());
     }
 
     #[test]

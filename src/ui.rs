@@ -3,7 +3,7 @@ pub const INDEX_HTML: &str = r#"<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Console MCP</title>
+<title>MCP Control</title>
 <style>
 /* ===== Jetons de design ====================================================
    Une seule échelle pour tout : rayons, hauteurs de contrôle, filets.
@@ -546,7 +546,7 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
       <circle cx="8" cy="10" r="1.7" fill="currentColor"/>
       <path d="M5.5 16.2c1.6-1.5 3.1-2.2 4.6-2.2s3 .7 4.6 2.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
     </svg>
-    <span class="wordmark">Console<span class="wm-dim"> MCP</span></span>
+    <span class="wordmark">MCP<span class="wm-dim"> Control</span></span>
   </span>
   <span class="tb-badge" title="Version installée">v__MCC_VERSION__</span>
   <button id="stAuto" onclick="toggleAutostart()" title="Lancer l'application au démarrage de l'OS (tray silencieux)"></button>
@@ -633,7 +633,7 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
           <div><label>Chemin MCP</label><input id="fPath" value="/mcp"></div>
         </div>
         <div class="stack">
-          <label>Commande de lancement (option — permet Start/Stop par le command center)</label>
+          <label>Commande de lancement (option — permet Start/Stop par MCP Control)</label>
           <div class="row row-gap">
             <div><input id="fHttpProgram" placeholder="ex. node ou uvx mcp-server-x"></div>
             <div><input id="fHttpWorkdir" placeholder="workdir (option)"></div>
@@ -687,7 +687,7 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
     </div>
     <div id="machineMsg" class="machine-msg"></div>
     <div id="machineList"></div>
-    <div class="stack"><button onclick="doPeers();setTimeout(renderMachines,3000)">🔄 D&eacute;tecter les command centers sur le LAN</button></div>
+    <div class="stack"><button onclick="doPeers();setTimeout(renderMachines,3000)">🔄 D&eacute;tecter les moteurs MCP Control sur le LAN</button></div>
   </div>
 </dialog>
 
@@ -701,7 +701,7 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
       </svg>
       <div>
         <h2>R&eacute;glages</h2>
-        <p>Pr&eacute;f&eacute;rences du client Console MCP</p>
+        <p>Pr&eacute;f&eacute;rences du client MCP Control</p>
       </div>
     </div>
     <button class="close" onclick="settingsDlg.close()" title="Fermer">&times;</button>
@@ -739,7 +739,7 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
         </div>
         <div class="set-row">
           <div class="set-label"><span>Pairs &amp; r&eacute;seau</span>
-            <em>D&eacute;tecte les autres Command Center du LAN et leurs serveurs distants.</em></div>
+            <em>D&eacute;tecte les autres moteurs MCP Control du LAN et leurs serveurs distants.</em></div>
           <div class="set-ctrl">
             <label class="switch"><input type="checkbox" id="sNetEnabled"><span class="switch-track"></span></label>
           </div>
@@ -779,7 +779,7 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
       <div class="set-list">
         <div class="set-row">
           <div class="set-label"><span>Version install&eacute;e</span>
-            <em>Release GitHub du repo DeamonDev888/mcp-command-center.</em></div>
+            <em>Release GitHub du repo DeamonDev888/mcp-control.</em></div>
           <div class="set-ctrl"><span class="set-static" id="sVersion">v&ndash;</span></div>
         </div>
         <div class="set-row">
@@ -980,8 +980,8 @@ function render() {
   if (state.update_available && state.latest_version) {
     upd.hidden = false;
     upd.textContent = '⬆ v' + state.latest_version + ' dispo';
-    upd.title = 'Nouvelle version ' + state.latest_version + ' publiée sur GitHub (installée : v' + MCC_VERSION + ') — github.com/DeamonDev888/mcp-command-center/releases';
-    upd.onclick = () => window.open('https://github.com/DeamonDev888/mcp-command-center/releases/latest', '_blank', 'noopener,noreferrer');
+    upd.title = 'Nouvelle version ' + state.latest_version + ' publiée sur GitHub (installée : v' + MCC_VERSION + ') — github.com/DeamonDev888/mcp-control/releases';
+    upd.onclick = () => window.open('https://github.com/DeamonDev888/mcp-control/releases/latest', '_blank', 'noopener,noreferrer');
   } else upd.hidden = true;
   renderServers();
   renderPeers();
@@ -1151,8 +1151,8 @@ function rowCtl(s) {
   return `<button class="rowbtn" title="${up?'Arr\u00eater':'D\u00e9marrer'} ce serveur" onclick="event.stopPropagation();act('${up?'kill':'start'}',${js(s.id)})">${up?'\u25a0':'\u25b6'}</button>`;
 }
 
-// Autoboot PAR SERVEUR : relance automatique de CE serveur au démarrage du
-// command center et après un crash. Bouton ⚡ visible dans la ligne et le détail.
+// Autoboot PAR SERVEUR : relance automatique de CE serveur au démarrage
+// de MCP Control et après un crash. Bouton ⚡ visible dans la ligne et le détail.
 function rowAuto(s) {
   if (!s.can_start) return '';
   const on = s.auto_restart;
@@ -1419,7 +1419,7 @@ function renderDetail() {
     ['dernier vu', s.last_seen ? new Date(s.last_seen * 1000).toLocaleString('fr-FR') : '-'],
     ['erreur', s.last_error ?? '-'],
   ].map(([k, v]) => `<div class="k">${k}</div><div class="v">${esc(v)}</div>`).join('');
-  /* Panneau Démarrage : contrôle du process par le command center.
+  /* Panneau Démarrage : contrôle du process par MCP Control.
      « au démarrage » = process lancé ici et vivant, mais MCP pas encore répondu. */
   const starting = s.enabled && s.managed && s.state !== 'UP';
   const dispState = starting ? 'STARTING' : s.state;
@@ -1431,7 +1431,7 @@ function renderDetail() {
     ? s.start_cmd.program + ' ' + (s.start_cmd.args || []).join(' ') + (s.start_cmd.workdir ? '  \u00b7  ' + s.start_cmd.workdir : '')
     : null;
   const kvd = [
-    ['contr&ocirc;le', s.managed ? 'process lanc\u00e9 et maintenu par le command center'
+    ['contr&ocirc;le', s.managed ? 'process lanc\u00e9 et maintenu par MCP Control'
       : (cmd ? 'commande pr\u00eate \u2014 process externe non d\u00e9marr\u00e9 par ici' : 'aucune \u2014 process externe')],
     ['&eacute;tat du process', etatProcess],
     ['pid', s.pid ?? '-'],
@@ -1480,7 +1480,7 @@ function renderDetail() {
         ${s.can_start && s.state === 'UP' ? `<button class="danger" onclick="act('kill',${js(s.id)})">&#9632; Stop</button>` : ''}
         <button onclick="act('refresh',${js(s.id)})">Sonder</button>
         ${s.can_start ? `<button class="autobtn ${s.auto_restart?'on':''}" onclick="setAuto(${js(s.id)},${s.auto_restart?'false':'true'})"
-          title="Autoboot : relance automatique de ce serveur au d&eacute;marrage du command center et apr&egrave;s un crash">&#9889; Autoboot ${s.auto_restart?'ON':'OFF'}</button>` : ''}
+          title="Autoboot : relance automatique de ce serveur au d&eacute;marrage de MCP Control et apr&egrave;s un crash">&#9889; Autoboot ${s.auto_restart?'ON':'OFF'}</button>` : ''}
         <button onclick="act('toggle',${js(s.id)})" title="${s.enabled
           ? 'Mettre en pause : le process est arr&ecirc;t&eacute; et le serveur n&#39;est plus sond&eacute; (il reste dans la liste, r&eacute;activable d&#39;un clic)'
           : 'Reprendre la supervision : le serveur sera sond&eacute; et d&eacute;marr&eacute; si une commande est connue'}">${s.enabled ? '&#9208; Mettre en pause' : '&#9654; Reprendre'}</button>
@@ -1508,7 +1508,7 @@ function select(id) { selectedId = id; detailCache = null; detailTab = 'outils';
 function startCmdForm(s) {
   if (s.can_start || s.transport === 'stdio') return '';
   const host = s.transport_info && s.transport_info.host;
-  if (host) return '<div class="conf-note note-gap">Serveur distant : la commande de lancement appartient &agrave; sa machine (' + esc(host) + '), pas au command center.</div>';
+  if (host) return '<div class="conf-note note-gap">Serveur distant : la commande de lancement appartient &agrave; sa machine (' + esc(host) + '), pas à MCP Control.</div>';
   const port = (s.transport_info || {}).port || 0;
   return `<div class="startcmd-form note-gap">
     <div class="conf-note">Aucune commande de lancement connue : c'est pourquoi les boutons <b>&#9654;/&#9632;</b> et <b>&#9889;</b> sont absents. Indique comment lancer ce serveur :</div>
@@ -1533,7 +1533,7 @@ async function setStartCmd(id) {
 }
 function removeSrv(id) { selectedId = null; detailCache = null; act('remove', id); }
 function removeSeedForever(id) {
-  if (!confirm('Retirer ce seed DURABLEMENT ? Il ne sera pas réinjecté au redémarrage du command center.')) return;
+  if (!confirm('Retirer ce seed DURABLEMENT ? Il ne sera pas réinjecté au redémarrage de MCP Control.')) return;
   selectedId = null; detailCache = null;
   fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action: 'remove', id, durable: true})}).then(load);
@@ -1736,7 +1736,7 @@ async function act(action, id) {
   await load();
 }
 
-// Autoboot par serveur (⚡) : relance auto au démarrage du command center
+// Autoboot par serveur (⚡) : relance auto au démarrage de MCP Control
 // et après un crash. Persisté dans config.json par le moteur.
 async function setAuto(id, enabled) {
   await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -1834,7 +1834,7 @@ async function checkUpdateNow() {
   }
 }
 function openUpdate() {
-  window.open('https://github.com/DeamonDev888/mcp-command-center/releases/latest', '_blank', 'noopener,noreferrer');
+  window.open('https://github.com/DeamonDev888/mcp-control/releases/latest', '_blank', 'noopener,noreferrer');
 }
 async function resetState(what) {
   const sel = document.getElementById('sResetWhat');
@@ -1887,7 +1887,7 @@ function renderMachines() {
     '<div class="empty-sec">aucune machine enregistr&eacute;e — entre une IP et un utilisateur SSH ci-dessus</div>';
   html += hosts.map(h => {
     const peer = peers.find(p => p.ip === h.ip);
-    const st = peer ? `command center d&eacute;tect&eacute; — ${esc((peer.stats||{}).up ?? '?')} UP / ${esc((peer.stats||{}).total ?? '?')} serveurs`
+    const st = peer ? `moteur MCP Control d&eacute;tect&eacute; — ${esc((peer.stats||{}).up ?? '?')} UP / ${esc((peer.stats||{}).total ?? '?')} serveurs`
                     : 'machine enregistr&eacute;e';
     return `<div class="machine-row">
       <div class="l1"><span class="dot UP"></span><span class="nm">${esc(h.ip)}</span><span class="tag http">${esc(h.user)}</span>${peer ? '<span class="tag sse">pair</span>' : ''}</div>

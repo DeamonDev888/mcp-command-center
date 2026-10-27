@@ -1972,17 +1972,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "mcp-command-center"
+name = "mcp-control"
 version = "0.7.12"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
-name = "mcp-command-center-desktop"
+name = "mcp-control-desktop"
 version = "0.7.12"
 dependencies = [
- "mcp-command-center",
+ "mcp-control",
  "serde_json",
  "tauri",
  "tauri-build",

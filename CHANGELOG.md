@@ -1,3 +1,24 @@
+## [Non versionné] — Notifications webhook, supervision runtime, suite E2E complète
+
+### Notifications webhook
+- **`src/notify.rs`** : notification HTTP configurable (URL webhook, en-têtes personnalisés — voie dédiée tolérant `Authorization: Bearer …` avec échappement anti-CR/LF) lorsqu'un serveur crash ou redémarre. Configurable depuis l'UI via l'action `set_notify` ; état visible dans `/api/state`.
+
+### Supervision runtime
+- **`src/runtime.rs`** : l'auto-restart n'abandonne plus au bout de 3 échecs consécutifs quel que soit le délai — backoff exponentiel borné (5 s → 5 min), compteur **persisté** dans config.json, abandon seulement après 5 échecs dans la fenêtre de backoff. Historique borné (100 événements) par serveur : crashs, redémarrages, causes.
+
+### Cœur — correctifs de l'audit 2026-10-26
+- **Fusion des doublons restreinte** (`merge_duplicate_servers`) : seules les entrées **découvertes** avec un nom annoncé non vide peuvent fusionner (même nom + même machine, la plus récemment vue gagne) — jamais un serveur manuel, seed ou sans nom annoncé. L'ancienne version supprimait silencieusement des serveurs distincts (clé sans port, repli sur label) et persistait la suppression. Tests de régression ajoutés.
+- **Découverte SSH non destructive** : une sonde validée sans `serverInfo`/`version` n'efface plus les valeurs connues ; le label fabriqué `ip:port` suit le nom annoncé ; les entrées désactivées ne sont jamais détournées ; `via_ssh` n'est plus forcé sur les serveurs manuels.
+
+### Tests de bout en bout (nouveau)
+- **`tests/e2e/`** : harnais Rust std-only (moteur réel lancé en isolement via `MCC_CONFIG`, fixtures MCP inline, verrou de sérialisation) + **38 scénarios** : auth loopback/LAN, Host/Origin forgés, **RCE sans code → 401 et aucun process lancé**, preuve de pair HMAC avec rejeu, fuzz filaire (413, Transfer-Encoding, Content-Length dupliqué), cycle de vie complet (add/UP/toggle tue le pid/relance/remove/persistance au redémarrage), scan (trouve une fixture, rejette `{"result":{}}`, régression fusion, prune), et **contrat de chaque bouton** (16 actions testées).
+
+### Divers
+- Binaire/scripts renommés (`mcp-control`, `start-mcp-control.bat`), `docs/frameworks.md`, bannières README, README mis à jour, workflow release ajusté.
+
+### Tests
+- **121 tests unitaires + 38 tests E2E verts**, `cargo clippy --all-targets -- -D warnings` : 0 warning, `cargo fmt --check` : propre.
+
 ## [0.7.12] — Finitions « produit » : diagnostic réseau, pannes visibles, confort d'usage
 
 ### Diagnostic réseau (le cas VPN qui ressemblait à une panne)
