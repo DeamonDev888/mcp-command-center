@@ -528,8 +528,17 @@ input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 
    Ces classes remplacent les anciens style="" dispersés dans le HTML :
    la mise en page vit dans la feuille de style, pas dans les balises. */
 .tb-push{margin-left:auto}
-/* Case à cocher maison : le carré natif est trop gros et mal aligné
-   avec le texte — on le remplace par un contrôle de 16 px, centré. */
+/* Utilitaires référencés par le HTML/JS (refonte : les style="" dispersés
+   sont devenus des classes — les règles ci-dessous les réalisent). */
+.stack{display:grid;gap:6px}
+.row.row-gap{gap:8px}
+.row.row-end{justify-content:flex-end}
+.row.row-between{justify-content:space-between}
+.note-gap,.hint-gap{margin-top:14px}
+.dlg-body-tight{padding:14px 16px 16px}
+.empty-note{font:11px/1.4 var(--sans);color:var(--t4);padding:10px 0;font-style:italic}
+.empty-indent{padding-left:23px}
+.dot.dot-lg{width:10px;height:10px}
 </style>
 </head>
 <body>
@@ -1401,6 +1410,17 @@ function confAgent(s) {
 function renderDetail() {
   const s = detailCache;
   if (!s || s.id !== selectedId) return;
+  // Le rendu tourne toutes les 5 s : si l'utilisateur tape dans le formulaire
+  // Démarrage (set_start_cmd), on ne détruit pas le DOM sous ses doigts —
+  // le prochain cycle réaffichera l'état à jour.
+  const aEl = document.activeElement;
+  if (aEl && (aEl.id === 'scProgram' || aEl.id === 'scArgs' || aEl.id === 'scWorkdir')) return;
+  // Hors saisie active : conserver ce qui a déjà été tapé dans ces champs.
+  const typed = {};
+  ['scProgram', 'scArgs', 'scWorkdir'].forEach(idOld => {
+    const el = document.getElementById(idOld);
+    if (el && el.value) typed[idOld] = el.value;
+  });
   const ti = s.transport === 'http'
     ? `HTTP ${s.transport_info.host ? s.transport_info.host + ':' : ''}${s.transport_info.port}${s.transport_info.path}`
     : `stdio \u00b7 ${s.transport_info.program} ${(s.transport_info.args || []).join(' ')}`;
@@ -1498,6 +1518,12 @@ function renderDetail() {
       <button class="tab ${detailTab === 'conf' ? 'sel' : ''}" onclick="detailTab='conf';renderDetail()">Conf agent</button>
     </div>
     ${detailTab === 'conf' ? confAgent(s) : toolsHtml}`;
+  // Restaure la saisie en cours du formulaire Démarrage (set_start_cmd) :
+  // le re-rendu périodique régénère ces champs, on ne perd pas ce qui est tapé.
+  for (const idOld in typed) {
+    const el = document.getElementById(idOld);
+    if (el && !el.value) el.value = typed[idOld];
+  }
 }
 
 function select(id) { selectedId = id; detailCache = null; detailTab = 'outils'; render(); load(); }

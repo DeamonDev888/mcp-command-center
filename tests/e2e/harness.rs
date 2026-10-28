@@ -712,12 +712,32 @@ fn fake_conn(mut s: TcpStream, mode: FakeMode) {
 
     let payload = match mode {
         FakeMode::Mcp => {
-            let method = serde_json::from_slice::<Value>(&body)
-                .ok()
+            let parsed: Option<Value> = serde_json::from_slice(&body).ok();
+            let method = parsed
+                .as_ref()
                 .and_then(|v| v.get("method").and_then(|m| m.as_str()).map(String::from))
                 .unwrap_or_default();
             match method.as_str() {
                 "tools/list" => tools_json(),
+                // tools/call : le gateway MCP de la console proxyfie les
+                // appels jusqu'ici — la fixture répond un vrai résultat avec
+                // structuredContent, en écho au nom de l'outil appelé
+                "tools/call" => {
+                    let appel = parsed
+                        .as_ref()
+                        .and_then(|v| v["params"]["name"].as_str())
+                        .unwrap_or("?")
+                        .to_string();
+                    let rpc_id = parsed.as_ref().map(|v| v["id"].clone()).unwrap_or(json!(9));
+                    json!({
+                        "jsonrpc": "2.0", "id": rpc_id,
+                        "result": {
+                            "content": [{"type": "text", "text": format!("pong:{}", appel)}],
+                            "structuredContent": { "pong": true, "tool": appel }
+                        }
+                    })
+                    .to_string()
+                }
                 // notifications/initialized et toute autre méthode : result vide
                 "notifications/initialized" => {
                     json!({"jsonrpc": "2.0", "id": 3, "result": {}}).to_string()

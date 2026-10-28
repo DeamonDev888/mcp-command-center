@@ -1,5 +1,6 @@
 pub mod crypto;
 pub mod frameworks;
+pub mod gateway;
 pub mod logos;
 pub mod manage;
 pub mod notify;
@@ -224,7 +225,10 @@ pub fn check_access(
     // /api/hello est PRÉ-authentifié : il ne délivre qu'un nonce à usage unique,
     // aucune donnée — c'est l'amorce de la preuve de pair (cf. verify_proof).
     let is_hello = bare_path == "/api/hello";
-    if require_access && bare_path.starts_with("/api") && !is_hello && !proof_ok {
+    // le gateway MCP (/mcp) est protégé comme /api/* : hors loopback, le code
+    // d'accès est exigé — c'est le même sas de confiance
+    let gated_path = bare_path.starts_with("/api") || bare_path == "/mcp";
+    if require_access && gated_path && !is_hello && !proof_ok {
         let hdr = headers
             .iter()
             .find(|(n, _)| n == "x-mcc-access")
@@ -253,13 +257,17 @@ pub fn check_access(
 
 fn reason_phrase(status: u16) -> &'static str {
     match status {
+        202 => "Accepted",
         400 => "Bad Request",
         200 => "OK",
         401 => "Unauthorized",
         403 => "Forbidden",
         404 => "Not Found",
+        405 => "Method Not Allowed",
+        406 => "Not Acceptable",
         413 => "Payload Too Large",
         415 => "Unsupported Media Type",
+        503 => "Service Unavailable",
         500 => "Internal Server Error",
         _ => "Bad Request",
     }
@@ -558,6 +566,41 @@ pub fn run_headless() -> RunOutcome {
         });
     }
 
+    // GATEWAY MCP : la console est elle-même un serveur MCP — POST /mcp sur
+    // le port UI, toute la surface de l'app en tools + proxy vers les
+    // serveurs détectés (cf. gateway::serve). Le snapshot des ressources est
+    // reconstruit quand l'empreinte de détection change (thread ci-dessous ;
+    // les actions passées par le gateway lui-même rafraîchissent immédiatement).
+    let gw = gateway::install(&state);
+    {
+        let msg = format!(
+            "gateway MCP prêt : {} outils de supervision + proxy call_server_tool — les clients MCP joignent POST {}/mcp{}",
+            gateway::tool_count(&gw.snapshot()),
+            ui_url,
+            if is_loopback_bind(&ui_bind) {
+                String::new()
+            } else {
+                " (code d'accès exigé hors loopback, comme /api/*)".to_string()
+            }
+        );
+        println!("[MCP] {msg}");
+        manage::add_log(&state, "info", &msg);
+    }
+    {
+        let st = state.clone();
+        thread::spawn(move || {
+            let mut last = gateway::fingerprint(&st);
+            loop {
+                thread::sleep(Duration::from_secs(5));
+                let now = gateway::fingerprint(&st);
+                if now != last {
+                    last = now;
+                    gateway::refresh(&st);
+                }
+            }
+        });
+    }
+
     // serveur HTTP en tâche de fond : run_headless retourne, l'app hôte décide
     // (main = park forever, desktop = boucle d'événements Tauri)
     thread::spawn(move || {
@@ -711,6 +754,12 @@ pub fn handle_conn(mut stream: TcpStream, state: Arc<AppState>) {
             let j = serde_json::json!({"ok": false, "error": reason}).to_string();
             (code, "application/json", j.into_bytes())
         }
+        // Gateway MCP : la console elle-même est un serveur MCP — POST /mcp
+        // (émule le transport Streamable HTTP stateless de LiteMCP sur notre
+        // socket déjà durci ; cf. gateway::serve)
+        Ok(()) if path.split('?').next() == Some("/mcp") => {
+            gateway::serve(&method, &headers, &body)
+        }
         Ok(()) => route(&state, &method, &path, &body),
     };
     // ACAO dynamique : on reflète UNIQUEMENT une origine autorisée (jamais *),
@@ -722,7 +771,7 @@ pub fn handle_conn(mut stream: TcpStream, state: Arc<AppState>) {
         ctype,
         payload.len()
     );
-    if ctype == "application/json" {
+    if ctype == "application/json" || ctype == "text/event-stream" {
         resp.push_str("Cache-Control: no-store\r\n");
     }
     // CSP sur la page UI : la page est mono-fichier inline, mais une XSS future

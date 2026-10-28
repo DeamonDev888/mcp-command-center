@@ -9,6 +9,10 @@ edition = "2021"
 
 [dependencies]
 serde_json = "1"
+# Gateway MCP : la console elle-même devient un serveur MCP (POST /mcp sur le
+# port UI) — dispatch MCP 2026-07-28 embarqué (ServerCore::dispatch), catalogues
+# dynamiques. Sans features optionnelles : serde + serde_json seulement.
+litemcp = "0.9"
 
 [[bin]]
 name = "mcp-control"

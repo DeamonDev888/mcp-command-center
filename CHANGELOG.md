@@ -1,3 +1,24 @@
+## [Non versionné] — Gateway MCP : la console devient un serveur MCP
+
+### Gateway MCP (propulsé par LiteMCP)
+- **`src/gateway.rs` (nouveau)** : la console expose **POST /mcp** sur son port UI (même socket durci que l'API) — un client MCP standard (ZCode, Claude Desktop, MCP Inspector…) obtient **toute la surface de l'UI en tools MCP** :
+  - **lecture** : `list_servers` (états fins UP/PORT-ONLY/DOWN/DISABLED + filtre), `server_detail`, `list_server_tools`, `journal`, `runtime_history`, `list_peers`, `store_catalog` (recherche plein texte), `list_frameworks`, `get_settings` (jamais le code d'accès) ;
+  - **actions** : chaque bouton de l'UI a son outil, tous adossés au **même dispatcher** que l'UI (`manage::handle_action` — une seule sémantique, une seule validation, un seul journal) : `refresh`, `scan_ports`, `scan_network`, `discover_peers`, `check_update`, `add_server`, `remove_server`, `toggle_server`, `start_server`, `stop_server`, `set_start_command`, `set_host`, `toggle_tool`, `set_auto_restart`, `reorder_servers`, `import_config`, `install_store_server`, `ssh_save`, `ssh_forget`, `ssh_discover` ;
+  - **gateway** : `call_server_tool(server, tool, arguments)` proxyfie un `tools/call` vers n'importe quel serveur HTTP **détecté UP** (résultat upstream rendu tel quel ; outil coupé dans l'UI et serveurs via SSH/stdio/DOWN refusés avant tout appel réseau) ;
+  - **ressources** : `mcp-control://servers` (aperçu), `mcp-control://server/<id>` (une par serveur détecté, snapshot reconstruit quand l'empreinte de détection change), `mcp-control://journal`, `mcp-control://settings`.
+- **Serveur MCP 2026-07-28 complet** via la dépendance [litemcp](https://crates.io/crates/litemcp) 0.8 (serde uniquement) : `initialize`/`server/discover`, `resultType` + `_meta` sur chaque réponse, schémas d'entrée exécuteurs (zod — `-32602` avant tout handler), annotations read-only/destructive, hook `on_call` → le journal de l'UI raconte l'activité MCP.
+- **Transport reflété sur notre socket** : `Content-Type: application/json` strict (415, doublon → 400), négociation `Accept` (SSE mono-événement `event: message` — injection de champs neutralisée ; 406 sans type acceptable), en-têtes `Mcp-Method`/`Mcp-Name` vérifiés contre le corps (SEP-2243 ; incohérents → -32020), notification → **202** sans corps, GET/DELETE → **405**. Auth héritée du sas existant : loopback jamais de code, hors loopback le **code d'accès API est exigé** (`check_access` couvre désormais `/mcp` comme `/api/*`).
+- **Volontairement non exposés** (surface de confiance) : `set_settings` (code d'accès, bind, origines — le sas d'auth du gateway lui-même), `set_autostart`, `set_notify`, `reset_state`, `reset_runtime`, `open_path` — ces réglages restent des gestes UI locaux.
+- Instantané MCP échangé quand la détection change (empreinte ids/états/outils comparée toutes les 5 s ; actions passées par le gateway → rafraîchissement immédiat).
+
+### Divers
+- `reason_phrase` complétée (202/405/406/503) ; `Cache-Control: no-store` étendu aux réponses SSE.
+
+### Tests
+- **9 tests unitaires gateway** (transport 202/405/415/406/SSE/SEP-2243, surface complète des tools, validation de schéma avant handler, journalisation, empreinte, cible proxy, refus serveur inconnu/outil coupé) ;
+- **7 scénarios E2E `scenarios_gateway.rs`** contre le VRAI binaire : initialize/tools/list/server/discover, supervision par MCP (list/detail/toggle vérifiés dans l'état du moteur), proxy vers une fixture MCP réelle (résultat upstream + refus DOWN), `toggle_tool` qui coupe le proxy, ressources par serveur détecté (snapshot reconstruit sans redémarrage), règles de transport complètes, matrice d'auth loopback/LAN ;
+- **141 tests unitaires + 45 tests E2E verts**, `cargo clippy --all-targets -- -D warnings` : 0 warning, `cargo fmt --check` : propre.
+
 ## [Non versionné] — Notifications webhook, supervision runtime, suite E2E complète
 
 ### Notifications webhook

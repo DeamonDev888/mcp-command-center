@@ -9,6 +9,7 @@ Une petite application qui **veille sur tes serveurs MCP** : elle les trouve tou
 - **Voir** tous tes serveurs MCP en un coup d'œil (même ceux que tu avais oubliés).
 - **Savoir** immédiatement qui marche et qui est planté.
 - **Agir** : démarrer, arrêter, installer de nouveaux serveurs, tout depuis la même fenêtre.
+- **Gateway** : la console est elle-même un serveur MCP — un client MCP qui pointe sur `http://127.0.0.1:5090/mcp` pilote toute l'app (et appelle les outils de tes serveurs détectés) sans jamais ouvrir la fenêtre.
 
 ## Installer
 
@@ -134,6 +135,9 @@ au PHP, avec leur langage. Le badge `STDIO` / `HTTP` / `WS` indique le transport
 ![Les trois familles de badges](assets/readme-badges.png)
 *Trois familles, trois codes couleur. **Langage** (à gauche) : la couleur du langage — JS jaune, Python vert, Rust orange, Go cyan. **Transport** : monochrome — `HTTP` le plus clair, `STDIO` médian, `WS` le plus sourd — et le chip `désuet` en pointillés pour les serveurs stdio. **Framework** (à droite) : la couleur du langage qu'il fait tourner ; seul **LiteMCP** porte un halo orange.*
 
+![Onze frameworks côte à côte dans la liste](assets/readme-frameworks.png)
+*Onze frameworks différents supervisés en même temps, chacun reconnu et badgé en direct : MCP SDK (JS et Python), FastMCP, rust-mcp-sdk, mcp-go, tower-mcp, ViteMCP, rmcp, LiteMCP… — avec le langage, le transport, le nombre d'outils et l'état UP de chacun. Les deux serveurs stdio (`npx`) portent le chip `désuet`.*
+
 ![Un serveur en détail](assets/readme-detail.png)
 *Clique sur un serveur : tu vois tous ses outils (tools), son état, sa vitesse, sa version — et des boutons pour l'allumer, l'éteindre, ou couper un outil précis.*
 
@@ -160,6 +164,33 @@ au PHP, avec leur langage. Le badge `STDIO` / `HTTP` / `WS` indique le transport
 
 ![La boutique](assets/readme-boutique.png)
 *64 serveurs MCP à installer d'un clic, avec leurs logos. Une barre de recherche pour trouver le bon.*
+
+## Gateway MCP : la console est un serveur MCP
+
+L'app n'est pas seulement une fenêtre : elle **expose un vrai serveur MCP** sur son propre port (`POST /mcp`, propulsé par [LiteMCP](https://github.com/DeamonDev888/litemcp), spec 2026-07-28). Un client MCP qui s'y connecte reçoit :
+
+| Groupe | Tools |
+|---|---|
+| **Superviser** (lecture) | `list_servers` (états fins + filtre), `server_detail`, `list_server_tools`, `journal`, `runtime_history`, `list_peers`, `store_catalog`, `list_frameworks`, `get_settings` |
+| **Agir** (boutons de l'UI) | `refresh`, `scan_ports`, `scan_network`, `discover_peers`, `add_server`, `remove_server`, `toggle_server`, `start_server`, `stop_server`, `set_start_command`, `set_host`, `toggle_tool`, `set_auto_restart`, `reorder_servers`, `import_config`, `install_store_server`, `ssh_save`, `ssh_forget`, `ssh_discover`, `check_update` |
+| **Gateway** (proxy) | `call_server_tool(server, tool, arguments)` — appelle un outil de n'importe quel serveur HTTP **détecté UP**, en respectant l'interrupteur par outil de l'UI |
+
+Plus des **ressources** à parcourir : `mcp-control://servers` (aperçu), `mcp-control://server/<id>` (une par serveur détecté, mise à jour à chaque changement de détection), `mcp-control://journal`, `mcp-control://settings`.
+
+Concrètement, ton assistant (ZCode, Claude Desktop…) déclare simplement :
+
+```json
+{ "mcpServers": { "mcp-control": { "url": "http://127.0.0.1:5090/mcp" } } }
+```
+
+…et il peut alors « montre-moi mes serveurs MCP », « relance debats », « installe le serveur Filesystem de la boutique » ou « appelle l'outil X du serveur Y » — tout passe par les mêmes circuits que les boutons : mêmes validations, même journal, même auth.
+
+**Sécurité et limites, volontairement :**
+
+- même port, même sas que l'API : en local (loopback) aucun code n'est demandé ; si l'app est exposée au réseau, le **code d'accès** est exigé (`X-MCC-Access` ou `?access=`), exactement comme pour `/api/*` ;
+- les outils qui touchent au sas de confiance (`set_settings`, `set_autostart`, `set_notify`, `reset_state`, `reset_runtime`, `open_path`) ne sont **pas** exposés en MCP — ces gestes restent des gestes UI locaux ;
+- le proxy `call_server_tool` ne couvre que les serveurs HTTP détectés **UP** (stdio, SSH et hors-ligne sont refusés avec le motif exact) ;
+- le transport suit les règles LiteMCP : `Content-Type: application/json` exigé, notification → `202`, GET → `405`, SSE mono-événement si le client ne veut que ça, en-têtes `Mcp-Method`/`Mcp-Name` vérifiés.
 
 ## Un problème ? La réponse rapide
 
@@ -189,6 +220,15 @@ curl "http://127.0.0.1:5090/api/detail?id=seed-overmind"
 curl -X POST -H "Content-Type: application/json" \
   -d '{"action":"add","transport":"stdio","label":"mon-mcp","program":"node","args":["dist/index.js"]}' \
   http://127.0.0.1:5090/api/action
+
+# la même app est un SERVEUR MCP (gateway) — lister ses tools :
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+  http://127.0.0.1:5090/mcp
+
+# …et appeler un outil d'un serveur détecté, depuis n'importe quel client MCP :
+#   tools/call { "name": "call_server_tool",
+#                "arguments": { "server": "mon-mcp", "tool": "ping" } }
 ```
 
 </details>
