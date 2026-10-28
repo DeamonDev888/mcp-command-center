@@ -1,3 +1,13 @@
+## [0.7.14] — Packaging : binaire macOS universel, téléchargements simplifiés
+
+- **macOS fusionné** : un seul livrable par type — `mcp-control-desktop-macos-universal` (app avec fenêtre) et `mcp-control-macos-universal` (moteur headless). Les deux architectures (Intel `x86_64` + Apple Silicon `aarch64`) sont compilées puis fusionnées avec `lipo` en un **binaire universel** : macOS choisit nativement le bon jeu d'instructions au lancement, aucun choix à faire — le même fichier tourne sur M1→M4 comme sur les Mac Intel (le binaire pèse ~2× un binaire mono-archi, c'est le prix de l'unicité).
+- **Windows** : l'installateur wizard devient la seule voie proposée pour l'app avec fenêtre (le binaire portable reste disponible dans les assets de la release, il n'est simplement plus mis en avant — ni dans le README, ni dans les notes de release).
+- **Workflow release** : job macOS unique par livrable (compilation des 2 cibles + `lipo -create`, vérification `lipo -info` dans les logs) ; `workflow_dispatch` permet de tester les builds sans publier. Notes de release resserrées à un fichier principal par OS.
+- **README** : table de téléchargement à une ligne par OS — setup Windows, macOS universel, Linux x86_64.
+
+### Tests
+- Aucun changement de code Rust : `cargo test`, `clippy -D warnings`, `fmt --check` inchangés.
+
 ## [0.7.13] — Gateway MCP, notifications webhook, supervision runtime, suite E2E complète + ménage
 
 ### Gateway MCP (propulsé par LiteMCP)

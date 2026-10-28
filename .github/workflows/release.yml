@@ -26,12 +26,13 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: mcp-control-windows-x86_64
+          # macOS : un seul livrable universel — les deux architectures sont
+          # compilées puis fusionnées avec lipo en un binaire qui tourne natif
+          # sur Intel ET Apple Silicon (macOS choisit la bonne au lancement).
           - os: macos-latest
-            target: aarch64-apple-darwin
-            artifact: mcp-control-macos-aarch64
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            artifact: mcp-control-macos-x86_64
+            target: universal-apple-darwin
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            artifact: mcp-control-macos-universal
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (épinglé SHA — supply-chain)
@@ -39,7 +40,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable (épinglé SHA)
         with:
           toolchain: stable
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.rust_targets || matrix.target }}
 
       - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2 (épinglé SHA)
         with:
@@ -52,7 +53,16 @@ jobs:
         run: cargo clippy --release -p mcp-control --all-targets -- -D warnings
 
       - name: Build
-        run: cargo build --release -p mcp-control --target ${{ matrix.target }}
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.rust_targets }}" ]; then
+            # cible universelle : compiler chaque architecture (lipo fusionne ensuite)
+            for t in $(echo "${{ matrix.rust_targets }}" | tr ',' ' '); do
+              cargo build --release -p mcp-control --target "$t"
+            done
+          else
+            cargo build --release -p mcp-control --target ${{ matrix.target }}
+          fi
 
       - name: Collecter le binaire
         shell: bash
@@ -62,7 +72,15 @@ jobs:
             *windows*) EXT=".exe" ;;
           esac
           FILE="${{ matrix.artifact }}${EXT}"
-          cp "target/${{ matrix.target }}/release/mcp-control${EXT}" "$FILE"
+          if [ -n "${{ matrix.rust_targets }}" ]; then
+            # fusion des deux architectures en un binaire universel
+            lipo -create -output "$FILE" \
+              target/aarch64-apple-darwin/release/mcp-control \
+              target/x86_64-apple-darwin/release/mcp-control
+            lipo -info "$FILE"
+          else
+            cp "target/${{ matrix.target }}/release/mcp-control${EXT}" "$FILE"
+          fi
           echo "FILE=$FILE" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4 (épinglé SHA)
@@ -83,12 +101,11 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact: mcp-control-desktop-linux-x86_64
+          # macOS : un seul livrable universel (voir le job build)
           - os: macos-latest
-            target: aarch64-apple-darwin
-            artifact: mcp-control-desktop-macos-aarch64
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            artifact: mcp-control-desktop-macos-x86_64
+            target: universal-apple-darwin
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            artifact: mcp-control-desktop-macos-universal
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (épinglé SHA)
@@ -105,14 +122,23 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable (épinglé SHA)
         with:
           toolchain: stable
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.rust_targets || matrix.target }}
 
       - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2 (épinglé SHA)
         with:
           key: desktop-${{ matrix.target }}
 
       - name: Build (Tauri / webview système)
-        run: cargo build --release -p mcp-control-desktop --target ${{ matrix.target }}
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.rust_targets }}" ]; then
+            # cible universelle : compiler chaque architecture (lipo fusionne ensuite)
+            for t in $(echo "${{ matrix.rust_targets }}" | tr ',' ' '); do
+              cargo build --release -p mcp-control-desktop --target "$t"
+            done
+          else
+            cargo build --release -p mcp-control-desktop --target ${{ matrix.target }}
+          fi
 
       # Installateur Windows (wizard NSIS : langue, dossier, raccourcis).
       # `tauri build` réutilise le binaire déjà compilé et n'ajoute que le bundle.
@@ -134,7 +160,15 @@ jobs:
             *windows*) EXT=".exe" ;;
           esac
           FILE="${{ matrix.artifact }}${EXT}"
-          cp "target/${{ matrix.target }}/release/mcp-control-desktop${EXT}" "$FILE"
+          if [ -n "${{ matrix.rust_targets }}" ]; then
+            # fusion des deux architectures en un binaire universel
+            lipo -create -output "$FILE" \
+              target/aarch64-apple-darwin/release/mcp-control-desktop \
+              target/x86_64-apple-darwin/release/mcp-control-desktop
+            lipo -info "$FILE"
+          else
+            cp "target/${{ matrix.target }}/release/mcp-control-desktop${EXT}" "$FILE"
+          fi
           echo "FILE=$FILE" >> "$GITHUB_ENV"
           # installateur wizard NSIS (Windows uniquement)
           SETUP=$(ls "target/${{ matrix.target }}/release/bundle/nsis/"*-setup.exe 2>/dev/null | head -1 || true)
@@ -181,15 +215,13 @@ jobs:
           | Fichier | Quoi |
           |---|---|
           | `mcp-control-desktop-windows-x86_64-setup.exe` | **L'app avec fenêtre — installateur recommandé** (wizard : langue, dossier, raccourcis) |
-          | `mcp-control-desktop-windows-x86_64.exe` | L'app avec fenêtre — portable, sans installation |
           | `mcp-control-windows-x86_64.exe` | Moteur headless (console, sans fenêtre — serveurs/scripts) |
 
           ### 🍎 macOS
           | Fichier | Quoi |
           |---|---|
-          | `mcp-control-desktop-macos-aarch64` | **L'app avec fenêtre — Apple Silicon (M1/M2/M3/M4)** |
-          | `mcp-control-desktop-macos-x86_64` | L'app avec fenêtre — Mac Intel |
-          | `mcp-control-macos-aarch64` · `mcp-control-macos-x86_64` | Moteur headless (console) — même CPU que l'app |
+          | `mcp-control-desktop-macos-universal` | **L'app avec fenêtre — binaire universel : Mac Intel ET Apple Silicon (M1→M4)** |
+          | `mcp-control-macos-universal` | Moteur headless (console) — même binaire universel |
 
           ### 🐧 Linux (x86_64)
           | Fichier | Quoi |

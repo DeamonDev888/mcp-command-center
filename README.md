@@ -1,6 +1,6 @@
-# MCP Control
+# 🔧 MCP Control — le tableau de bord de tes serveurs MCP
 
-Une petite application qui **veille sur tes serveurs MCP** : elle les trouve toute seule, te dit lequel marche et lequel est cassé, et te laisse tout allumer ou éteindre d'un clic.
+Il les trouve tout seul, te dit lequel marche et lequel est cassé (et pourquoi), tout se pilote d'un clic — et grâce au mode gateway, ton assistant IA peut tout faire à ta place en lui parlant simplement 🤖
 
 ![L'application au démarrage](assets/readme-accueil.png)
 
@@ -18,9 +18,7 @@ Tout est compilé et prêt dans la [page des releases](https://github.com/Deamon
 | Ton OS | L'app (avec fenêtre) |
 |---|---|
 | 🪟 **Windows** — installateur wizard | [**`…windows-x86_64-setup.exe`**](https://github.com/DeamonDev888/mcp-control/releases/latest/download/mcp-control-desktop-windows-x86_64-setup.exe) |
-| 🪟 **Windows** — portable (sans installation) | [`…windows-x86_64.exe`](https://github.com/DeamonDev888/mcp-control/releases/latest/download/mcp-control-desktop-windows-x86_64.exe) |
-| 🍎 **macOS** — Apple Silicon (M1/M2/M3/M4) | [`…macos-aarch64`](https://github.com/DeamonDev888/mcp-control/releases/latest/download/mcp-control-desktop-macos-aarch64) |
-| 🍎 **macOS** — Intel | [`…macos-x86_64`](https://github.com/DeamonDev888/mcp-control/releases/latest/download/mcp-control-desktop-macos-x86_64) |
+| 🍎 **macOS** — Intel & Apple Silicon (M1→M4) | [`…macos-universal`](https://github.com/DeamonDev888/mcp-control/releases/latest/download/mcp-control-desktop-macos-universal) |
 | 🐧 **Linux** — x86_64 | [`…linux-x86_64`](https://github.com/DeamonDev888/mcp-control/releases/latest/download/mcp-control-desktop-linux-x86_64) |
 
 - L'installateur Windows t'accompagne (langue, dossier d'installation, menu
@@ -29,7 +27,7 @@ Tout est compilé et prêt dans la [page des releases](https://github.com/Deamon
   fichier → **Ouvrir**.
 - **Linux** : `chmod +x` sur le fichier téléchargé, puis lance-le.
 - Tu préfères tout en console, sans fenêtre ? Les binaires **headless**
-  (`…windows-x86_64.exe`, `…linux-x86_64`, `…macos-aarch64`, `…macos-x86_64`
+  (`…windows-x86_64.exe`, `…linux-x86_64`, `…macos-universal`
   sans le `desktop-`) sont dans la même release.
 
 > ℹ️ Le préfixe des fichiers est `mcp-control-` depuis la v0.7.13 ;
