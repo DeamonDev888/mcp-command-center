@@ -17,11 +17,11 @@ Tout est compilé et prêt dans la [page des releases](https://github.com/Deamon
 
 | Ton OS | L'app (avec fenêtre) |
 |---|---|
-| 🪟 **Windows** — installateur wizard | [**`…windows-x86_64-setup.exe`**](https://github.com/DeamonDev888/mcp-control/releases/latest/download/mcp-command-center-desktop-windows-x86_64-setup.exe) |
-| 🪟 **Windows** — portable (sans installation) | [`…windows-x86_64.exe`](https://github.com/DeamonDev888/mcp-control/releases/latest/download/mcp-command-center-desktop-windows-x86_64.exe) |
-| 🍎 **macOS** — Apple Silicon (M1/M2/M3/M4) | [`…macos-aarch64`](https://github.com/DeamonDev888/mcp-control/releases/latest/download/mcp-command-center-desktop-macos-aarch64) |
-| 🍎 **macOS** — Intel | [`…macos-x86_64`](https://github.com/DeamonDev888/mcp-control/releases/latest/download/mcp-command-center-desktop-macos-x86_64) |
-| 🐧 **Linux** — x86_64 | [`…linux-x86_64`](https://github.com/DeamonDev888/mcp-control/releases/latest/download/mcp-command-center-desktop-linux-x86_64) |
+| 🪟 **Windows** — installateur wizard | [**`…windows-x86_64-setup.exe`**](https://github.com/DeamonDev888/mcp-control/releases/latest/download/mcp-control-desktop-windows-x86_64-setup.exe) |
+| 🪟 **Windows** — portable (sans installation) | [`…windows-x86_64.exe`](https://github.com/DeamonDev888/mcp-control/releases/latest/download/mcp-control-desktop-windows-x86_64.exe) |
+| 🍎 **macOS** — Apple Silicon (M1/M2/M3/M4) | [`…macos-aarch64`](https://github.com/DeamonDev888/mcp-control/releases/latest/download/mcp-control-desktop-macos-aarch64) |
+| 🍎 **macOS** — Intel | [`…macos-x86_64`](https://github.com/DeamonDev888/mcp-control/releases/latest/download/mcp-control-desktop-macos-x86_64) |
+| 🐧 **Linux** — x86_64 | [`…linux-x86_64`](https://github.com/DeamonDev888/mcp-control/releases/latest/download/mcp-control-desktop-linux-x86_64) |
 
 - L'installateur Windows t'accompagne (langue, dossier d'installation, menu
   Démarrer, raccourci bureau). Aucun droit administrateur n'est demandé.
@@ -32,9 +32,8 @@ Tout est compilé et prêt dans la [page des releases](https://github.com/Deamon
   (`…windows-x86_64.exe`, `…linux-x86_64`, `…macos-aarch64`, `…macos-x86_64`
   sans le `desktop-`) sont dans la même release.
 
-> ℹ️ Jusqu'à la v0.7.12 incluse, les fichiers portent le préfixe
-> `mcp-command-center-` ; à partir de la version suivante ils s'appelleront
-> `mcp-control-` (même contenu, nom raccourci).
+> ℹ️ Le préfixe des fichiers est `mcp-control-` depuis la v0.7.13 ;
+> les releases plus anciennes portent l'ancien préfixe `mcp-command-center-`.
 
 ## Démarrer
 
