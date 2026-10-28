@@ -820,11 +820,25 @@ pub fn parse_listening_ports(text: &str) -> Vec<u16> {
             }
             continue;
         }
-        // Linux : "LISTEN 0 128 0.0.0.0:8080 ..." ou "tcp LISTEN 0 128 *:8080 ..."
+        // Linux (ss / netstat -tln) : "LISTEN 0 128 0.0.0.0:8080 ..."
+        //  — séparateur ':' ;
+        // BSD/macOS (netstat -an -p tcp) : "tcp4 0 0 127.0.0.1.8080 *.* LISTEN"
+        //  — séparateur '.', y compris l'IPv6 imprimée "::1.8080" (zone "%lo0"
+        //  possible avant le point).
         if toks.contains(&"LISTEN") {
             for t in &toks {
                 if let Some((addr, port)) = t.rsplit_once(':') {
                     if (addr.contains('.') || addr == "*" || addr.starts_with('['))
+                        && port.parse::<u16>().map(|p| p > 0).unwrap_or(false)
+                    {
+                        ports.insert(port.parse::<u16>().unwrap_or(0));
+                        break;
+                    }
+                }
+                // forme BSD : le port suit le DERNIER point, l'adresse avant
+                // ("127.0.0.1.8080", "*.8080", "::1.8080", "fe80::1%lo0.22")
+                if let Some((addr, port)) = t.rsplit_once('.') {
+                    if (addr.contains('.') || addr.contains('*') || addr.contains(':'))
                         && port.parse::<u16>().map(|p| p > 0).unwrap_or(false)
                     {
                         ports.insert(port.parse::<u16>().unwrap_or(0));
@@ -946,6 +960,12 @@ pub fn local_listening_ports() -> Vec<u16> {
     let out = if cfg!(windows) {
         let mut c = Command::new("netstat");
         hidden(&mut c).args(["-ano"]).output()
+    } else if cfg!(target_os = "macos") {
+        // BSD netstat : ni `ss` ni `-tln` — `-an -p tcp` liste les sockets TCP
+        // et le parseur filtre sur l'état LISTEN (format à séparateur '.').
+        let mut c = Command::new("netstat");
+        probe_hidden_cmd(&mut c);
+        c.args(["-an", "-p", "tcp"]).output()
     } else {
         // ss (iproute2) d'abord, netstat -tln en repli (même format addr:port)
         let mut c = Command::new("ss");
@@ -2889,6 +2909,28 @@ LISTEN  0      128              *:3141             *:*";
             p2,
             vec![3099, 3141],
             "port 22 système écarté, ports MCP gardés"
+        );
+    }
+
+    #[test]
+    fn parse_listening_ports_bsd_macos() {
+        // macOS/BSD `netstat -an -p tcp` : séparateur '.', IPv6 "::1.port",
+        // zone "%lo0" possible avant le point ; ports système (22, 135) écartés
+        let bsd = "\
+Active Internet connections (including servers)\n\
+Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)\n\
+tcp4       0      0  127.0.0.1.3166         *.*                    LISTEN\n\
+tcp6       0      0  ::1.3167               *.*                    LISTEN\n\
+tcp4       0      0  *.3168                 *.*                    LISTEN\n\
+tcp6       0      0  fe80::1%lo0.3169       *.*                    LISTEN\n\
+tcp4       0      0  127.0.0.1.22           *.*                    LISTEN\n\
+tcp4       0      0  127.0.0.1.135          *.*                    LISTEN\n";
+        let mut p = parse_listening_ports(bsd);
+        p.sort();
+        assert_eq!(
+            p,
+            vec![3166, 3167, 3168, 3169],
+            "format BSD : ports MCP gardés, système écartés"
         );
     }
 
