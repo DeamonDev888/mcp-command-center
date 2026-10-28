@@ -12,6 +12,7 @@
 - Instantané MCP échangé quand la détection change (empreinte ids/états/outils comparée toutes les 5 s ; actions passées par le gateway → rafraîchissement immédiat).
 
 ### Divers
+- **Ménage du dépôt** : suppression des launchers `start-mcp-control.bat` / `start-headless.bat` (la release installe ses propres raccourcis ; depuis un clone, lancer directement `target/release/mcp-control-desktop.exe` ou `mcp-control.exe`) ; passe hygiène vérifiée : **aucun secret ni URL personnelle** dans les fichiers suivis (config/cache/logs runtime déjà ignorés, aucune IP privée réelle — seulement des fixtures de test `10.0.0.x` et des domaines d'exemple).
 - `reason_phrase` complétée (202/405/406/503) ; `Cache-Control: no-store` étendu aux réponses SSE.
 
 ### Tests

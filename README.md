@@ -18,8 +18,7 @@ Télécharge **`mcp-control-desktop-windows-x86_64-setup.exe`** depuis la
 et lance-le : un assistant t'accompagne (langue, dossier d'installation, dossier
 du menu Démarrer, raccourci bureau). Aucun droit administrateur n'est demandé.
 
-Tu peux aussi utiliser le `.exe` portable, sans installation, ou
-`start-mcp-control.bat` si tu as le dépôt.
+Tu peux aussi utiliser le `.exe` portable, sans installation.
 
 ## Démarrer
 
@@ -250,8 +249,8 @@ cargo build --release -p mcp-control -p mcp-control-desktop
 cargo test      # 75 tests
 ```
 
-- `start-mcp-control.bat` → la fenêtre de l'app
-- `start-headless.bat` → juste le moteur, sans fenêtre
+- `target/release/mcp-control-desktop.exe` → la fenêtre de l'app
+- `target/release/mcp-control.exe` → juste le moteur, sans fenêtre
 - Les serveurs écrits avec [LiteMCP](https://github.com/DeamonDev888/litemcp) (lib Rust) sont reconnus automatiquement.
 
 </details>
