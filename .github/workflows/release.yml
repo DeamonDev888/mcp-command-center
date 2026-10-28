@@ -169,6 +169,38 @@ jobs:
       - name: Extraire les notes du CHANGELOG
         run: python3 scripts/extract_notes.py > notes.md
 
+      - name: Organiser les téléchargements par OS
+        run: |
+          cat >> notes.md <<'MDEOF'
+
+          ---
+
+          ## 📦 Téléchargements par OS
+
+          ### 🪟 Windows
+          | Fichier | Quoi |
+          |---|---|
+          | `mcp-control-desktop-windows-x86_64-setup.exe` | **L'app avec fenêtre — installateur recommandé** (wizard : langue, dossier, raccourcis) |
+          | `mcp-control-desktop-windows-x86_64.exe` | L'app avec fenêtre — portable, sans installation |
+          | `mcp-control-windows-x86_64.exe` | Moteur headless (console, sans fenêtre — serveurs/scripts) |
+
+          ### 🍎 macOS
+          | Fichier | Quoi |
+          |---|---|
+          | `mcp-control-desktop-macos-aarch64` | **L'app avec fenêtre — Apple Silicon (M1/M2/M3/M4)** |
+          | `mcp-control-desktop-macos-x86_64` | L'app avec fenêtre — Mac Intel |
+          | `mcp-control-macos-aarch64` · `mcp-control-macos-x86_64` | Moteur headless (console) — même CPU que l'app |
+
+          ### 🐧 Linux (x86_64)
+          | Fichier | Quoi |
+          |---|---|
+          | `mcp-control-desktop-linux-x86_64` | **L'app avec fenêtre** (webview WebKitGTK du système) |
+          | `mcp-control-linux-x86_64` | Moteur headless (console — idéal VPS/SSH) |
+
+          Après téléchargement sur macOS/Linux : `chmod +x <fichier>` puis `./<fichier>`.
+          Premier lancement macOS : clic droit sur le fichier → **Ouvrir** si Gatekeeper s'en mêle.
+          MDEOF
+
       - name: Créer la release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 (épinglé SHA)
         with:

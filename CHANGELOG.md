@@ -1,4 +1,4 @@
-## [Non versionné] — Gateway MCP : la console devient un serveur MCP
+## [0.7.13] — Gateway MCP, notifications webhook, supervision runtime, suite E2E complète + ménage
 
 ### Gateway MCP (propulsé par LiteMCP)
 - **`src/gateway.rs` (nouveau)** : la console expose **POST /mcp** sur son port UI (même socket durci que l'API) — un client MCP standard (ZCode, Claude Desktop, MCP Inspector…) obtient **toute la surface de l'UI en tools MCP** :
@@ -20,9 +20,7 @@
 - **7 scénarios E2E `scenarios_gateway.rs`** contre le VRAI binaire : initialize/tools/list/server/discover, supervision par MCP (list/detail/toggle vérifiés dans l'état du moteur), proxy vers une fixture MCP réelle (résultat upstream + refus DOWN), `toggle_tool` qui coupe le proxy, ressources par serveur détecté (snapshot reconstruit sans redémarrage), règles de transport complètes, matrice d'auth loopback/LAN ;
 - **141 tests unitaires + 45 tests E2E verts**, `cargo clippy --all-targets -- -D warnings` : 0 warning, `cargo fmt --check` : propre.
 
-## [Non versionné] — Notifications webhook, supervision runtime, suite E2E complète
-
-### Notifications webhook
+### Notifications webhook (suite du lot)
 - **`src/notify.rs`** : notification HTTP configurable (URL webhook, en-têtes personnalisés — voie dédiée tolérant `Authorization: Bearer …` avec échappement anti-CR/LF) lorsqu'un serveur crash ou redémarre. Configurable depuis l'UI via l'action `set_notify` ; état visible dans `/api/state`.
 
 ### Supervision runtime
@@ -35,10 +33,10 @@
 ### Tests de bout en bout (nouveau)
 - **`tests/e2e/`** : harnais Rust std-only (moteur réel lancé en isolement via `MCC_CONFIG`, fixtures MCP inline, verrou de sérialisation) + **38 scénarios** : auth loopback/LAN, Host/Origin forgés, **RCE sans code → 401 et aucun process lancé**, preuve de pair HMAC avec rejeu, fuzz filaire (413, Transfer-Encoding, Content-Length dupliqué), cycle de vie complet (add/UP/toggle tue le pid/relance/remove/persistance au redémarrage), scan (trouve une fixture, rejette `{"result":{}}`, régression fusion, prune), et **contrat de chaque bouton** (16 actions testées).
 
-### Divers
-- Binaire/scripts renommés (`mcp-control`, `start-mcp-control.bat`), `docs/frameworks.md`, bannières README, README mis à jour, workflow release ajusté.
+### Divers (suite du lot)
+- Binaire/scripts renommés (`mcp-control`), `docs/frameworks.md`, bannières README, README mis à jour, workflow release ajusté.
 
-### Tests
+### Tests (état au lot précédent)
 - **121 tests unitaires + 38 tests E2E verts**, `cargo clippy --all-targets -- -D warnings` : 0 warning, `cargo fmt --check` : propre.
 
 ## [0.7.12] — Finitions « produit » : diagnostic réseau, pannes visibles, confort d'usage
