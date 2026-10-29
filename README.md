@@ -33,6 +33,27 @@ Tout est compilé et prêt dans la [page des releases](https://github.com/Deamon
 > ℹ️ Le préfixe des fichiers est `mcp-control-` depuis la v0.7.13 ;
 > les releases plus anciennes portent l'ancien préfixe `mcp-command-center-`.
 
+### 🛡️ Windows avertit « application non reconnue » ?
+
+C'est le comportement normal de SmartScreen pour un binaire **non signé** : Windows
+ne connaît pas encore l'éditeur — le fichier n'est pas dangereux pour autant.
+Trois façons de passer, de la plus simple à la plus vérifiée :
+
+1. **À l'avertissement** : **Informations complémentaires → Exécuter quand même**
+   (une seule fois par version) ;
+2. **Avant de lancer** : `Unblock-File .\mcp-control-desktop-windows-x86_64-setup.exe`
+   dans PowerShell — ça retire le marqueur « téléchargé du web » ;
+3. **Vérifier l'intégrité**, puis lancer serein :
+
+```powershell
+Get-FileHash .\mcp-control-desktop-windows-x86_64-setup.exe -Algorithm SHA256
+# → à comparer avec la ligne du même fichier dans :
+# https://github.com/DeamonDev888/mcp-control/releases/latest/download/SHA256SUMS.txt
+```
+
+> 📝 La **signature de code** (certificat) est sur la feuille de route : une fois
+> en place, ces avertissements disparaissent définitivement.
+
 ## Démarrer
 
 1. Ouvre l'app (raccourci du bureau ou du menu Démarrer).

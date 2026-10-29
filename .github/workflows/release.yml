@@ -200,6 +200,14 @@ jobs:
           merge-multiple: true
           path: dist
 
+      # Le glob s'étend AVANT la création du fichier : SHA256SUMS.txt ne se
+      # liste jamais lui-même. Publié comme asset de la release (dist/*).
+      - name: Sommes de contrôle SHA256 (SHA256SUMS.txt)
+        run: |
+          cd dist
+          sha256sum * | sort -k2 > SHA256SUMS.txt
+          wc -l SHA256SUMS.txt
+
       - name: Extraire les notes du CHANGELOG
         run: python3 scripts/extract_notes.py > notes.md
 
