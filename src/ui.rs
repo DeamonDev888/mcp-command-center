@@ -154,8 +154,13 @@ body{background:var(--chrome);color:var(--t1);font:13px/1.5 var(--sans);display:
 #stAuto:hover{border-color:var(--accent);color:var(--accent);background:var(--hover)}
 #stAuto.auto-off{color:var(--t4);border-style:dashed}
 #stAuto.auto-on{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08)}
-.tb-badge.upd{color:var(--warn);border-color:rgba(192,133,50,.5);background:rgba(192,133,50,.1);cursor:pointer}
-.tb-badge.upd:hover{border-color:var(--warn);color:var(--warn)}
+/* Badge « mise à jour » = VRAI bouton bleu ciel (demande utilisateur) : bien
+   visible en haut, clic → page des releases via le moteur (window.open est
+   muet dans la webview Tauri). */
+.tb-badge.upd{color:#07293d;border-color:#8fd3ff;background:#8fd3ff;font-weight:700;cursor:pointer;box-shadow:0 1px 6px rgba(143,211,255,.35)}
+.tb-badge.upd:hover{background:#a9dcff;border-color:#a9dcff;color:#07293d}
+:root[data-theme="light"] .tb-badge.upd{color:#07293d;border-color:#5eb8ef;background:#8fd3ff}
+:root[data-theme="light"] .tb-badge.upd:hover{background:#7cc6f7;border-color:#7cc6f7}
 .tb-spacer{flex:1;height:100%}
 /* Groupe d'actions : un seul bloc, filets internes alignés. */
 .tb-actions{display:flex;gap:6px;align-items:center}
@@ -988,9 +993,9 @@ function render() {
   const upd = document.getElementById('stUpdate');
   if (state.update_available && state.latest_version) {
     upd.hidden = false;
-    upd.textContent = '⬆ v' + state.latest_version + ' dispo';
-    upd.title = 'Nouvelle version ' + state.latest_version + ' publiée sur GitHub (installée : v' + MCC_VERSION + ') — github.com/DeamonDev888/mcp-control/releases';
-    upd.onclick = () => window.open('https://github.com/DeamonDev888/mcp-control/releases/latest', '_blank', 'noopener,noreferrer');
+    upd.textContent = '⬆ Mettre à jour — v' + state.latest_version + ' dispo';
+    upd.title = 'Nouvelle version ' + state.latest_version + ' publiée sur GitHub (installée : v' + MCC_VERSION + ') — clic : ouvre la page de téléchargement dans ton navigateur';
+    upd.onclick = openReleasePage;
   } else upd.hidden = true;
   renderServers();
   renderPeers();
@@ -1829,7 +1834,7 @@ function openSettingsDlg() {
   document.getElementById('sVersion').textContent = 'v' + MCC_VERSION;
   document.getElementById('sLatest').textContent = state.latest_version ? 'v' + state.latest_version : '—';
   const upd = document.getElementById('updMsg');
-  upd.textContent = state.update_available ? '⬆ v' + state.latest_version + ' disponible' : 'Aucune mise à jour détectée.';
+  upd.textContent = state.update_available ? '⬆ v' + state.latest_version + ' disponible' : 'Aucune mise à jour connue (auto-vérification au boot puis chaque heure).';
   upd.style.color = state.update_available ? 'var(--warn)' : '';
   document.getElementById('resetMsg').textContent = '';
   const row = document.getElementById('resetMsgRow');
@@ -1847,21 +1852,35 @@ async function checkUpdateNow() {
   const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action: 'check_update'})});
   const j = await r.json();
-  if (j.ok && j.update_available) {
+  if (j.ok && j.checked && j.update_available) {
     document.getElementById('sLatest').textContent = 'v' + j.latest;
-    msg.textContent = '⬆ v' + j.latest + ' disponible (installée : v' + j.current + ')';
+    msg.textContent = '⬆ v' + j.latest + ' disponible (installée : v' + j.current + ') — bouton bleu en haut de la fenêtre';
     msg.style.color = 'var(--warn)';
-  } else if (j.ok) {
+  } else if (j.ok && j.checked) {
     document.getElementById('sLatest').textContent = j.latest ? 'v' + j.latest : '—';
-    msg.textContent = '✓ à jour — dernière release : v' + (j.latest || j.current);
+    msg.textContent = '✓ à jour — vérifié à l\u2019instant : v' + j.current + ' est la dernière release';
     msg.style.color = 'var(--ok)';
   } else {
-    msg.textContent = '✗ vérification impossible (réseau ?) — le check auto tourne au boot puis chaque heure';
+    msg.textContent = j.latest
+      ? '✗ vérification impossible (réseau ?) — dernière info connue : v' + j.latest + ' disponible'
+      : '✗ vérification impossible (réseau ?) — nouvel essai auto au boot puis chaque heure';
   }
 }
-function openUpdate() {
+async function openReleasePage() {
+  // window.open est neutralisé dans la webview Tauri (desktop) : le clic mort
+  // « rien ne se passe ». On passe par le moteur, qui lance le navigateur par
+  // défaut de la machine (action open_release_page, URL fixe sans argument).
+  // Repli : si le moteur ne peut pas (headless sans navigateur), on tente
+  // window.open — utile quand l'UI tourne dans un vrai navigateur.
+  try {
+    const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action: 'open_release_page'})});
+    const j = await r.json();
+    if (j.ok) return;
+  } catch (e) { /* moteur injoignable : on tente le repli */ }
   window.open('https://github.com/DeamonDev888/mcp-control/releases/latest', '_blank', 'noopener,noreferrer');
 }
+function openUpdate() { openReleasePage(); }
 async function resetState(what) {
   const sel = document.getElementById('sResetWhat');
   const label = sel.options[sel.selectedIndex].text;

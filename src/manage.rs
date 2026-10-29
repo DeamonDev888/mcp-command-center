@@ -1730,8 +1730,10 @@ pub fn version_newer(latest: &str, current: &str) -> bool {
 /// Interroge la dernière release GitHub. `curl` d'abord (léger, présent sur
 /// macOS/Linux/Windows 10+) avec repli PowerShell — l'ancien code n'utilisait
 /// QUE PowerShell : la vérification était silencieusement inopérante partout
-/// ailleurs (audit 2026-10-24). Retourne le tag, ou None (hors ligne, échec).
-fn github_latest_tag() -> Option<String> {
+/// ailleurs (audit 2026-10-24). `Ok(Some(tag))` = tag lu ; `Ok(None)` = réponse
+/// sans tag ; `Err` = réseau/API/outil indisponible — la distinction permet au
+/// bouton « Vérifier » de ne plus prétendre « à jour » quand le check a raté.
+fn github_latest_tag() -> Result<Option<String>, &'static str> {
     let mut c = Command::new("curl");
     probe::probe_hidden_cmd(&mut c);
     if let Ok(out) = c
@@ -1748,7 +1750,7 @@ fn github_latest_tag() -> Option<String> {
         if out.status.success() {
             if let Ok(v) = serde_json::from_slice::<Value>(&out.stdout) {
                 if let Some(tag) = v.get("tag_name").and_then(|x| x.as_str()) {
-                    return Some(tag.to_string());
+                    return Ok(Some(tag.to_string()));
                 }
             }
         }
@@ -1761,24 +1763,41 @@ fn github_latest_tag() -> Option<String> {
     ]);
     probe::probe_hidden_cmd(&mut cmd);
     let Ok(out) = cmd.output() else {
-        return None;
+        return Err("réseau injoignable (curl et PowerShell en échec)");
     };
     if !out.status.success() {
-        return None;
+        return Err("réseau injoignable (curl et PowerShell en échec)");
     }
     let tag = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if tag.is_empty() || tag.len() > 30 {
-        return None;
+        return Ok(None);
     }
-    Some(tag)
+    Ok(Some(tag))
 }
 
-/// Vérifie la dernière release GitHub : `update_latest` = tag SI plus récent que
-/// l'installée ; silence total sinon (hors ligne, dépôt privé, échec réseau).
-#[allow(unused_must_use)]
-pub fn check_update(state: &Arc<AppState>) {
-    let Some(tag) = github_latest_tag() else {
-        return;
+/// Issue d'une vérification de release GitHub — distinguée pour que le bouton
+/// « Vérifier » des réglages puisse dire « à jour (vérifié à l'instant) »,
+/// « vX disponible » ou « vérification impossible (réseau ?) » au lieu du
+/// silence d'avant, qui faisait croire à un clic mort.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateCheck {
+    /// Release plus récente lue et enregistrée dans update_latest.
+    Available(String),
+    /// API GitHub lue : rien de plus récent que la version installée.
+    UpToDate,
+    /// Réseau/API injoignable ou réponse illisible — aucun verdict.
+    Unreachable,
+}
+
+/// Vérifie la dernière release GitHub : `update_latest` = tag SI plus récent
+/// que l'installée ; vidé si l'installée redevient la dernière (sinon le badge
+/// « mise à jour » resterait affiché avec une dispo périmée). Côté journal,
+/// silence hors ligne — le poller horaire ne doit pas spammer : le verdict est
+/// RENVOYÉ et l'action `check_update` le traduit pour l'UI.
+pub fn check_update(state: &Arc<AppState>) -> UpdateCheck {
+    let tag = match github_latest_tag() {
+        Ok(Some(t)) => t,
+        Ok(None) | Err(_) => return UpdateCheck::Unreachable,
     };
     let current = env!("CARGO_PKG_VERSION");
     if version_newer(&tag, current) {
@@ -1806,7 +1825,16 @@ pub fn check_update(state: &Arc<AppState>) {
                 ),
             );
         }
+        return UpdateCheck::Available(tag);
     }
+    // L'installée redevient la dernière : on vide le badge.
+    {
+        let mut u = lockv(&state.update_latest);
+        if u.is_some() {
+            *u = None;
+        }
+    }
+    UpdateCheck::UpToDate
 }
 
 // ---------- cache de démarrage (dernier état connu) ----------
@@ -4207,15 +4235,71 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
         "check_update" => {
             // Re-vérification forcée de la release GitHub — le thread de fond
             // ne tourne qu'au boot puis chaque heure. Le bouton « Vérifier » du
-            // dialog Réglages obtient un résultat immédiat.
-            check_update(state);
+            // dialog Réglages obtient un résultat immédiat ET honnête :
+            // `checked:false` = le check a échoué (réseau) — l'UI ne doit PAS
+            // afficher « à jour » dans ce cas (c'était le clic mort d'avant).
+            let verdict = check_update(state);
             let latest = lockv(&state.update_latest).clone();
+            let checked = !matches!(verdict, UpdateCheck::Unreachable);
             json!({
                 "ok": true,
+                "checked": checked,
                 "current": env!("CARGO_PKG_VERSION"),
                 "latest": latest,
                 "update_available": latest.is_some(),
             })
+        }
+        "open_release_page" => {
+            // Ouvre la page des releases dans le navigateur par défaut de la
+            // machine qui fait tourner le moteur — FIX du clic mort : dans la
+            // webview Tauri (desktop), `window.open` est neutralisé, donc le
+            // badge « mise à jour » et le bouton des réglages passent par ici.
+            // URL FIXE sans argument : aucune surface d'injection ; non exposé
+            // au gateway (le serveur n'a pas à ouvrir des navigateurs).
+            const RELEASES_URL: &str =
+                "https://github.com/DeamonDev888/mcp-control/releases/latest";
+            #[cfg(windows)]
+            let mut cmd = {
+                let mut c = std::process::Command::new("rundll32");
+                c.args(["url.dll,FileProtocolHandler", RELEASES_URL]);
+                c
+            };
+            #[cfg(target_os = "macos")]
+            let mut cmd = {
+                let mut c = std::process::Command::new("open");
+                c.arg(RELEASES_URL);
+                c
+            };
+            #[cfg(all(unix, not(target_os = "macos")))]
+            let mut cmd = {
+                let mut c = std::process::Command::new("xdg-open");
+                c.arg(RELEASES_URL);
+                c
+            };
+            let opened = {
+                #[cfg(any(windows, target_os = "macos", all(unix, not(target_os = "macos"))))]
+                {
+                    probe::probe_hidden_cmd(&mut cmd);
+                    cmd.spawn().is_ok()
+                }
+                #[cfg(not(any(
+                    windows,
+                    target_os = "macos",
+                    all(unix, not(target_os = "macos"))
+                )))]
+                {
+                    false
+                }
+            };
+            if opened {
+                json!({"ok": true, "url": RELEASES_URL})
+            } else {
+                json!({
+                    "ok": false,
+                    "url": RELEASES_URL,
+                    "error": "pas de navigateur lançable sur cette machine — ouvre l'URL à la main",
+                })
+            }
         }
         "reset_state" => {
             // Réinitialisation depuis le dialog Réglages :

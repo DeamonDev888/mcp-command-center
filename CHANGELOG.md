@@ -1,3 +1,20 @@
+## [0.7.15] — Le bouton « Mettre à jour » qui marche vraiment
+
+### Clic mort réparé (le vrai bug)
+- **Cause** : dans la webview Tauri (app desktop), `window.open` est **neutralisé** — le badge « mise à jour » en haut et le bouton « ⬆ Mettre à jour » des réglages ne faisaient donc **rien du tout** au clic (silence total, aucune erreur).
+- **Fix** : nouvelle action moteur `open_release_page` — URL **fixe** (`github.com/DeamonDev888/mcp-control/releases/latest`), **sans argument** (aucune surface d'injection), non exposée au gateway MCP. Le moteur lance le navigateur par défaut de la machine (`rundll32 FileProtocolHandler` sur Windows, `open` macOS, `xdg-open` Linux) ; l'UI garde un repli `window.open` quand elle tourne dans un vrai navigateur.
+
+### Bouton « Mettre à jour » bleu ciel en haut (demande utilisateur)
+- Le badge `stUpdate` devient un **vrai bouton bleu ciel** (`#8fd3ff`, texte foncé, gras, ombre douce) : il apparaît en haut de la fenêtre dès qu'une release plus récente que l'installée est détectée (au boot puis chaque heure), libellé « ⬆ Mettre à jour — vX dispo ». Clic → page de téléchargement.
+
+### « Vérifier » ne ment plus
+- `check_update` distinguait mal l'échec réseau d'un « à jour » : l'échec pouvait afficher « ✓ à jour » alors que la vérification avait **raté**. Nouveau verdict explicite (`UpdateCheck` : Available / UpToDate / Unreachable) et réponse d'action avec `checked:false` → l'UI affiche « ✗ vérification impossible (réseau ?) » au lieu d'une fausse certitude.
+- `update_latest` est **vidé** quand l'installée redevient la dernière release (le badge ne reste plus collé avec une dispo périmée).
+
+### Tests
+- Pas d'e2e pour `open_release_page` : toute action lancerait un vrai navigateur — effet de bord visible interdit dans la suite (même règle qu'`open_path`/A15) ; le contrat est vérifié à la main (réponse bornée, URL fixe).
+- Aucune régression : le poller horaire garde son silence hors ligne ; verrouillage AB-BA 2026-10-25 conservé ; outil gateway `check_update` inchangé.
+
 ## [0.7.14] — Packaging : binaire macOS universel, téléchargements simplifiés
 
 - **macOS fusionné** : un seul livrable par type — `mcp-control-desktop-macos-universal` (app avec fenêtre) et `mcp-control-macos-universal` (moteur headless). Les deux architectures (Intel `x86_64` + Apple Silicon `aarch64`) sont compilées puis fusionnées avec `lipo` en un **binaire universel** : macOS choisit nativement le bon jeu d'instructions au lancement, aucun choix à faire — le même fichier tourne sur M1→M4 comme sur les Mac Intel (le binaire pèse ~2× un binaire mono-archi, c'est le prix de l'unicité).
