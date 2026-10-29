@@ -272,3 +272,7 @@ cargo test      # 75 tests
 
 - Un serveur en `https://` n'est pas sondable (pas de TLS) — passe par un tunnel local.
 - Le fichier `config.json` vit à côté de l'exe.
+
+## Licence
+
+Code sous double licence **MIT ou Apache-2.0** — prends celle que tu préfères (voir [`LICENSE-MIT`](LICENSE-MIT) et [`LICENSE-APACHE`](LICENSE-APACHE)).
