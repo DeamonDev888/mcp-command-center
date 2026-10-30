@@ -22,17 +22,17 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact: mcp-control-linux-x86_64
+            artifact: mcp-control-cli-linux-x86_64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact: mcp-control-windows-x86_64
+            artifact: mcp-control-cli-windows-x86_64
           # macOS : un seul livrable universel — les deux architectures sont
           # compilées puis fusionnées avec lipo en un binaire qui tourne natif
           # sur Intel ET Apple Silicon (macOS choisit la bonne au lancement).
           - os: macos-latest
             target: universal-apple-darwin
             rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
-            artifact: mcp-control-macos-universal
+            artifact: mcp-control-cli-macos-universal
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (épinglé SHA — supply-chain)
@@ -180,11 +180,11 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4 (épinglé SHA)
         with:
           name: ${{ matrix.artifact }}
-          # l'artefact Windows contient le binaire ET l'installateur wizard
-          path: |
-            ${{ env.FILE }}
-            ${{ env.SETUP }}
-          if-no-files-found: warn
+          # Windows : l'installateur wizard SEUL — le binaire portable desktop
+          # n'est plus publié (NSIS l'embarque) ; les autres OS publient le
+          # binaire desktop direct.
+          path: ${{ runner.os == 'Windows' && env.SETUP || env.FILE }}
+          if-no-files-found: error
 
   release:
     needs: [build, desktop]
@@ -223,19 +223,19 @@ jobs:
           | Fichier | Quoi |
           |---|---|
           | `mcp-control-desktop-windows-x86_64-setup.exe` | **L'app avec fenêtre — installateur recommandé** (wizard : langue, dossier, raccourcis) |
-          | `mcp-control-windows-x86_64.exe` | Moteur headless (console, sans fenêtre — serveurs/scripts) |
+          | `mcp-control-cli-windows-x86_64.exe` | CLI — moteur console (sans fenêtre — serveurs/scripts) |
 
           ### 🍎 macOS
           | Fichier | Quoi |
           |---|---|
           | `mcp-control-desktop-macos-universal` | **L'app avec fenêtre — binaire universel : Mac Intel ET Apple Silicon (M1→M4)** |
-          | `mcp-control-macos-universal` | Moteur headless (console) — même binaire universel |
+          | `mcp-control-cli-macos-universal` | CLI — moteur console — même binaire universel |
 
           ### 🐧 Linux (x86_64)
           | Fichier | Quoi |
           |---|---|
           | `mcp-control-desktop-linux-x86_64` | **L'app avec fenêtre** (webview WebKitGTK du système) |
-          | `mcp-control-linux-x86_64` | Moteur headless (console — idéal VPS/SSH) |
+          | `mcp-control-cli-linux-x86_64` | CLI — moteur console (idéal VPS/SSH) |
 
           Après téléchargement sur macOS/Linux : `chmod +x <fichier>` puis `./<fichier>`.
           Premier lancement macOS : clic droit sur le fichier → **Ouvrir** si Gatekeeper s'en mêle.

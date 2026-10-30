@@ -25,6 +25,10 @@
 - **Tests gateway additionnels** : POST sans Accept → JSON par défaut, Content-Type absent → 415, outil inconnu → erreur propre sans panic, `resources/read` URI inconnue → erreur, `tool_count`, contrat `action_req`.
 - **E2E** : deadline du scénario `hostile_label_never_in_html` élargie à 45 s — le test flottait sous la suite complète (45 moteurs en parallèle dépassaient 20 s), il passe isolément comme en suite.
 
+### Packaging : un seul livrable Windows, moteurs renommés « CLI »
+- **Windows = 1 fichier** : l'installateur wizard (`mcp-control-desktop-windows-x86_64-setup.exe`) est le seul livrable desktop Windows publié — le binaire portable desktop (déjà embarqué dans l'installateur) n'est plus un asset séparé. Fini les 3 fichiers Windows.
+- **Les moteurs console s'appellent « CLI »** : `mcp-control-cli-windows-x86_64.exe`, `mcp-control-cli-linux-x86_64`, `mcp-control-cli-macos-universal` — le nom dit ce que c'est (une console, pas une app à fenêtre).
+
 ### Tests
 - **154 tests unitaires + 45 tests E2E verts**, `cargo clippy --all-targets -- -D warnings` : 0 warning, `cargo fmt --check` : propre.
 - Vérification UI réelle (moteur de test + navigateur) : volets, dirty badge, erreurs inline, swap de plage, sauvegarde (`refresh_secs`/`scan`/`notify` persistés, polling ré-armé), bouton Tester (résultats par canal), Esc/confirm, historique runtime effacé, volet mémorisé.
