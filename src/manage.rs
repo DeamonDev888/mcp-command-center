@@ -3472,6 +3472,45 @@ pub fn ssh_discover(state: &Arc<AppState>, ip: &str, user: &str) -> Value {
 // ---------- actions ----------
 
 #[allow(unused_must_use)]
+/// Surface complète des actions du dispatcher — le contrat partagé par l'UI,
+/// le gateway et les tests. Toute nouvelle branche du `match` de
+/// `handle_action` s'y ajoute ; le test `chaque_action_ui_est_conue` garantit
+/// que l'UI n'appelle que des actions listées ici.
+pub const ACTIONS: &[&str] = &[
+    "toggle",
+    "refresh",
+    "kill_stdio",
+    "start_stdio",
+    "start",
+    "kill",
+    "scan",
+    "scan_network",
+    "discover",
+    "discover_peers",
+    "import_peer",
+    "add",
+    "remove",
+    "toggle_tool",
+    "set_start_cmd",
+    "set_host",
+    "set_auto_restart",
+    "reorder",
+    "import_mcp",
+    "install_store",
+    "ssh_save",
+    "ssh_forget",
+    "ssh_discover",
+    "set_settings",
+    "set_notify",
+    "set_autostart",
+    "reset_state",
+    "reset_runtime",
+    "check_update",
+    "open_release_page",
+    "open_path",
+    "test_notify",
+];
+
 pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
     let req: Value = match serde_json::from_str(body) {
         Ok(v) => v,
@@ -4215,6 +4254,49 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
             add_log(state, "info", "[notif] configuration enregistrée");
             json!({"ok": true, "notify": crate::notify::to_json(&c)})
         }
+        "test_notify" => {
+            // Bouton « Tester » du panneau Notifications (dialog Réglages) :
+            // émet une notification de test sur chaque canal ACTIVÉ et rend le
+            // résultat par canal. Non exposé au gateway (déclenche un toast /
+            // une requête réseau vers l'URL configurée — surface de confiance).
+            let cfg = lockv(&state.settings).notify.clone();
+            if !cfg.desktop && cfg.webhook_url.trim().is_empty() {
+                return json!({
+                    "ok": false,
+                    "error": "aucun canal actif : active le toast desktop ou renseigne une URL de webhook"
+                });
+            }
+            let desktop = if cfg.desktop {
+                Some(
+                    match crate::notify::desktop_toast(
+                        "MCP Control",
+                        "notification de test — le canal desktop fonctionne",
+                    ) {
+                        Ok(()) => json!({"ok": true}),
+                        Err(e) => json!({"ok": false, "error": e}),
+                    },
+                )
+            } else {
+                None
+            };
+            let webhook = if !cfg.webhook_url.trim().is_empty() {
+                Some(
+                    match crate::notify::send_webhook(
+                        &cfg,
+                        "test",
+                        "TEST",
+                        "notification de test émise depuis Réglages → Notifications",
+                    ) {
+                        Ok(()) => json!({"ok": true}),
+                        Err(e) => json!({"ok": false, "error": e}),
+                    },
+                )
+            } else {
+                None
+            };
+            add_log(state, "info", "[notif] test émis depuis les réglages");
+            json!({"ok": true, "desktop": desktop, "webhook": webhook})
+        }
         "reset_runtime" => {
             // Effacer l'historique runtime (crashs, redémarrages) et les
             // compteurs d'échec — utile quand un serveur a été réparé à la
@@ -4742,6 +4824,10 @@ pub fn state_json(state: &Arc<AppState>) -> Value {
                 "ssh_hosts": settings.ssh_hosts.iter().map(|h| json!({
                     "ip": h.ip, "user": h.user
                 })).collect::<Vec<_>>(),
+                // config des notifications (toast/webhook) : l'UI locale en a
+                // besoin pour son panneau Réglages → Notifications. JAMAIS
+                // exposée au gateway MCP (l'URL peut porter un Authorization).
+                "notify": crate::notify::to_json(&settings.notify),
             }),
         )
     };
@@ -6524,6 +6610,145 @@ mod tests {
         // 4. aucun changement → changed vide, pas d'écriture inutile
         let j4 = handle_action(&state, "{\"action\":\"set_settings\",\"refresh_secs\":5}");
         assert_eq!(j4["changed"], serde_json::json!([] as [&str; 0]));
+    }
+
+    #[test]
+    fn set_notify_valide_et_persiste() {
+        // Panneau Réglages → Notifications : toast desktop + webhook. URL
+        // invalide refusée AVANT tout, méthode normalisée, min_interval
+        // clampé, config persistée, et état exposé à l'UI (/api/state).
+        let path = tmp_config("cfg_set_notify.json", Some("{\"servers\":[]}"));
+        let mut base = match Arc::try_unwrap(test_state()) {
+            Ok(s) => s,
+            Err(_) => panic!("test_state doit être unique"),
+        };
+        base.config_path = path.clone();
+        let state = Arc::new(base);
+
+        // 1. URL invalide → refus net, rien de persisté
+        let j = handle_action(
+            &state,
+            "{\"action\":\"set_notify\",\"webhook_url\":\"ftp://non\"}",
+        );
+        assert_eq!(j["ok"], serde_json::json!(false));
+        assert!(j["error"].as_str().unwrap_or("").contains("invalide"));
+        assert!(lockv(&state.settings).notify.webhook_url.is_empty());
+
+        // 2. config complète → ok + état rendu + persisté dans config.json
+        let j2 = handle_action(
+            &state,
+            "{\"action\":\"set_notify\",\"desktop\":true,\"webhook_url\":\"https://example.com/hook\",\"method\":\"put\",\"headers\":\"Authorization: Bearer x\",\"states\":[\"DOWN\"],\"min_interval_secs\":60}",
+        );
+        assert_eq!(j2["ok"], serde_json::json!(true));
+        assert_eq!(j2["notify"]["desktop"], serde_json::json!(true));
+        assert_eq!(
+            j2["notify"]["webhook_url"],
+            serde_json::json!("https://example.com/hook")
+        );
+        assert_eq!(
+            j2["notify"]["method"],
+            serde_json::json!("PUT"),
+            "méthode normalisée"
+        );
+        assert_eq!(j2["notify"]["states"], serde_json::json!(["DOWN"]));
+        {
+            let st = lockv(&state.settings);
+            assert!(st.notify.desktop);
+            assert_eq!(st.notify.webhook_url, "https://example.com/hook");
+            assert_eq!(st.notify.min_interval_secs, 60);
+        }
+        let cfg = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(cfg.contains("example.com/hook"), "persisté : {}", cfg);
+
+        // 3. min_interval hors bornes → clamp 0..86400
+        let j3 = handle_action(
+            &state,
+            "{\"action\":\"set_notify\",\"min_interval_secs\":999999}",
+        );
+        assert_eq!(j3["ok"], serde_json::json!(true));
+        assert_eq!(lockv(&state.settings).notify.min_interval_secs, 86400);
+
+        // 4. /api/state expose la config notifications (panneau UI) ; le
+        //    journal raconte l'enregistrement
+        let full = state_json(&state);
+        assert_eq!(
+            full["settings"]["notify"]["webhook_url"],
+            serde_json::json!("https://example.com/hook")
+        );
+        let log = lockv(&state.log);
+        assert!(
+            log.iter()
+                .any(|e| e.msg.contains("[notif] configuration enregistrée")),
+            "le journal doit raconter l'enregistrement"
+        );
+    }
+
+    #[test]
+    fn test_notify_refuse_sans_canal_et_rapporte_les_echecs() {
+        // Bouton « Tester » : sans canal actif → refus explicite (l'UI affiche
+        // pourquoi) ; webhook invalide → échec rapporté PAR CANAL, sans panic
+        // et sans requête réseau (la validation URL précède tout envoi).
+        let state = test_state();
+        let j = handle_action(&state, "{\"action\":\"test_notify\"}");
+        assert_eq!(j["ok"], serde_json::json!(false));
+        assert!(j["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("aucun canal actif"));
+        {
+            let mut st = lockv(&state.settings);
+            st.notify.webhook_url = "notaurl".into();
+        }
+        let j2 = handle_action(&state, "{\"action\":\"test_notify\"}");
+        assert_eq!(j2["ok"], serde_json::json!(true));
+        let wh = j2["webhook"].as_object().expect("canal webhook rapporté");
+        assert_eq!(wh["ok"], serde_json::json!(false));
+        assert!(wh["error"].as_str().unwrap_or("").contains("invalide"));
+        // canal desktop jamais activé → absent de la réponse (pas d'échec inventé)
+        assert!(j2["desktop"].is_null());
+    }
+
+    #[test]
+    fn surface_actions_sans_doublon_et_dispatch_connu() {
+        // La const partagée (UI / gateway / tests) ne doit jamais dériver du
+        // dispatcher : pas de doublon, et un échantillon dispatché doit
+        // répondre SANS « action inconnue ». Sont écartés de l'échantillon les
+        // actions à effet de bord réel (scan, discover, ssh, open_path,
+        // check_update, open_release_page) — couvertes par la suite E2E.
+        let mut seen = std::collections::HashSet::new();
+        for a in ACTIONS {
+            assert!(seen.insert(*a), "action en double dans ACTIONS : {a}");
+        }
+        let state = test_state();
+        for a in [
+            "toggle",
+            "refresh",
+            "start",
+            "kill",
+            "kill_stdio",
+            "start_stdio",
+            "remove",
+            "toggle_tool",
+            "set_settings",
+            "set_notify",
+            "set_autostart",
+            "reset_runtime",
+            "reorder",
+            "install_store",
+        ] {
+            let j = handle_action(&state, &format!("{{\"action\":\"{a}\"}}"));
+            let err = j["error"].as_str().unwrap_or("");
+            assert!(
+                !err.contains("action inconnue"),
+                "{a} listée dans ACTIONS mais rejetée par le dispatcher : {err}"
+            );
+        }
+        // et l'inverse : une action hors surface est rejetée nommément
+        let j = handle_action(&state, "{\"action\":\"cette_action_n_existe_pas\"}");
+        assert!(j["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("action inconnue"));
     }
 
     #[test]

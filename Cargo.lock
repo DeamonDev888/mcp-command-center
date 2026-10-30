@@ -1983,7 +1983,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-control"
-version = "0.7.15"
+version = "0.7.16"
 dependencies = [
  "litemcp",
  "serde_json",
@@ -1991,7 +1991,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-control-desktop"
-version = "0.7.15"
+version = "0.7.16"
 dependencies = [
  "mcp-control",
  "serde_json",

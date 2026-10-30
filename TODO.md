@@ -5,6 +5,31 @@ Tailles : **S** = ≤ ½ jour · **M** = 1-2 j · **L** = 3+ j.
 
 ---
 
+## ✅ Lot 2026-10-30 — Réglages professionnels + contrat « tout bouton » — LIVRÉ (v0.7.16)
+
+Audit complet au 2026-10-30 (base saine : 141 tests unitaires + 44/45 E2E verts, clippy 0 warning) → lot livré :
+
+| # | Quoi | Statut |
+|---|---|---|
+| A1 | **Dialog Réglages à volets** (nav latérale 6 sections, dirty state + confirmation Esc/×/Annuler, validation par champ inline, labels humains, volet mémorisé) | ✅ v0.7.16 |
+| A2 | **Section Notifications** — le moteur avait `set_notify` (toast + webhook) sans aucune UI : volet complet + action `test_notify` (résultat par canal) + `settings.notify` dans `/api/state` (jamais au gateway) | ✅ v0.7.16 |
+| A3 | **`reset_runtime` exposé** dans Réinitialiser (bouton « Effacer » + confirmation) | ✅ v0.7.16 |
+| A4 | **Contrat « tout bouton »** : tests UI (tout handler `on*` référencé défini, toute action ⊆ `manage::ACTIONS`), const `ACTIONS` partagée, tests `set_notify`/`test_notify` | ✅ v0.7.16 |
+| A5 | **Polling UI armé sur `refresh_secs`** (fini le 5 s figé) | ✅ v0.7.16 |
+| A6 | **Gateway durci + testé** : 23 tests unitaires (transport, surface, proxy) — déjà bien écrit, revu sans défaut trouvé | ✅ v0.7.16 |
+| A7 | **Test E2E flottant** (`hostile_label`) : deadline 20 s → 45 s (45 moteurs en parallèle) | ✅ v0.7.16 |
+
+Vérification UI réelle faite (moteur de test + navigateur) : volets, badge « non enregistré », erreurs inline, swap de plage, sauvegarde persistée, polling ré-armé, Tester par canal, Esc/confirm, reset runtime, volet mémorisé.
+
+### Reste à faire (priorisé, repris des sections ci-dessous)
+1. **Split `manage.rs`** (3.1) : 7 300 lignes, `handle_action` ~1 000 — le découpage en modules + helpers `with_server_mut`/`commit` reste LE chantier de refactorisation (moves purs, API stable).
+2. **Split `ui.rs` en assets servis** (3.2) : `/app.css` + `/app.js` → CSP `script-src 'self'` (ferme le P3 `unsafe-inline`).
+3. **Schéma unique des réglages** (3.3) : `SETTINGS_SCHEMA` consommée JS+Rust — la validation par champ livrée en A1 est JS-only, le Rust garde ses clamps ; unifier pour supprimer la duplication ui.rs ↔ manage.rs.
+4. **Optimisations mesurées** (2.1-2.6) : borner `ssh_exec`, pool de workers `poll_all`, plafond `probe_http`, 304/compteur `rev`, slowloris — inchangées, toujours valides.
+5. **Sécurité** (4) : `Host` requis (400), nonce flood → éviction, CSPRNG `random_hex`, `${esc(i.kind)}` (ui.rs), CI pinning.
+
+---
+
 ## 0. P0 — AVANT TOUT COMMIT — ✅ TERMINÉ (2026-10-26)
 
 | # | Quoi | Statut |

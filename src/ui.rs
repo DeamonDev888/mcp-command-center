@@ -470,30 +470,64 @@ dialog::backdrop{background:rgba(0,0,0,.62);backdrop-filter:blur(2px)}
   font-size:16px;color:var(--t4);cursor:pointer;border-radius:var(--r2)}
 .dlg-head .close:hover{color:var(--t1);background:var(--wash);border:none}
 /* ===== Dialog « Réglages » : mise en page réglages système =====
-   Groupes en cartes, lignes libellé/description à gauche et contrôle à
-   droite, segmented control pour le thème, switch pour les booleans. */
-.settings-dlg{width:min(760px,95vw)}
+   Navigation par sections à gauche (volets), lignes libellé/description à
+   gauche et contrôle à droite, segmented control pour le thème, switch pour
+   les booleans. L'état « non enregistré » est affiché dans le pied. */
+.settings-dlg{width:min(820px,95vw)}
 .dlg-title{display:flex;align-items:center;gap:11px;flex:1;min-width:0}
 .dlg-title .mark{width:19px;height:19px;color:var(--t3);flex-shrink:0}
 .dlg-title h2{margin:0;font-size:14.5px;font-weight:600;letter-spacing:.1px}
 .dlg-title p{margin:2px 0 0;font:11.5px/1.3 var(--sans);color:var(--t4)}
-.set-group{margin:0 0 18px}
-.set-group:last-of-type{margin-bottom:6px}
-.set-group-title{font:10px var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.1em;
-  color:var(--t4);margin:0 0 7px 2px}
+/* Volets : nav étroite + panneau courant, hauteur bornée avec défilement. */
+.set-shell{display:flex;min-height:0}
+.set-nav{width:162px;flex-shrink:0;padding:12px 8px;border-right:1px solid var(--border-soft);
+  background:var(--sidebar);display:flex;flex-direction:column;gap:2px}
+.set-nav-btn{display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;justify-content:flex-start;
+  border:none;background:none;color:var(--t3);font:12px/1 var(--sans);text-align:left;border-radius:var(--r2);
+  white-space:nowrap;transition:background .1s,color .1s}
+.set-nav-btn:hover{background:var(--wash);color:var(--t1)}
+.set-nav-btn.sel{background:var(--active);color:var(--accent);font-weight:600}
+.set-nav-btn.danger:hover{color:var(--bad);background:rgba(231,94,120,.08)}
+.set-nav-btn.danger.sel{background:rgba(231,94,120,.12);color:var(--bad)}
+.set-nav-sep{height:1px;background:var(--border-soft);margin:8px 6px;flex-shrink:0}
+.set-panes{flex:1;min-width:0;max-height:min(62vh,560px);overflow-y:auto}
+.set-pane{display:none}
+.set-pane.sel{display:block}
+/* Ligne de réglage */
 .set-list{background:var(--card);border:1px solid var(--border-soft);border-radius:var(--r4);overflow:hidden}
 .set-row{display:flex;align-items:center;gap:18px;padding:12px 15px;min-height:52px}
 .set-row+.set-row{border-top:1px solid var(--border-soft)}
+/* Variante empilée : libellé au-dessus, contrôle pleine largeur dessous
+   (webhook, en-têtes — un contrôle large ne doit jamais écraser le libellé). */
+.set-row.col{flex-direction:column;align-items:stretch;gap:9px}
+.set-row.col .set-ctrl{max-width:none}
 .set-label{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
 .set-label span{font:12.5px/1.3 var(--sans);color:var(--t1)}
 .set-label em{font:11.5px/1.45 var(--sans);color:var(--t4);font-style:normal;max-width:46ch}
-.set-ctrl{display:flex;align-items:center;gap:8px;flex-shrink:0;justify-content:flex-end}
-.set-ctrl-wide{justify-content:flex-start;width:100%}
+.set-ctrl{display:flex;align-items:center;gap:8px;flex-shrink:0;justify-content:flex-end;max-width:52%}
+.set-ctrl-wide{justify-content:flex-start;width:100%;max-width:none}
+.set-ctrl-wide input,.set-ctrl-wide textarea{width:100%}
 .set-num{width:86px !important;height:30px !important;text-align:right}
 .set-txt{width:150px !important;height:30px !important}
 .set-unit,.set-dash{font:11.5px var(--mono);color:var(--t4);flex-shrink:0}
 .set-static{font:12px var(--mono);color:var(--t2);min-width:64px;text-align:right}
 .set-note{font:11.5px var(--sans);color:var(--t2)}
+.set-msgline{padding:0 20px}
+/* Erreur de champ (validation par ligne, sous la description) */
+.set-err{font:11px/1.4 var(--sans);color:var(--bad)}
+.set-err[hidden]{display:none}
+/* Pied : indicateur de modifications non enregistrées */
+.set-dirty{font:11.5px/1.3 var(--sans);color:var(--warn);white-space:nowrap}
+/* Cases à cocher simples (états notifiés) */
+.set-inline{flex-wrap:wrap}
+.set-chk{display:inline-flex;align-items:center;gap:6px;font:12px var(--sans);color:var(--t2);cursor:pointer}
+.set-chk input{width:14px;height:14px;accent-color:var(--accent);cursor:pointer}
+/* Zone d'en-têtes webhook (même style que les inputs) */
+textarea{width:100%;min-height:56px;background:var(--chrome);border:1px solid var(--border);border-radius:var(--r2);
+  padding:8px 10px;color:var(--t1);font:12px/1.5 var(--mono);resize:vertical;
+  transition:border-color .12s,box-shadow .12s}
+textarea:hover{border-color:var(--border-strong)}
+textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--active)}
 /* Segmented control (thème) */
 .seg{background:var(--chrome);border:1px solid var(--border);border-radius:var(--r2);padding:2px;gap:2px}
 .seg-btn{border:none !important;background:transparent !important;height:24px;padding:0 13px;
@@ -511,12 +545,13 @@ dialog::backdrop{background:rgba(0,0,0,.62);backdrop-filter:blur(2px)}
 .switch input:checked+.switch-track{background:var(--accent);border-color:var(--accent)}
 .switch input:checked+.switch-track::after{transform:translateX(14px);background:#fff}
 .switch input:focus-visible+.switch-track{box-shadow:0 0 0 3px var(--active)}
-.set-group-danger .set-group-title{color:var(--bad)}
 .dlg-foot{display:flex;align-items:center;gap:12px;padding:13px 20px;border-top:1px solid var(--border-soft);
   background:var(--sidebar)}
 .dlg-foot .row{margin-left:auto}
 .dlg-foot-note{font:11.5px var(--sans);color:var(--t4)}
-.settings-dlg .dlg-body{max-height:min(62vh,560px);overflow-y:auto}
+/* Volets clairs : la nav garde son fond, la carte suit le thème */
+:root[data-theme="light"] .set-nav{background:var(--sidebar)}
+:root[data-theme="light"] .set-pane .set-list{background:var(--card)}
 
 .dlg-body{padding:18px 20px 20px}
 form{display:grid;gap:12px}
@@ -718,124 +753,202 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
         <p>Pr&eacute;f&eacute;rences du client MCP Control</p>
       </div>
     </div>
-    <button class="close" onclick="settingsDlg.close()" title="Fermer">&times;</button>
+    <button class="close" onclick="closeSettings()" title="Fermer">&times;</button>
   </div>
-  <div class="dlg-body">
-    <section class="set-group">
-      <h3 class="set-group-title">G&eacute;n&eacute;ral</h3>
-      <div class="set-list">
-        <div class="set-row">
-          <div class="set-label"><span>Intervalle de sondage</span>
-            <em>D&eacute;lai entre deux cycles de sonde. Appliqu&eacute; au cycle suivant.</em></div>
-          <div class="set-ctrl"><input id="sRefresh" type="number" min="5" max="3600" step="5" class="set-num">
-            <span class="set-unit">secondes</span></div>
-        </div>
-        <div class="set-row">
-          <div class="set-label"><span>Th&egrave;me</span>
-            <em>Apparence de l'interface. Conserv&eacute; sur ce poste.</em></div>
-          <div class="set-ctrl seg" role="group" aria-label="Th&egrave;me">
-            <button id="tDark" class="seg-btn" onclick="applyThemeAndSave('dark')" title="Th&egrave;me sombre (d&eacute;faut)">Sombre</button>
-            <button id="tLight" class="seg-btn" onclick="applyThemeAndSave('light')" title="Th&egrave;me clair">Clair</button>
+  <div class="set-shell">
+    <nav class="set-nav" id="setNav" aria-label="Sections des r&eacute;glages">
+      <button class="set-nav-btn sel" data-pane="general" onclick="setPane('general')">&#9881; G&eacute;n&eacute;ral</button>
+      <button class="set-nav-btn" data-pane="decouverte" onclick="setPane('decouverte')">&#128269; D&eacute;couverte</button>
+      <button class="set-nav-btn" data-pane="interface" onclick="setPane('interface')">&#128421; Interface</button>
+      <button class="set-nav-btn" data-pane="notifications" onclick="setPane('notifications')">&#128276; Notifications</button>
+      <button class="set-nav-btn" data-pane="updates" onclick="setPane('updates')">&#11014; Mises &agrave; jour</button>
+      <div class="set-nav-sep"></div>
+      <button class="set-nav-btn danger" data-pane="reset" onclick="setPane('reset')">&#9888; R&eacute;initialiser</button>
+    </nav>
+    <div class="set-panes">
+      <section class="set-pane sel" data-pane="general">
+        <div class="set-list">
+          <div class="set-row">
+            <div class="set-label"><span>Intervalle de sondage</span>
+              <em>D&eacute;lai entre deux cycles de sonde. Appliqu&eacute; au cycle suivant.</em>
+              <div class="set-err" id="err_refresh" hidden></div></div>
+            <div class="set-ctrl"><input id="sRefresh" type="number" min="5" max="3600" step="5" class="set-num">
+              <span class="set-unit">secondes</span></div>
+          </div>
+          <div class="set-row">
+            <div class="set-label"><span>Th&egrave;me</span>
+              <em>Apparence de l'interface. Conserv&eacute; sur ce poste.</em></div>
+            <div class="set-ctrl seg" role="group" aria-label="Th&egrave;me">
+              <button id="tDark" class="seg-btn" onclick="applyThemeAndSave('dark')" title="Th&egrave;me sombre (d&eacute;faut)">Sombre</button>
+              <button id="tLight" class="seg-btn" onclick="applyThemeAndSave('light')" title="Th&egrave;me clair">Clair</button>
+            </div>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <section class="set-group">
-      <h3 class="set-group-title">D&eacute;couverte</h3>
-      <div class="set-list">
-        <div class="set-row">
-          <div class="set-label"><span>Plage de scan de ports</span>
-            <em>Ports balay&eacute;s par &laquo; Scan ports &raquo;. La d&eacute;couverte native litemcp n'en d&eacute;pend pas.</em></div>
-          <div class="set-ctrl"><input id="sScanFrom" type="number" min="1" max="65535" class="set-num">
-            <span class="set-dash">&ndash;</span>
-            <input id="sScanTo" type="number" min="1" max="65535" class="set-num"></div>
-        </div>
-        <div class="set-row">
-          <div class="set-label"><span>Pairs &amp; r&eacute;seau</span>
-            <em>D&eacute;tecte les autres moteurs MCP Control du LAN et leurs serveurs distants.</em></div>
-          <div class="set-ctrl">
-            <label class="switch"><input type="checkbox" id="sNetEnabled"><span class="switch-track"></span></label>
+      <section class="set-pane" data-pane="decouverte">
+        <div class="set-list">
+          <div class="set-row">
+            <div class="set-label"><span>Plage de scan de ports</span>
+              <em>Ports balay&eacute;s par &laquo; Scan ports &raquo;. La d&eacute;couverte native litemcp n'en d&eacute;pend pas.</em>
+              <div class="set-err" id="err_scan" hidden></div></div>
+            <div class="set-ctrl"><input id="sScanFrom" type="number" min="1" max="65535" class="set-num">
+              <span class="set-dash">&ndash;</span>
+              <input id="sScanTo" type="number" min="1" max="65535" class="set-num"></div>
+          </div>
+          <div class="set-row">
+            <div class="set-label"><span>Pairs &amp; r&eacute;seau</span>
+              <em>D&eacute;tecte les autres moteurs MCP Control du LAN et leurs serveurs distants.</em></div>
+            <div class="set-ctrl">
+              <label class="switch"><input type="checkbox" id="sNetEnabled"><span class="switch-track"></span></label>
+            </div>
+          </div>
+          <div class="set-row">
+            <div class="set-label"><span>Ports UI des pairs</span>
+              <em>Ports interrog&eacute;s chez les pairs pour les rep&eacute;rer. S&eacute;par&eacute;s par des virgules.</em>
+              <div class="set-err" id="err_ports" hidden></div></div>
+            <div class="set-ctrl"><input id="sNetPorts" placeholder="5090, 5091" class="set-txt"></div>
           </div>
         </div>
-        <div class="set-row">
-          <div class="set-label"><span>Ports UI des pairs</span>
-            <em>Ports interrog&eacute;s chez les pairs pour les rep&eacute;rer.</em></div>
-          <div class="set-ctrl"><input id="sNetPorts" placeholder="5090, 5091" class="set-txt"></div>
-        </div>
-      </div>
-    </section>
+      </section>
 
-    <section class="set-group">
-      <h3 class="set-group-title">Interface</h3>
-      <div class="set-list">
-        <div class="set-row">
-          <div class="set-label"><span>&Eacute;coute</span>
-            <em>127.0.0.1 = cette machine seule. 0.0.0.0 = accessible du LAN (code d'acc&egrave;s exig&eacute;).
-            Appliqu&eacute; au prochain d&eacute;marrage.</em></div>
-          <div class="set-ctrl">
-            <select id="sUiBind">
-              <option value="127.0.0.1">127.0.0.1</option>
-              <option value="0.0.0.0">0.0.0.0</option>
-            </select>
+      <section class="set-pane" data-pane="interface">
+        <div class="set-list">
+          <div class="set-row">
+            <div class="set-label"><span>&Eacute;coute</span>
+              <em>127.0.0.1 = cette machine seule. 0.0.0.0 = accessible du LAN (code d'acc&egrave;s exig&eacute;).
+              Appliqu&eacute; au prochain d&eacute;marrage.</em></div>
+            <div class="set-ctrl">
+              <select id="sUiBind">
+                <option value="127.0.0.1">127.0.0.1</option>
+                <option value="0.0.0.0">0.0.0.0</option>
+              </select>
+            </div>
+          </div>
+          <div class="set-row">
+            <div class="set-label"><span>Port</span>
+              <em>Fig&eacute; au d&eacute;marrage du listener &mdash; modifiable dans config.json.</em></div>
+            <div class="set-ctrl"><input id="sUiPort" type="number" disabled class="set-num"></div>
           </div>
         </div>
-        <div class="set-row">
-          <div class="set-label"><span>Port</span>
-            <em>Fig&eacute; au d&eacute;marrage du listener &mdash; modifiable dans config.json.</em></div>
-          <div class="set-ctrl"><input id="sUiPort" type="number" disabled class="set-num"></div>
-        </div>
-      </div>
-    </section>
+      </section>
 
-    <section class="set-group">
-      <h3 class="set-group-title">Mises &agrave; jour</h3>
-      <div class="set-list">
-        <div class="set-row">
-          <div class="set-label"><span>Version install&eacute;e</span>
-            <em>Release GitHub du repo DeamonDev888/mcp-control.</em></div>
-          <div class="set-ctrl"><span class="set-static" id="sVersion">v&ndash;</span></div>
-        </div>
-        <div class="set-row">
-          <div class="set-label"><span>Derni&egrave;re release</span>
-            <em id="updMsg">&nbsp;</em></div>
-          <div class="set-ctrl">
-            <span class="set-static" id="sLatest">&ndash;</span>
-            <button onclick="checkUpdateNow()" title="Interroge l'API GitHub releases/latest maintenant">&#8635; V&eacute;rifier</button>
-            <button class="primary" onclick="openUpdate()" title="Ouvre la page de la derni&egrave;re release">&#11014; Mettre &agrave; jour</button>
+      <section class="set-pane" data-pane="notifications">
+        <div class="set-list">
+          <div class="set-row">
+            <div class="set-label"><span>Toast desktop</span>
+              <em>Notification Windows quand un serveur surveill&eacute; tombe (UP &rarr; DOWN ou PORT-ONLY).</em></div>
+            <div class="set-ctrl">
+              <label class="switch"><input type="checkbox" id="sNotifDesktop"><span class="switch-track"></span></label>
+            </div>
+          </div>
+          <div class="set-row col">
+            <div class="set-label"><span>Webhook</span>
+              <em>Requ&ecirc;te JSON &agrave; chaque incident (compatible Slack, Discord, n8n, endpoint maison).</em>
+              <div class="set-err" id="err_webhook" hidden></div></div>
+            <div class="set-ctrl set-ctrl-wide">
+              <input id="sWebhookUrl" placeholder="https://hooks.exemple.com/services/&#8230;">
+            </div>
+          </div>
+          <div class="set-row">
+            <div class="set-label"><span>M&eacute;thode HTTP</span>
+              <em>Verbe utilis&eacute; pour le webhook.</em></div>
+            <div class="set-ctrl">
+              <select id="sWebhookMethod">
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+              </select>
+            </div>
+          </div>
+          <div class="set-row col">
+            <div class="set-label"><span>En-t&ecirc;tes additionnels</span>
+              <em>Une paire &laquo; Cl&eacute;: valeur &raquo; par ligne (ex. Authorization: Bearer&#8230;).</em></div>
+            <div class="set-ctrl set-ctrl-wide">
+              <textarea id="sWebhookHeaders" rows="3" placeholder="Authorization: Bearer &#8230;"></textarea>
+            </div>
+          </div>
+          <div class="set-row">
+            <div class="set-label"><span>&Eacute;tats notifi&eacute;s</span>
+              <em>Les notifications se d&eacute;clenchent &agrave; la transition depuis UP.</em>
+              <div class="set-err" id="err_states" hidden></div></div>
+            <div class="set-ctrl set-inline">
+              <label class="set-chk"><input type="checkbox" id="sStDown"> DOWN</label>
+              <label class="set-chk"><input type="checkbox" id="sStPortOnly"> PORT-ONLY</label>
+            </div>
+          </div>
+          <div class="set-row">
+            <div class="set-label"><span>D&eacute;lai minimum</span>
+              <em>Anti-spam : pas deux notifications du m&ecirc;me serveur dans cet intervalle.</em>
+              <div class="set-err" id="err_min" hidden></div></div>
+            <div class="set-ctrl"><input id="sNotifMin" type="number" min="0" max="86400" step="30" class="set-num">
+              <span class="set-unit">secondes</span></div>
+          </div>
+          <div class="set-row">
+            <div class="set-label"><span>Test</span>
+              <em>Enregistre la section puis &eacute;met une notification sur chaque canal activ&eacute;.</em></div>
+            <div class="set-ctrl"><button onclick="testNotify()">&#128276; Tester</button></div>
+          </div>
+          <div class="set-row" hidden id="notifyMsgRow">
+            <div class="set-ctrl set-ctrl-wide"><span id="notifyMsg" class="set-note"></span></div>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <section class="set-group set-group-danger">
-      <h3 class="set-group-title">R&eacute;initialiser</h3>
-      <div class="set-list">
-        <div class="set-row">
-          <div class="set-label"><span>Remettre &agrave; z&eacute;ro</span>
-            <em>Placement des serveurs, d&eacute;tections import&eacute;es et oublis. Irr&eacute;versible.</em></div>
-          <div class="set-ctrl">
-            <select id="sResetWhat">
-              <option value="placement">Placement des serveurs</option>
-              <option value="detection">D&eacute;tections &amp; importations</option>
-              <option value="oublis">Oublis (seeds + machines)</option>
-              <option value="tout">Tout</option>
-            </select>
-            <button class="danger" onclick="resetState(document.getElementById('sResetWhat').value)">R&eacute;initialiser</button>
+      <section class="set-pane" data-pane="updates">
+        <div class="set-list">
+          <div class="set-row">
+            <div class="set-label"><span>Version install&eacute;e</span>
+              <em>Release GitHub du repo DeamonDev888/mcp-control.</em></div>
+            <div class="set-ctrl"><span class="set-static" id="sVersion">v&ndash;</span></div>
+          </div>
+          <div class="set-row">
+            <div class="set-label"><span>Derni&egrave;re release</span>
+              <em id="updMsg">&nbsp;</em></div>
+            <div class="set-ctrl">
+              <span class="set-static" id="sLatest">&ndash;</span>
+              <button onclick="checkUpdateNow()" title="Interroge l'API GitHub releases/latest maintenant">&#8635; V&eacute;rifier</button>
+              <button class="primary" onclick="openUpdate()" title="Ouvre la page de la derni&egrave;re release">&#11014; Mettre &agrave; jour</button>
+            </div>
           </div>
         </div>
-        <div class="set-row" id="resetMsgRow" hidden>
-          <div class="set-ctrl set-ctrl-wide"><span id="resetMsg" class="set-note"></span></div>
-        </div>
-      </div>
-    </section>
+      </section>
 
-    <div id="settingsMsg" class="machine-msg"></div>
+      <section class="set-pane" data-pane="reset">
+        <div class="set-list">
+          <div class="set-row">
+            <div class="set-label"><span>Remettre &agrave; z&eacute;ro</span>
+              <em>Placement des serveurs, d&eacute;tections import&eacute;es et oublis. Irr&eacute;versible.</em></div>
+            <div class="set-ctrl">
+              <select id="sResetWhat">
+                <option value="placement">Placement des serveurs</option>
+                <option value="detection">D&eacute;tections &amp; importations</option>
+                <option value="oublis">Oublis (seeds + machines)</option>
+                <option value="tout">Tout</option>
+              </select>
+              <button class="danger" onclick="resetState(document.getElementById('sResetWhat').value)">R&eacute;initialiser</button>
+            </div>
+          </div>
+          <div class="set-row" id="resetMsgRow" hidden>
+            <div class="set-ctrl set-ctrl-wide"><span id="resetMsg" class="set-note"></span></div>
+          </div>
+          <div class="set-row">
+            <div class="set-label"><span>Historique runtime</span>
+              <em>Efface crashs, relances et compteurs d'&eacute;chec enregistr&eacute;s par serveur. Ne touche ni la liste ni les r&eacute;glages.</em></div>
+            <div class="set-ctrl"><button class="danger" onclick="resetRuntime()">Effacer</button></div>
+          </div>
+          <div class="set-row" hidden id="runtimeMsgRow">
+            <div class="set-ctrl set-ctrl-wide"><span id="runtimeMsg" class="set-note"></span></div>
+          </div>
+        </div>
+      </section>
+    </div>
   </div>
+  <div id="settingsMsg" class="machine-msg set-msgline"></div>
   <div class="dlg-foot">
+    <span id="settingsDirty" class="set-dirty" hidden>&#9679; Modifications non enregistr&eacute;es</span>
     <span class="dlg-foot-note" id="settingsFootNote"></span>
     <div class="row">
-      <button onclick="settingsDlg.close()">Annuler</button>
+      <button onclick="closeSettings()">Annuler</button>
       <button class="primary" onclick="saveSettings()">Enregistrer</button>
     </div>
   </div>
@@ -985,6 +1098,7 @@ function render() {
   document.getElementById('stTotal').textContent = s.total;
   document.getElementById('stTools').textContent = s.tools;
   document.getElementById('stRefresh').textContent = state.settings.refresh_secs;
+  armPolling();
   const au = document.getElementById('stAuto');
   if (au) {
     au.textContent = (state.autostart ? '⏭ Auto-boot ON' : '⏭ Auto-boot OFF');
@@ -1820,9 +1934,60 @@ function openMachineDlg() {
   renderMachines();
 }
 
-/* ===== Réglages du client (dialog ⚙) ===== */
+/* ===== Réglages du client (dialog ⚙ à volets) ===== */
+/* Dirty state : tout input/change dans le dialog le marque ; fermer (Esc,
+   ×, Annuler) avec des saisies pendantes demande confirmation au lieu de les
+   jeter en silence. Le thème, lui, s'applique et se sauve au clic. */
+let settingsDirty = false;
+/* Instantané des valeurs notifications à l'ouverture du dialog : un
+   Enregistrer ne POSTe set_notify que si la section a réellement bougé. */
+let notifyOriginal = '';
+function setDirty(v) {
+  settingsDirty = v;
+  const b = document.getElementById('settingsDirty');
+  if (b) b.hidden = !v;
+}
+function settingsConfirmDiscard() {
+  return !settingsDirty || confirm('Modifications non enregistr\u00e9es \u2014 fermer quand m\u00eame ?');
+}
+function closeSettings() {
+  if (!settingsConfirmDiscard()) return;
+  setDirty(false);
+  document.getElementById('settingsDlg').close();
+}
+function setPane(name) {
+  document.querySelectorAll('#settingsDlg .set-nav-btn').forEach(b => b.classList.toggle('sel', b.dataset.pane === name));
+  document.querySelectorAll('#settingsDlg .set-pane').forEach(p => p.classList.toggle('sel', p.dataset.pane === name));
+  try { localStorage.setItem('mcc.setpane', name); } catch (e) {}
+}
+/* Labels humains des clés renvoyées par set_settings : le message parle
+   utilisateur (« plage de scan »), pas clés internes (« scan »). */
+const SETTINGS_LABELS = {
+  refresh: 'intervalle de sondage',
+  scan: 'plage de scan',
+  ui_bind: '\u00e9coute',
+  network: 'r\u00e9seau',
+  network_ports: 'ports UI des pairs',
+};
+function setFieldErr(id, msg) {
+  const el = document.getElementById('err_' + id);
+  if (!el) return;
+  if (msg) { el.textContent = msg; el.hidden = false; }
+  else { el.textContent = ''; el.hidden = true; }
+}
+function clearFieldErrs() {
+  ['refresh', 'scan', 'ports', 'webhook', 'states', 'min'].forEach(id => setFieldErr(id, ''));
+}
+function showMsg(rowId, msgId, text) {
+  const row = document.getElementById(rowId);
+  const el = document.getElementById(msgId);
+  if (row) row.hidden = false;
+  if (el) el.textContent = text;
+}
+
 function openSettingsDlg() {
   const s = state.settings || {};
+  const n = s.notify || {};
   document.getElementById('sRefresh').value = s.refresh_secs || 15;
   document.getElementById('sScanFrom').value = s.scan_from || 3000;
   document.getElementById('sScanTo').value = s.scan_to || 3200;
@@ -1830,20 +1995,47 @@ function openSettingsDlg() {
   document.getElementById('sNetPorts').value = (s.network_ports || []).join(', ');
   document.getElementById('sUiBind').value = s.ui_bind || '127.0.0.1';
   document.getElementById('sUiPort').value = s.ui_port || 5090;
+  // Notifications (moteur : action set_notify, section notify de config.json)
+  document.getElementById('sNotifDesktop').checked = !!n.desktop;
+  document.getElementById('sWebhookUrl').value = n.webhook_url || '';
+  document.getElementById('sWebhookMethod').value = n.method === 'PUT' ? 'PUT' : 'POST';
+  document.getElementById('sWebhookHeaders').value = n.headers || '';
+  const states = n.states || ['DOWN', 'PORT-ONLY'];
+  const hasState = v => states.some(x => String(x).toUpperCase() === v);
+  document.getElementById('sStDown').checked = hasState('DOWN');
+  document.getElementById('sStPortOnly').checked = hasState('PORT-ONLY');
+  document.getElementById('sNotifMin').value = (n.min_interval_secs ?? 300);
+  notifyOriginal = JSON.stringify(notifyFormValues());
   // sVersion/sLatest sont des <span> (affichage), pas des champs éditables
   document.getElementById('sVersion').textContent = 'v' + MCC_VERSION;
-  document.getElementById('sLatest').textContent = state.latest_version ? 'v' + state.latest_version : '—';
+  document.getElementById('sLatest').textContent = state.latest_version ? 'v' + state.latest_version : '\u2014';
   const upd = document.getElementById('updMsg');
-  upd.textContent = state.update_available ? '⬆ v' + state.latest_version + ' disponible' : 'Aucune mise à jour connue (auto-vérification au boot puis chaque heure).';
+  upd.textContent = state.update_available ? '\u2b06 v' + state.latest_version + ' disponible' : 'Aucune mise \u00e0 jour connue (auto-v\u00e9rification au boot puis chaque heure).';
   upd.style.color = state.update_available ? 'var(--warn)' : '';
-  document.getElementById('resetMsg').textContent = '';
   const row = document.getElementById('resetMsgRow');
   if (row) row.hidden = true;
+  document.getElementById('resetMsg').textContent = '';
+  ['notifyMsgRow', 'runtimeMsgRow'].forEach(id => { const el = document.getElementById(id); if (el) el.hidden = true; });
+  ['notifyMsg', 'runtimeMsg'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = ''; });
   document.getElementById('settingsMsg').textContent = '';
+  clearFieldErrs();
+  setDirty(false);
+  // dernier volet consulté (préférence locale)
+  let pane = 'general';
+  try {
+    const p = localStorage.getItem('mcc.setpane');
+    if (p && document.querySelector('#settingsDlg .set-pane[data-pane="' + p + '"]')) pane = p;
+  } catch (e) {}
+  setPane(pane);
   const foot = document.getElementById('settingsFootNote');
-  if (foot) foot.textContent = 'Les réglages sont enregistrés dans config.json.';
+  if (foot) foot.textContent = 'Les r\u00e9glages sont enregistr\u00e9s dans config.json.';
   applyTheme(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
   document.getElementById('settingsDlg').showModal();
+  // focus dans le dialog dès l'ouverture : Esc fonctionne immédiatement (le
+  // navigateur ne déclenche le cancel que si le focus est dedans) et la
+  // navigation clavier part du volet actif.
+  const nav = document.querySelector('#settingsDlg .set-nav-btn.sel');
+  if (nav) nav.focus();
 }
 async function checkUpdateNow() {
   const msg = document.getElementById('updMsg');
@@ -1899,30 +2091,142 @@ async function resetState(what) {
     await load();
   }
 }
-async function saveSettings() {
-  const ports = document.getElementById('sNetPorts').value
-    .split(/[\s,]+/).filter(Boolean).map(Number)
-    .filter(n => Number.isInteger(n) && n >= 1 && n <= 65535);
-  const body = {
-    action: 'set_settings',
-    refresh_secs: +document.getElementById('sRefresh').value || 15,
-    scan_from: +document.getElementById('sScanFrom').value || 3000,
-    scan_to: +document.getElementById('sScanTo').value || 3200,
-    ui_bind: document.getElementById('sUiBind').value,
-    network_enabled: document.getElementById('sNetEnabled').checked,
-    network_ports: ports,
+/* Valeurs du formulaire notifications, telles quelles (sans le champ action) :
+   sérialisées pour détecter si la section a réellement changé (évite un
+   « configuration enregistrée » dans le journal à chaque Enregistrer). */
+function notifyFormValues() {
+  return {
+    desktop: document.getElementById('sNotifDesktop').checked,
+    webhook_url: document.getElementById('sWebhookUrl').value.trim(),
+    method: document.getElementById('sWebhookMethod').value,
+    headers: document.getElementById('sWebhookHeaders').value,
+    states: [
+      ...(document.getElementById('sStDown').checked ? ['DOWN'] : []),
+      ...(document.getElementById('sStPortOnly').checked ? ['PORT-ONLY'] : []),
+    ],
+    min_interval_secs: +document.getElementById('sNotifMin').value || 0,
   };
-  const msg = document.getElementById('settingsMsg');
-  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body)});
-  const j = await r.json();
-  if (!j.ok) msg.textContent = '✗ ' + (j.error || 'échec');
-  else {
-    const n = (j.changed || []).length;
-    msg.textContent = n ? '✓ Enregistré (' + j.changed.join(', ') + ')' : '✓ Aucun changement';
-    await load();
-  }
 }
+/* Lecture + validation de TOUS les champs du dialog : chaque erreur est
+   affichée sous sa ligne (set-err), jamais une seule ligne globalisée.
+   Renvoie null si invalide, sinon le corps d'action set_settings et, si la
+   section Notifications a changé, le corps d'action set_notify. */
+function collectSettingsForm() {
+  let ok = true;
+  const intOrNull = id => { const raw = document.getElementById(id).value.trim(); return raw === '' ? null : +raw; };
+  // Intervalle de sondage : entier 5..3600
+  const refresh = intOrNull('sRefresh');
+  if (refresh === null || !Number.isInteger(refresh) || refresh < 5 || refresh > 3600) {
+    setFieldErr('refresh', 'entier entre 5 et 3600 secondes'); ok = false;
+  } else setFieldErr('refresh', '');
+  // Plage de scan : entiers 1..65535, bornes échangées si inversées
+  let sf = intOrNull('sScanFrom'), st = intOrNull('sScanTo');
+  let swapped = false;
+  if (sf === null || st === null || !Number.isInteger(sf) || !Number.isInteger(st)
+      || sf < 1 || sf > 65535 || st < 1 || st > 65535) {
+    setFieldErr('scan', 'ports entiers entre 1 et 65535'); ok = false;
+    sf = null; st = null;
+  } else {
+    if (sf > st) { const t = sf; sf = st; st = t; swapped = true; }
+    setFieldErr('scan', '');
+  }
+  // Ports UI des pairs : liste d'entiers 1..65535
+  const rawPorts = document.getElementById('sNetPorts').value.trim();
+  const tokens = rawPorts ? rawPorts.split(/[\s,]+/).filter(Boolean) : [];
+  const bad = tokens.filter(t => !/^\d+$/.test(t) || +t < 1 || +t > 65535);
+  if (bad.length) { setFieldErr('ports', 'ports invalides : ' + bad.slice(0, 3).join(', ')); ok = false; }
+  else setFieldErr('ports', '');
+  const netPorts = tokens.filter(t => /^\d+$/.test(t)).map(Number).filter(p => p >= 1 && p <= 65535);
+  // Webhook : vide autorisé (canal off), sinon URL http(s)
+  const url = document.getElementById('sWebhookUrl').value.trim();
+  if (url && !/^https?:\/\//i.test(url)) { setFieldErr('webhook', 'URL http:// ou https:// attendue'); ok = false; }
+  else setFieldErr('webhook', '');
+  // États notifiés : au moins un (sinon aucun incident ne déclencherait rien)
+  const notify = notifyFormValues();
+  notify.webhook_url = url;
+  if (!notify.states.length) { setFieldErr('states', 'coche au moins un état (DOWN ou PORT-ONLY)'); ok = false; }
+  else setFieldErr('states', '');
+  // Délai anti-spam : borné 0..86400 (le moteur clampe déjà, on affiche juste)
+  notify.min_interval_secs = Math.min(86400, Math.max(0, notify.min_interval_secs));
+  if (!ok) return null;
+  return {
+    swapped,
+    settings: {
+      action: 'set_settings',
+      refresh_secs: refresh,
+      scan_from: sf,
+      scan_to: st,
+      ui_bind: document.getElementById('sUiBind').value,
+      network_enabled: document.getElementById('sNetEnabled').checked,
+      network_ports: netPorts,
+    },
+    notifyChanged: JSON.stringify(notify) !== notifyOriginal,
+    notify,
+  };
+}
+async function saveSettings() {
+  const form = collectSettingsForm();
+  if (!form) return false;
+  const msg = document.getElementById('settingsMsg');
+  const parts = [];
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(form.settings)});
+  const j = await r.json();
+  if (!j.ok) { msg.textContent = '\u2717 ' + (j.error || '\u00e9chec'); return false; }
+  parts.push((j.changed || []).length
+    ? '\u2713 enregistr\u00e9 : ' + j.changed.map(k => SETTINGS_LABELS[k] || k).join(', ')
+    : 'r\u00e9glages inchang\u00e9s');
+  if ((j.changed || []).includes('ui_bind')) parts.push('l\u2019\u00e9coute s\u2019applique au prochain d\u00e9marrage');
+  if (form.swapped) parts.push('plage de scan r\u00e9ordonn\u00e9e (du plus petit au plus grand port)');
+  if (form.notifyChanged) {
+    const r2 = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(Object.assign({action: 'set_notify'}, form.notify))});
+    const j2 = await r2.json();
+    parts.push(j2.ok ? 'notifications enregistr\u00e9es' : '\u2717 notifications : ' + (j2.error || '\u00e9chec'));
+  }
+  msg.textContent = parts.join(' \u00b7 ');
+  setDirty(false);
+  await load();
+  armPolling();
+  return true;
+}
+/* Test des notifications : enregistre d'abord les saisies pendantes (le
+   moteur teste la config PERSISTÉE), puis émet sur chaque canal activé. */
+async function testNotify() {
+  if (settingsDirty) { const saved = await saveSettings(); if (!saved) return; }
+  showMsg('notifyMsgRow', 'notifyMsg', '\u23f3 test en cours\u2026');
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'test_notify'})});
+  const j = await r.json();
+  if (!j.ok) { showMsg('notifyMsgRow', 'notifyMsg', '\u2717 ' + (j.error || '\u00e9chec')); return; }
+  const parts = [];
+  if (j.desktop) parts.push(j.desktop.ok ? 'desktop \u2713 (toast affich\u00e9)' : 'desktop \u2717 \u2014 ' + (j.desktop.error || '?'));
+  if (j.webhook) parts.push(j.webhook.ok ? 'webhook \u2713' : 'webhook \u2717 \u2014 ' + (j.webhook.error || '?'));
+  showMsg('notifyMsgRow', 'notifyMsg', parts.join(' \u00b7 ') || 'aucun canal actif');
+}
+/* Historique runtime : crashs, relances, backoff — reset_runtime du moteur. */
+async function resetRuntime() {
+  if (!confirm('Effacer l\u2019historique runtime (crashs, relances, backoff) ?')) return;
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'reset_runtime'})});
+  const j = await r.json();
+  showMsg('runtimeMsgRow', 'runtimeMsg',
+    j.ok ? '\u2713 historique effac\u00e9 (' + (j.cleared || 0) + ' serveur(s))' : '\u2717 ' + (j.error || '\u00e9chec'));
+  await load();
+}
+/* Câblage du dialog (une fois au boot) : dirty state sur toute saisie, et
+   Esc = event cancel — les modifications pendantes ne sont pas jetées en
+   silence, une confirmation les sauvegarde ou les abandonne explicitement. */
+(function () {
+  const d = document.getElementById('settingsDlg');
+  if (!d) return;
+  d.addEventListener('input', () => setDirty(true));
+  d.addEventListener('change', () => setDirty(true));
+  d.addEventListener('cancel', (e) => {
+    if (!settingsConfirmDiscard()) e.preventDefault();
+    else setDirty(false);
+  });
+})();
 function renderMachines() {
   if (!state) return;
   const hosts = state.settings.ssh_hosts || [];
@@ -2171,10 +2475,25 @@ function toggleLog() {
   try { v = localStorage.getItem('mcc.logmin'); } catch (e) {}
   document.getElementById('logpanel').classList.toggle('min', v === null ? true : v === 'true');
 })();
+/* ===== Polling armé sur les réglages =====
+   L'intervalle suit settings.refresh_secs (re-armé à chaque rendu quand il
+   change) : fini le 5 s fixe qui interrogeait 3× plus vite que les données
+   ne changeaient. Avant le premier état chargé (ou serveur momentanément
+   injoignable), on retente au rythme par défaut de 5 s. */
+let pollTimer = null;
+let pollMs = 0;
+function armPolling() {
+  const secs = Math.max(5, (state && state.settings && state.settings.refresh_secs) || 5);
+  const ms = secs * 1000;
+  if (ms === pollMs) return;
+  if (pollTimer) clearInterval(pollTimer);
+  pollMs = ms;
+  pollTimer = setInterval(load, ms);
+}
 loadFrameworks();
 updateLogoutBtn();
 load();
-setInterval(load, 5000);
+armPolling();
 // retour de la fenêtre (tray → visible) : reprise immédiate du rafraîchissement
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 </script>
@@ -2183,3 +2502,189 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) load
 </body>
 </html>
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::INDEX_HTML;
+
+    // ---------- contrat « tout bouton est câblé » --------------------------
+    // Chaque handler référencé par un attribut on* du HTML embarqué (y compris
+    // dans les gabarits JS qui génèrent les lignes de serveur, les menus
+    // contextuels, la boutique…) doit être défini dans la page. Un handler
+    // référencé et absent = bouton mort : ce test le fait échouer au compile
+    // test, pas devant l'utilisateur.
+
+    const ON_ATTRS: &[&str] = &[
+        "onclick=\"",
+        "onsubmit=\"",
+        "onchange=\"",
+        "oninput=\"",
+        "ontoggle=\"",
+        "ondragstart=\"",
+        "ondragover=\"",
+        "ondrop=\"",
+        "ondragleave=\"",
+        "ondragend=\"",
+    ];
+
+    /// Mots-clés JS et fonctions natives : jamais des handlers applicatifs.
+    const JS_NON_HANDLERS: &[&str] = &[
+        "if",
+        "else",
+        "for",
+        "while",
+        "do",
+        "switch",
+        "case",
+        "try",
+        "catch",
+        "finally",
+        "return",
+        "function",
+        "typeof",
+        "new",
+        "delete",
+        "void",
+        "await",
+        "async",
+        "throw",
+        "let",
+        "const",
+        "var",
+        "setTimeout",
+        "setInterval",
+        "clearTimeout",
+        "clearInterval",
+        "alert",
+        "confirm",
+        "prompt",
+        "fetch",
+    ];
+
+    /// Identificateurs suivis de « ( » dans le code d'un attribut on*.
+    /// `obj.m(` (appel de méthode) et les mots-clés sont exclus — seuls les
+    /// handlers globaux de la page comptent.
+    fn calls_in(code: &str, out: &mut Vec<String>) {
+        let b = code.as_bytes();
+        let mut i = 0;
+        while i < b.len() {
+            if b[i].is_ascii_alphabetic() || b[i] == b'_' || b[i] == b'$' {
+                let s = i;
+                while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'$')
+                {
+                    i += 1;
+                }
+                let name = &code[s..i];
+                let mut j = i;
+                while j < b.len() && (b[j] == b' ' || b[j] == b'\t') {
+                    j += 1;
+                }
+                let prev_dot = s > 0 && b[s - 1] == b'.';
+                if j < b.len() && b[j] == b'(' && !prev_dot && !JS_NON_HANDLERS.contains(&name) {
+                    out.push(name.to_string());
+                }
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    fn handlers_referenced() -> Vec<String> {
+        let mut names = Vec::new();
+        for attr in ON_ATTRS {
+            let mut rest: &str = INDEX_HTML;
+            while let Some(i) = rest.find(attr) {
+                let start = i + attr.len();
+                let end = rest[start..].find('"').map(|e| start + e).unwrap_or(start);
+                calls_in(&rest[start..end], &mut names);
+                rest = &rest[end..];
+            }
+        }
+        names.sort();
+        names.dedup();
+        names
+    }
+
+    fn defined_in_page(name: &str) -> bool {
+        INDEX_HTML.contains(&format!("function {name}("))
+            || INDEX_HTML.contains(&format!("const {name} ="))
+            || INDEX_HTML.contains(&format!("let {name} ="))
+    }
+
+    #[test]
+    fn chaque_gestionnaire_inline_est_defini() {
+        let names = handlers_referenced();
+        assert!(
+            names.len() > 40,
+            "l'inventaire doit rester consistant (une refonte qui casse le \
+             parseur doit être vue), trouvé : {names:?}"
+        );
+        let morts: Vec<&String> = names.iter().filter(|n| !defined_in_page(n)).collect();
+        assert!(
+            morts.is_empty(),
+            "handlers référencés mais jamais définis (boutons morts) : {morts:?}"
+        );
+    }
+
+    // ---------- contrat actions : l'UI n'appelle que des actions connues ----
+
+    /// Actions d'API écrites en clair (`action: 'x'`) dans la page.
+    fn actions_referenced() -> Vec<String> {
+        let mut out = Vec::new();
+        for needle in ["action: '", "'action': '"] {
+            let mut rest: &str = INDEX_HTML;
+            while let Some(i) = rest.find(needle) {
+                let start = i + needle.len();
+                let end = rest[start..]
+                    .find(['\'', '"'])
+                    .map(|e| start + e)
+                    .unwrap_or(start);
+                let name = &rest[start..end];
+                if !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c == '_') {
+                    out.push(name.to_string());
+                }
+                rest = &rest[end..];
+            }
+        }
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    #[test]
+    fn chaque_action_api_de_l_ui_est_conue_par_le_moteur() {
+        let actions = actions_referenced();
+        assert!(
+            actions.len() >= 20,
+            "l'inventaire doit rester consistant, trouvé : {actions:?}"
+        );
+        let inconnues: Vec<&String> = actions
+            .iter()
+            .filter(|a| !crate::manage::ACTIONS.contains(&a.as_str()))
+            .collect();
+        assert!(
+            inconnues.is_empty(),
+            "actions UI inconnues du dispatcher : {inconnues:?}"
+        );
+        // Les actions construites par variable — act(`${up?'kill':'start'}`) —
+        // ne sont pas capturées ci-dessus : les littéraux de base sont couverts
+        // ici, et chaque action de la surface l'est par la suite E2E.
+        for a in ["start", "kill", "refresh", "toggle", "remove"] {
+            assert!(
+                crate::manage::ACTIONS.contains(&a),
+                "action de base manquante au dispatcher : {a}"
+            );
+        }
+    }
+
+    #[test]
+    fn les_valeurs_de_reset_state_sont_conues_par_le_moteur() {
+        // les <option value> du select de réinitialisation pilotent reset_state
+        for v in ["placement", "detection", "oublis", "tout"] {
+            assert!(
+                INDEX_HTML.contains(&format!("<option value=\"{v}\"")),
+                "option reset_state manquante : {v}"
+            );
+        }
+    }
+}

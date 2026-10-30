@@ -1,3 +1,34 @@
+## [0.7.16] — Réglages professionnels à volets, Notifications câblées à l'UI, contrat « tout bouton »
+
+### Dialog Réglages refondu (navigation par sections)
+- **Volets façon app système** : une navigation latérale (⚙ Général · 🔍 Découverte · 🖥 Interface · 🔔 Notifications · ⬆ Mises à jour · ⚠ Réinitialiser) remplace la pile unique de groupes. Le dernier volet consulté est mémorisé (`mcc.setpane`), la section dangereuse est détachée sous un séparateur et prend la teinte rouge.
+- **Dirty state** : toute saisie allume « ● Modifications non enregistrées » dans le pied ; Esc, × et Annuler avec des saisies pendantes demandent confirmation au lieu de les jeter en silence. Le focus est posé dans le dialog à l'ouverture — Esc fonctionne immédiatement.
+- **Validation par champ** : chaque erreur s'affiche sous SA ligne (intervalle 5-3600, ports 1-65535, webhook http(s), au moins un état notifié) ; la plage de scan inversée est réordonnée avec une mention explicite. Fini la ligne unique qui disait tout ou rien.
+- **Messages parlants** : « ✓ enregistré : intervalle de sondage, plage de scan » (labels humains via `SETTINGS_LABELS`) au lieu des clés internes ; rappel « l'écoute s'applique au prochain démarrage » quand `ui_bind` change.
+- **Enregistrer ne rejoue plus tout** : `set_notify` n'est POSTé que si la section Notifications a réellement changé (instantané comparé à l'ouverture) — plus d'entrée « [notif] configuration enregistrée » dans le journal à chaque Enregistrer.
+
+### Notifications : l'UI rattrape le moteur (promesse du 0.7.13 tenue)
+- Le moteur avait `set_notify` (toast Windows + webhook), la config persistée et le déclenchement sur incident — mais **aucun réglage UI ne le pilotait**. Le nouveau volet Notifications expose tout : switch toast desktop, URL de webhook (+ méthode POST/PUT, en-têtes « Clé: valeur » par ligne), états notifiés (DOWN / PORT-ONLY — les seuls états qui déclenchent une transition), délai anti-spam.
+- **Nouvelle action `test_notify`** (bouton « 🔔 Tester ») : enregistre les saisies pendantes puis émet une notification de test sur chaque canal ACTIVÉ et rend le résultat **par canal** (`desktop: ok/erreur`, `webhook: ok/erreur`) — jamais un silence. Volontairement **non exposée au gateway** (déclenche un toast et une requête vers l'URL configurée).
+- `/api/state` expose désormais `settings.notify` pour peupler le volet — **jamais** passé au gateway `get_settings` : l'URL de webhook peut porter un `Authorization`.
+
+### Réinitialiser : historique runtime
+- Le moteur avait `reset_runtime` (effacer crashs, relances, backoff) sans aucun bouton. Le volet Réinitialiser l'expose avec confirmation, résultat affiché (« ✓ historique effacé (N serveur(s)) »).
+
+### Polling UI armé sur les réglages
+- `setInterval(load, 5000)` figé → `armPolling()` suit `settings.refresh_secs` (re-armé à chaque changement, plancher 5 s) : le badge « refresh Ns » et le rythme réel coïncident enfin ; moins de requêtes quand l'intervalle est élevé.
+
+### Contrat « tout bouton est câblé » (tests)
+- **`ui.rs` — module de tests** (nouveau) : parseur des attributs `on*` du HTML embarqué (y compris gabarits JS) → **tout handler référencé doit être défini** dans la page (un bouton mort = test rouge) ; **toute action API écrite dans l'UI doit figurer dans `manage::ACTIONS`** ; les 4 valeurs du select de réinitialisation sont confrontées au moteur.
+- **`manage::ACTIONS`** (nouveau) : la surface du dispatcher devient une constante partagée (UI / gateway / tests), testée sans doublon et avec un échantillon dispatché « jamais action inconnue » (les actions à effet de bord réel restent couvertes par l'E2E).
+- **Tests `set_notify` / `test_notify`** : URL invalide refusée avant tout, méthode normalisée, clamp anti-spam, persistance config.json, exposition `/api/state`, refus « aucun canal actif », échec rapporté par canal sans panic.
+- **Tests gateway additionnels** : POST sans Accept → JSON par défaut, Content-Type absent → 415, outil inconnu → erreur propre sans panic, `resources/read` URI inconnue → erreur, `tool_count`, contrat `action_req`.
+- **E2E** : deadline du scénario `hostile_label_never_in_html` élargie à 45 s — le test flottait sous la suite complète (45 moteurs en parallèle dépassaient 20 s), il passe isolément comme en suite.
+
+### Tests
+- **154 tests unitaires + 45 tests E2E verts**, `cargo clippy --all-targets -- -D warnings` : 0 warning, `cargo fmt --check` : propre.
+- Vérification UI réelle (moteur de test + navigateur) : volets, dirty badge, erreurs inline, swap de plage, sauvegarde (`refresh_secs`/`scan`/`notify` persistés, polling ré-armé), bouton Tester (résultats par canal), Esc/confirm, historique runtime effacé, volet mémorisé.
+
 ## [0.7.15] — Le bouton « Mettre à jour » qui marche vraiment
 
 ### Clic mort réparé (le vrai bug)

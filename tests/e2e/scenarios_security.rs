@@ -214,8 +214,11 @@ fn hostile_label_never_in_html() {
     );
 
     // le moteur sonde ::1 puis 127.0.0.1, chemin /mcp (puis / et /api/mcp) :
-    // la fixture répond à TOUT → UP au prochain cycle (refresh_secs = 5)
-    let up = wait_until(Duration::from_secs(20), || {
+    // la fixture répond à TOUT → UP au prochain cycle (refresh_secs = 5).
+    // Deadline large (45 s) : sous la suite complète, 45 scénarios lancent
+    // leurs moteurs en parallèle et le premier cycle de sonde peut dépasser
+    // largement refresh_secs — ce test a flotté à 20 s en exécution chargée.
+    let up = wait_until(Duration::from_secs(45), || {
         let v = e.get("/api/state").json();
         let found = v["servers"]
             .as_array()?

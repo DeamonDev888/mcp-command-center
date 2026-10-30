@@ -1732,6 +1732,87 @@ mod tests {
         assert!(payload.is_empty());
     }
 
+    // ---------- compléments de transport et de surface ----------
+
+    #[test]
+    fn respond_sans_accept_rend_du_json_par_defaut() {
+        // L'absence d'Accept = aucun refus de négociation : le client JSON
+        // naïf (curl, scripts) reçoit du JSON, jamais du SSE-surprise.
+        let core = build_builder(&test_state()).core();
+        let headers = hs(&[("content-type", "application/json")]);
+        let (status, ctype, payload) = respond(&core, "POST", &headers, rpc("ping", 1).as_bytes());
+        assert_eq!(status, 200);
+        assert_eq!(ctype, "application/json");
+        let v: Value = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(v["id"], 1);
+    }
+
+    #[test]
+    fn respond_refuse_content_type_manquant() {
+        // POST sans Content-Type → 415, comme un Content-Type non-JSON
+        let core = build_builder(&test_state()).core();
+        let (status, _, payload) = respond(&core, "POST", &hs(&[]), b"{}");
+        assert_eq!(status, 415);
+        let v: Value = serde_json::from_slice(&payload).unwrap();
+        assert!(v["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("application/json"));
+    }
+
+    #[test]
+    fn tool_outil_inconnu_repond_erreur_propre_sans_panic() {
+        let state = test_state();
+        let core = build_builder(&state).core();
+        let body = json!({
+            "jsonrpc": "2.0", "id": 9, "method": "tools/call",
+            "params": { "name": "outil_qui_n_existe_pas", "arguments": {} }
+        })
+        .to_string();
+        let reply = core.dispatch(body.as_bytes()).unwrap();
+        let v: Value = serde_json::from_slice(&reply).unwrap();
+        // le noyau litemcp répond en erreur (isError ou erreur JSON-RPC) —
+        // l'essentiel : pas de panic, pas de 200 mute avec un résultat vide
+        let is_err = v["error"].is_object() || v["result"]["isError"] == json!(true);
+        assert!(is_err, "{v}");
+    }
+
+    #[test]
+    fn lecture_ressource_uri_inconnue_repond_erreur() {
+        let state = test_state();
+        let core = build_builder(&state).core();
+        let body = json!({
+            "jsonrpc": "2.0", "id": 3, "method": "resources/read",
+            "params": { "uri": "mcp-control://server/inexistant" }
+        })
+        .to_string();
+        let reply = core.dispatch(body.as_bytes()).unwrap();
+        let v: Value = serde_json::from_slice(&reply).unwrap();
+        let is_err = v["error"].is_object() || v["result"]["isError"] == json!(true);
+        assert!(is_err, "URI inconnue doit répondre en erreur : {v}");
+    }
+
+    #[test]
+    fn tool_count_compte_le_catalogue_publie() {
+        let core = build_builder(&test_state()).core();
+        let n = tool_count(&core);
+        assert!(n >= 28, "la surface complète fait au moins 28 outils : {n}");
+    }
+
+    #[test]
+    fn action_req_reprend_les_arguments_et_nomme_l_action() {
+        let args = json!({ "id": "srv", "port": 3099, "extra": { "a": 1 } });
+        let req = action_req("add", &args);
+        assert_eq!(req["action"], "add");
+        assert_eq!(req["id"], "srv");
+        assert_eq!(req["port"], 3099);
+        assert_eq!(req["extra"]["a"], 1);
+        // sans argument : seule la clé action est posée
+        let req2 = action_req("refresh", &json!({}));
+        assert_eq!(req2["action"], "refresh");
+        assert!(req2.as_object().unwrap().len() == 1, "{req2}");
+    }
+
     // ---------- empreinte + proxy ----------
 
     #[test]
