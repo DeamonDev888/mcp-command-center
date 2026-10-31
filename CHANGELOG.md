@@ -51,6 +51,7 @@
 - **Correctif « vv »** : le tag GitHub arrivait avec son « v » et chaque affichage en rajoutait un — le journal disait « mise à jour disponible : vv0.7.16 ». Le tag est normalisé à la source (`check_update`), tous les affichages (journal, badge, Réglages) sont cohérents.
 - **Version et bouton ⬆ sur la ligne Journal** : la barre d'état séparée est retirée — « vX.Y.Z » et « ⬆ Mettre à jour » vivent sur la même ligne que « Journal » et « auto-détection », visibles même journal replié (le clic sur le bouton ne replie pas le journal — propagation coupée). Libellé épuré : juste **« Mettre à jour »** (icône download) — les versions (dispo + installée) s'affichent **en survol**.
 - **Jaune JS assagi** (`#f7df1e` → `#dcc94f`) : le carré ECMAScript et les badges framework dérivés gardent leur identité sans flasher au neon.
+- **Masquer un serveur de l'affichage** : « 👁 Masquer » au menu contextuel (clic droit) ou au panneau de détail retire la ligne de l'explorateur — comptes de groupe compris — sans toucher à la supervision. Une barre « N serveurs masqués — afficher » permet de les réafficher. **Session seulement** : rien n'est persisté (ni config.json ni localStorage), la réouverture de l'app les fait revenir — supervision continue en fond, l'affichage seul est filtré.
 
 ### Le bouton « ⬆ Mettre à jour » télécharge directement le BON fichier
 - Avant : le bouton ouvrait la **page des releases** — il fallait encore trouver le bon fichier parmi les plateformes.

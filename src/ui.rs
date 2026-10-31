@@ -213,6 +213,14 @@ button:disabled{opacity:.35;cursor:not-allowed}
 #srvFilter{height:24px;font-size:11.5px;flex:1;min-width:0;padding:0 8px}
 #srvFilterClear{width:22px;height:22px;padding:0;font-size:13px;color:var(--t4);border-color:transparent;flex-shrink:0}
 #srvFilterClear:hover{color:var(--t1);background:var(--wash);border-color:transparent}
+/* Barre « serveurs masqués » (session seulement — l'app fermée les rend). */
+#hiddenBar{display:flex;align-items:center;gap:7px;margin:3px 8px 2px;padding:5px 10px;
+  font:11px/1.3 var(--sans);color:var(--t3);background:var(--wash);
+  border:1px dashed var(--border);border-radius:var(--r2);cursor:pointer;user-select:none}
+#hiddenBar[hidden]{display:none}
+#hiddenBar:hover{color:var(--t1);border-color:var(--border-strong)}
+#hiddenBar .ic{width:13px;height:13px;flex-shrink:0}
+#hiddenBar b{margin-left:auto;color:var(--accent);font-weight:600;white-space:nowrap}
 /* Lignes de serveur : 34 px de haut, filet de sélection aligné sur le texte. */
 .srow{padding:6px 10px 6px 13px;margin:1px 8px;border-radius:var(--r3);cursor:pointer;position:relative;
   border:1px solid transparent;transition:background .1s,border-color .1s}
@@ -710,6 +718,8 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
         oninput="renderServers()">
       <button id="srvFilterClear" hidden onclick="clearFilter()" title="Effacer le filtre">&times;</button>
     </div>
+    <div id="hiddenBar" hidden onclick="showHiddenServers()"
+      title="Les serveurs masqu&eacute;s ne le restent que pour cette session : ils reviennent &agrave; la r&eacute;ouverture de l'application (ou d'un rechargement de la page)"></div>
     <div id="localSec">
       <div class="grphead" id="localHead" onclick="toggleGroup('local')"
         title="Serveurs MCP locaux &agrave; cette machine (loopback) — cliquer pour replier/d&eacute;plier">
@@ -1172,6 +1182,8 @@ const ICONS = {
   lock: "<rect x='4.5' y='10.5' width='15' height='10' rx='2'/><path d='M8 10.5V7a4 4 0 0 1 8 0v3.5'/>",
   zap: "<path d='M13 2.5 4.5 13.5H11l-1 8 8.5-11H12l1-8Z'/>",
   star: "<path d='m12 3.6 2.5 5.1 5.7.8-4.1 4 1 5.6L12 16.4l-5.1 2.7 1-5.6-4.1-4 5.7-.8Z'/>",
+  eye: "<path d='M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z'/><circle cx='12' cy='12' r='3'/>",
+  eyeOff: "<path d='M4 4l16 16'/><path d='M10.3 5.7a9.8 9.8 0 0 1 1.7-.2c6 0 9.5 6.5 9.5 6.5a17.6 17.6 0 0 1-3 3.8M6.7 6.7C4.1 8.4 2.5 12 2.5 12S6 18.5 12 18.5c1.3 0 2.5-.3 3.6-.8'/><path d='M9.9 9.9a3 3 0 0 0 4.2 4.2'/>",
   play: "<path d='M7 4.5 19 12 7 19.5Z'/>",
   stop: "<rect x='6' y='6' width='12' height='12' rx='1.5'/>",
   pause: "<path d='M9 5v14M15 5v14'/>",
@@ -1302,7 +1314,13 @@ function groupHeadHtml(key, label, up, total, machine) {
 }
 /* Filtre courant de l'explorateur : texte (champ #srvFilter) + filtre de tuile
    d'accueil (overviewFilter). Renvoie true si le serveur doit être affiché. */
+/* Serveurs masqués de l'affichage — VOLONTAIREMENT en mémoire seulement :
+   ni config.json ni localStorage. Fermer l'app (ou recharger la page) les fait
+   réapparaître, comme demandé. La supervision moteur continue de les sonder. */
+const hiddenServers = new Set();
+
 function srvVisible(s, q) {
+  if (hiddenServers.has(s.id)) return false;
   if (overviewFilter === 'up' && s.state !== 'UP') return false;
   if (q) {
     const hay = (s.label + ' ' + s.id + ' ' + (s.framework || '') + ' '
@@ -1325,15 +1343,27 @@ function renderServers() {
     localHead.hidden = true; count.textContent = '';
     localBox.innerHTML = '<div class="empty-sec">aucun serveur — lance un scan</div>';
     label.hidden = true; groupsBox.innerHTML = '';
+    const hb = document.getElementById('hiddenBar');
+    if (hb) hb.hidden = true;
     return;
   }
-  // Les compteurs de groupe comptent TOUS les serveurs du groupe ; seules les
-  // lignes affichées passent par le filtre.
-  const localAll = state.servers.filter(s => hostOf(s) === 'local');
+  // Les compteurs de groupe comptent TOUS les serveurs affichables du groupe
+  // (les masqués ne comptent ni dans les lignes ni dans les comptes) ; seules
+  // les lignes visibles passent ensuite par le filtre texte.
+  const shown = state.servers.filter(s => !hiddenServers.has(s.id));
+  const localAll = shown.filter(s => hostOf(s) === 'local');
   const local = localAll.filter(s => srvVisible(s, q));
-  const remotes = state.servers.filter(s => hostOf(s) !== 'local');
+  const remotes = shown.filter(s => hostOf(s) !== 'local');
   const byKey = {};
   remotes.forEach(s => { const k = hostOf(s); (byKey[k] = byKey[k] || []).push(s); });
+  // barre « masqués — afficher » : le seul chemin pour les réafficher
+  const hb = document.getElementById('hiddenBar');
+  if (hb) {
+    const n = hiddenServers.size;
+    hb.hidden = !n;
+    if (n) hb.innerHTML = ic('eyeOff') + ' ' + n + ' serveur' + (n > 1 ? 's' : '')
+      + ' masqu\u00e9' + (n > 1 ? 's' : '') + ' (reviennent \u00e0 la r\u00e9ouverture) <b>afficher</b>';
+  }
   const upOf = rows => rows.filter(s => s.state === 'UP').length;
   /* Favoris (⭐) épinglés en tête de chaque section, quel que soit le tri :
      tri stable — les épinglées gardent leur ordre relatif entre elles. */
@@ -1847,6 +1877,7 @@ function renderDetail() {
           title="Autoboot : relance automatique de ce serveur au d&eacute;marrage de MCP Control et apr&egrave;s un crash">${ic('zap')} Autoboot ${s.auto_restart?'ON':'OFF'}</button>` : ''}
         <button class="favbtn ${s.favorite?'on':''}" onclick="setFavorite(${js(s.id)},${s.favorite?'false':'true'})"
           title="Favori : &eacute;pingle ce serveur en haut de sa section dans l'explorateur (persist&eacute;)">${ic('star')} Favori ${s.favorite?'ON':'OFF'}</button>
+        <button onclick="hideServer(${js(s.id)})" title="Masquer ce serveur de l'affichage (session seulement : il revient &agrave; la r&eacute;ouverture de l'app)">${ic('eyeOff')} Masquer</button>
         <button onclick="act('toggle',${js(s.id)})" title="${s.enabled
           ? 'Mettre en pause : le process est arr&ecirc;t&eacute; et le serveur n&#39;est plus sond&eacute; (il reste dans la liste, r&eacute;activable d&#39;un clic)'
           : 'Reprendre la supervision : le serveur sera sond&eacute; et d&eacute;marr&eacute; si une commande est connue'}">${s.enabled ? ic('pause') + ' Mettre en pause' : ic('play') + ' Reprendre'}</button>
@@ -2043,6 +2074,8 @@ function rowCtx(ev, id) {
         () => act(s.state === 'UP' ? 'kill' : 'start', s.id));
   }
   add(ic('refresh') + ' Sonder maintenant', () => act('refresh', s.id));
+  add('—', null, false);
+  add(ic('eyeOff') + ' Masquer', () => hideServer(s.id));
   showMenu(ev, items);
 }
 // Affiche un menu d'entrées {lbl, fn, dis} à la position du curseur.
@@ -2165,6 +2198,22 @@ async function setFavorite(id, enabled) {
     body: JSON.stringify({action: 'set_favorite', id, enabled})});
   await load();
   if (selectedId === id) { detailCache = null; await load(); }
+}
+
+// Masquer de l'affichage (session seulement : la supervision moteur continue,
+// mais la ligne ne s'affiche plus ni dans la liste ni dans les compteurs).
+// Rien n'est persisté : la réouverture de l'app les fait revenir.
+function hideServer(id) {
+  hiddenServers.add(id);
+  if (selectedId === id) { selectedId = null; detailCache = null; renderOverview(); }
+  renderServers();
+  toast(hiddenServers.size + ' serveur' + (hiddenServers.size > 1 ? 's' : '')
+    + ' masqu\u00e9' + (hiddenServers.size > 1 ? 's' : '')
+    + ' — il revient \u00e0 la r\u00e9ouverture de l\u2019app');
+}
+function showHiddenServers() {
+  hiddenServers.clear();
+  renderServers();
 }
 
 /* Scan en un clic : la plage vient des réglages (settings), aucune saisie demandée */
