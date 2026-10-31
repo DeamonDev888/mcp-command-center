@@ -1,4 +1,45 @@
-## [0.7.17] — Mise à jour = téléchargement direct du bon asset, version et bouton ⬆ en bas à droite
+## [0.7.18] — Favoris ⭐ épinglés, vrais logos de langages, mise à jour directe et explorateur refondu
+
+### Favoris (⭐) : épingle tes serveurs en haut de la liste
+- Nouvelle étoile sur chaque ligne de l'explorateur (et bouton « ★ Favori ON/OFF » dans le panneau de détail) : un serveur épinglé passe **en haut de sa section** — serveurs locaux ou par machine distante — quel que soit le mode de tri (manuel, A→Z, état…). Tri stable : les favoris gardent leur ordre relatif entre eux, et l'ordre posé au glisser-déposer n'est pas altéré (l'épingle s'applique à l'affichage).
+- **Persisté** dans config.json (nouvelle action `set_favorite`, enregistrée dans la surface `ACTIONS` partagée) : l'épingle survit au redémarrage du moteur. La config n'écrit que l'activation (défaut `false`) — le fichier reste lisible. Non exposé au gateway (préférence locale d'affichage).
+- Icône `star` ajoutée au set SVG monochrome de l'app ; étoile **dorée remplie** quand épinglée, outline grise sinon.
+
+### Vrais logos de langages (SVG officiels embarqués)
+- Les monogrammes colorés (JS, PY, GO…) laissent place aux **marques officielles** en SVG inline, même technique que le logo Rust (engrenage « R ») :
+  - **Node.js/TS** : le carré jaune officiel ECMAScript avec « JS » noir ;
+  - **Python** : les deux serpents bleu/jaune entrelacés — la forme bleue est répétée pivotée de 180°, la construction du vrai logo ;
+  - **Go** : tuile cyan officielle ; **.NET** : carré violet officiel ;
+  - **Java** : la tasse bleue à vapeur orange ; **Ruby** : le gem facetté rouge ; **PHP** : l'ellipse violette « php ».
+- Zéro requête réseau (SVG inline au binaire), tooltips inchangés (« Langage inféré : … »), badge framework toujours coloré par langage.
+
+### Explorateur refondu : les noms de serveurs sont redevenus visibles
+- **Bug d'affichage sérieux** : dans la sidebar, les badges (langage, transport, framework) écrasaient le nom du serveur (`flex:1` sans largeur plancher) — plusieurs serveurs n'affichaient **aucun nom** (largeur mesurée : 0 px), les autres un tronçon « r… », « to… ».
+- **Nouvelle structure de ligne** : ligne 1 = point d'état + **nom seul** + actions (⚡ autoboot, ▶/■ start-stop, ON/OFF) ; ligne 2 = état textuel + transport + badges langage/transport/framework + compteur d'outils. Les badges descendent d'une ligne au lieu de se battre avec le nom ; à très faible largeur, la fin de la ligne 2 se coupe, **jamais le nom ni les actions**.
+- Largeur par défaut de l'explorateur : 280 → **320 px** (l'ajustement par poignée est inchangé).
+
+### Icônes SVG partout, fin des emojis
+- Barre de titre, dialogues (Boutique, Machines, Accès, Réglages à volets), menus contextuels, boutons du détail, tuiles, journal réseau : un **jeu unique d'icônes SVG inline** (trait 1.5, `currentColor`, zéro couleur fixe) remplace les emojis — rendu identique quelle que soit la version d'Windows, alignement typographique propre, cohérence avec l'interface monochrome.
+- Apostrophes réparées au passage dans les menus (« Copier l'URL », « Ouvrir dans l'explorateur »).
+
+### Suppression : visible et confirmée
+- Les boutons destructifs portent une **bordure rouge permanente** (plus seulement au survol) et « Supprimer » est **séparé** du groupe d'actions du détail.
+- La suppression d'un serveur importé demandait **aucune confirmation** : un clic loupé suffisait. Désormais un `confirm()` explicite (« un serveur re-détecté par un scan réapparaîtra ») ; les seeds gardent leur confirmation dédiée « Supprimer définitivement ».
+
+### Filtre de l'explorateur (recherche instantanée)
+- Champ de filtre en tête d'explorateur : nom, id, framework, port, état. Raccourcis **`/`** et **Ctrl+K** depuis n'importe où, **Échap** efface, bouton × visible dès saisie. Les compteurs de groupe continuent de compter TOUS les serveurs ; un groupe filtré vide affiche « aucun serveur ne correspond au filtre ».
+
+### Tuiles d'accueil cliquables
+- « **serveurs UP** » filtre l'explorateur sur les UP (re-cliquer ou « serveurs suivis » réaffiche tout, tuile active marquée), « **tools actifs** » applique le tri par nombre d'outils, « **machines distantes** » ouvre le dialog SSH. L'accueil répond au clic au lieu d'être un constat passif.
+
+### Descriptions d'outils : markdown inline rendu
+- Les serveurs MCP renvoient souvent `**gras**` et du `code` : affichés bruts, les astérisques cassaient la lecture. Rendu inline minimal (**gras**, *italique*, `code`) — texte échappé AVANT transformation, aucune surface d'injection.
+
+### Micro-finitions
+- **Valeurs clé/valeur copiables d'un clic** (pid, commande, url…) avec affordance au survol ; « pas de valeur » affiche un tiret cadratin **—** partout (fini le pid « - »).
+- **Toasts sémantiques** : succès (filet vert) et erreur (filet rouge, affichée 3,5 s au lieu de 1,2 s — un échec se lit).
+- Halo LiteMCP **statique** (fin du pulse permanent qui attirait l'œil en continu) ; « désuet » → « **legacy** » (vocabulaire standard du domaine) ; tooltips explicites sur les badges de la barre de titre (UP, outils, refresh) ; message de vérification de mise à jour sans emoji.
+- **Correctif « vv »** : le tag GitHub arrivait avec son « v » et chaque affichage en rajoutait un — le journal disait « mise à jour disponible : vv0.7.16 ». Le tag est normalisé à la source (`check_update`), tous les affichages (journal, badge, Réglages) sont cohérents.
 
 ### Le bouton « ⬆ Mettre à jour » télécharge directement le BON fichier
 - Avant : le bouton ouvrait la **page des releases** — il fallait encore trouver le bon fichier parmi les plateformes.
@@ -9,16 +50,18 @@
 - Repli : si le moteur ne peut pas lancer de navigateur (headless), l'URL rendue est ouverte par l'UI (`window.open` — vrai navigateur) ; si le moteur est injoignable, repli sur la dernière URL connue.
 
 ### Version et bouton ⬆ en bas à droite (barre d'état)
-- Nouvelle **barre d'état** discrète en bas de fenêtre : la **version installée** (`v0.7.17`) et le **bouton bleu ciel « ⬆ Mettre à jour — vX dispo »** y vivent, à droite — la barre de titre est allégée (badges UP/outils/refresh restent en haut).
+- Nouvelle **barre d'état** discrète en bas de fenêtre : la **version installée** (`v0.7.18`) et le **bouton bleu ciel « ⬆ Mettre à jour — vX dispo »** y vivent, à droite — la barre de titre est allégée (badges UP/outils/refresh restent en haut).
 - Le bouton n'apparaît que quand une release plus récente existe (détection au boot puis chaque heure, inchangée).
 
 ### Réglages → Mises à jour
 - « ⬆ Mettre à jour » fait le même téléchargement direct ; un bouton « 🔗 Releases » ouvre la page de toutes les versions (archives, anciennes releases).
 
 ### Tests
-- **156 tests unitaires verts** (nouveaux : table blanche des 6 assets, refus des plateformes hors table **avant tout effet de bord**), clippy 0 warning, fmt propre.
-- Le test du refus a d'ailleurs attrapé un vrai bug pendant l'écriture : un `os` invalide retombait silencieusement sur la plateforme du moteur **et lançait le téléchargement** — corrigé en refus net.
-- Vérification navigateur : barre d'état rendue, version à droite, bouton bleu ciel visible avec la libellé « v0.7.17 dispo ».
+- **157 tests unitaires verts**, clippy 0 warning, fmt propre. Nouveaux contrats :
+  - **favoris** : épingle → état + persistance config.json → relecture (survit au redémarrage) → retrait (la clé disparaît) → serveur inconnu refusé. Le test a attrapé au passage un bug d'indentation : le favori ne se serait jamais écrit (insertion dans le mauvais bloc `if`) ;
+  - **mise à jour directe** : table blanche des 6 assets, refus des plateformes hors table **avant tout effet de bord** — le test du refus a attrapé un vrai bug pendant l'écriture : un `os` invalide retombait silencieusement sur la plateforme du moteur **et lançait le téléchargement**, corrigé en refus net ;
+  - contrats « tout bouton câblé » et « actions ⊆ moteur » étendus aux nouveaux handlers (`set_favorite`, `tileFilter`/`tileSortTools`/`clearFilter`).
+- Vérifications navigateur : étoiles dorées + épinglage en tête sur serveurs réels ; rendu visuel des 9 logos validé ; barre d'état (version à droite, bouton bleu ciel « vX dispo ») ; explorateur (noms visibles, filtre + raccourcis, tuile filtre UP, markdown, kv copiables, menus contextuels, Réglages sombre/clair, Boutique).
 
 ## [0.7.16] — Réglages professionnels à volets, Notifications câblées à l'UI, contrat « tout bouton »
 

@@ -1306,6 +1306,7 @@ mod tests {
             last_error: None,
             start_cmd: None,
             auto_restart: true,
+            favorite: false,
             tools_disabled: vec![],
         }
     }

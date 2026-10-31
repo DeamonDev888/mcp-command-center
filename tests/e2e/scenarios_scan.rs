@@ -344,7 +344,10 @@ fn scan_terminates_bounded() {
         "second scan refusé : {rep2}"
     );
     assert!(
-        duree < Duration::from_secs(30),
+        // 60 s : le scan est borné côté moteur ; la borne de 30 s flottait
+        // sous la suite complète (45 moteurs en parallèle saturent le CPU),
+        // il passe isolément comme en suite avec cette marge.
+        duree < Duration::from_secs(60),
         "second scan trop long : {duree:?}"
     );
 

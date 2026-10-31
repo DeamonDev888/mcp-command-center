@@ -262,9 +262,15 @@ button:disabled{opacity:.35;cursor:not-allowed}
 .rowbtn.auto{color:var(--t3);opacity:.45}
 .rowbtn.auto.on{color:#f0a35e;border-color:#f0a35e66;background:#f0a35e14;opacity:1}
 .rowbtn.auto.on:hover{color:var(--bad);border-color:var(--bad);background:rgba(231,94,120,.08)}
-/* Bouton Autoboot du panneau de détail */
-.autobtn.on{color:#f0a35e;border-color:#f0a35e66;background:#f0a35e14}
-.autobtn.on:hover{color:var(--bad);border-color:var(--bad);background:rgba(231,94,120,.08)}
+/* Favori (⭐) : épinglé = la ligne passe en haut de sa section (persisté). */
+.rowbtn.fav{color:var(--t4);opacity:.45}
+.rowbtn.fav:hover{color:#f0c05e;border-color:#f0c05e;background:#f0c05e14;opacity:1}
+.rowbtn.fav.on{color:#f0c05e;border-color:#f0c05e66;background:#f0c05e14;opacity:1}
+.rowbtn.fav.on .ic{fill:currentColor}
+.rowbtn.fav.on:hover{color:var(--bad);border-color:var(--bad);background:rgba(231,94,120,.08)}
+/* Bouton Favori du panneau de détail */
+.favbtn.on{color:#f0c05e;border-color:#f0c05e66;background:#f0c05e14}
+.favbtn.on:hover{color:var(--bad);border-color:var(--bad);background:rgba(231,94,120,.08)}
 .srow.off .rowbtn{opacity:.5}
 /* Drag & drop de réordonnancement (préférence / priorité de sondage) */
 .srow.dragging{opacity:.35}
@@ -477,8 +483,24 @@ button.tile:hover{border-color:var(--border-strong)}
 /* Logo Rust (langage inféré) : « R » cerclé d'un engrenage, comme l'icône .rs des éditeurs */
 .rustwrap{display:inline-flex;align-items:center;flex-shrink:0;margin:0 1px}
 .rustlogo{width:18px;height:18px}
+/* Logos langages (SVG officiels embarqués : JS, Python, Go, Java, .NET, Ruby, PHP) */
+.langlogo{width:18px;height:18px;display:block}
+/* Dans l'explorateur, tous les logos de langage (Rust comme les autres)
+   descendent à 14 px pour ne pas gonfler la hauteur des lignes. */
+.srow .langlogo{width:14px;height:14px}
 #storeDlg{width:min(1180px,96vw)}
-.store-bar{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+/* Tête de boutique COLLANTE : recherche, tri et catégories restent visibles
+   pendant le défilement de la grille (le dialog est le conteneur défilant). */
+.store-head{position:sticky;top:0;z-index:3;background:var(--card);
+  margin:-14px -16px 0;padding:12px 16px 10px;border-bottom:1px solid var(--border-soft)}
+.store-bar{display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.store-bar input{flex:1;min-width:180px}
+.store-bar select{width:auto;flex:0 0 auto;height:26px;font-size:11px}
+/* Bascule « Masquer les installés » : une pilule cohérente avec les
+   catégories (état .sel), pas une case à cocher minuscule. */
+#storeHideInst{flex:0 0 auto}
+#storeHideInst.sel{background:var(--active2);border-color:var(--accent);color:var(--accent)}
+.store-results{font:10.5px/1 var(--mono);color:var(--t4);margin-bottom:8px}
 .store-count{color:var(--t3);font-weight:400;font-size:12.5px;margin-left:2px}
 /* Machines distantes (dialog SSH) */
 .machine-form{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
@@ -489,7 +511,6 @@ button.tile:hover{border-color:var(--border-strong)}
 .machine-row .nm{font:12.5px/1.35 var(--mono);color:var(--t1)}
 .machine-row .l2{font:10.5px/1.4 var(--mono);color:var(--t3);margin:3px 0 7px}
 .machine-row .macts{display:flex;gap:6px;flex-wrap:wrap}
-.store-bar input{flex:1;min-width:180px}
 .store-cats{display:flex;gap:6px;flex-wrap:wrap}
 .scat{height:var(--h-sm);padding:0 12px;border-radius:var(--rpill);font-size:11px}
 .scat.sel{background:var(--active2);border-color:var(--accent);color:var(--accent)}
@@ -502,8 +523,10 @@ button.tile:hover{border-color:var(--border-strong)}
 .slogo{width:18px;height:18px;flex-shrink:0}
 .scard-desc{font-size:10.5px/1.45 var(--sans);color:var(--t3);flex:1;display:-webkit-box;-webkit-line-clamp:2;
   -webkit-box-orient:vertical;overflow:hidden}
-.scard-cmd{font:9.5px/1.4 var(--mono);color:var(--t4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .scard button{align-self:flex-start;height:var(--h-sm);padding:0 9px;font-size:11px}
+/* Déjà installé : plus de bouton Installer — état vert non cliquable. */
+.scard button.btn-inst{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08);cursor:default}
+.scard button.btn-inst:disabled{opacity:1}
 
 /* --- Dialogues (modal) --- */
 dialog{background:var(--card);color:var(--t1);border:1px solid var(--border);border-radius:var(--r5);padding:0;
@@ -771,9 +794,18 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
     <button class="close" onclick="storeDlg.close()">&times;</button>
   </div>
   <div class="dlg-body dlg-body-tight">
-    <div class="store-bar">
-      <input id="storeSearch" placeholder="Rechercher dans la boutique&hellip;" oninput="renderStoreItems()">
+    <div class="store-head">
+      <div class="store-bar">
+        <input id="storeSearch" placeholder="Rechercher dans la boutique&hellip;" oninput="renderStoreItems()">
+        <select id="storeSort" onchange="renderStoreItems()" title="Trier les r&eacute;sultats">
+          <option value="cat">Ordre du catalogue</option>
+          <option value="az">A→Z</option>
+        </select>
+        <button id="storeHideInst" class="scat" onclick="toggleHideInst()"
+          title="Masquer les serveurs d&eacute;j&agrave; pr&eacute;sents dans ta liste">Masquer les install&eacute;s</button>
+      </div>
       <div id="storeCats" class="store-cats"></div>
+      <div id="storeResults" class="store-results"></div>
     </div>
     <div id="storeGrid" class="store-grid"></div>
   </div>
@@ -1145,6 +1177,7 @@ const ICONS = {
   power: "<path d='M18.4 6.6a9 9 0 1 1-12.8 0'/><path d='M12 2.5V12'/>",
   lock: "<rect x='4.5' y='10.5' width='15' height='10' rx='2'/><path d='M8 10.5V7a4 4 0 0 1 8 0v3.5'/>",
   zap: "<path d='M13 2.5 4.5 13.5H11l-1 8 8.5-11H12l1-8Z'/>",
+  star: "<path d='m12 3.6 2.5 5.1 5.7.8-4.1 4 1 5.6L12 16.4l-5.1 2.7 1-5.6-4.1-4 5.7-.8Z'/>",
   play: "<path d='M7 4.5 19 12 7 19.5Z'/>",
   stop: "<rect x='6' y='6' width='12' height='12' rx='1.5'/>",
   pause: "<path d='M9 5v14M15 5v14'/>",
@@ -1250,7 +1283,7 @@ function srvRow(s) {
     onclick="select(${js(s.id)})"
     ondragstart="rowDragStart(event,${js(s.id)})" ondragover="rowDragOver(event)"
     ondragleave="rowDragLeave(event)" ondrop="rowDrop(event)" ondragend="rowDragEnd(event)">
-    <div class="l1"><span class="dot ${s.state}"></span><span class="nm" title="${esc(s.label)}">${esc(s.label)}</span>${rowAuto(s)}${rowCtl(s)}${rowToggle(s)}</div>
+    <div class="l1"><span class="dot ${s.state}"></span><span class="nm" title="${esc(s.label)}">${esc(s.label)}</span>${rowFav(s)}${rowAuto(s)}${rowCtl(s)}${rowToggle(s)}</div>
     <div class="l2"><span class="st ${esc(s.state)}">${esc(s.state)}</span> ${ti}${off}${langChip(s)}${typeBadge(s)}${frameworkBadge(s)}${s.transport==='stdio'?'<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">legacy</span>':''}<span class="cnt">${s.tools_count}</span></div>
   </div>`;
 }
@@ -1307,17 +1340,20 @@ function renderServers() {
   const byKey = {};
   remotes.forEach(s => { const k = hostOf(s); (byKey[k] = byKey[k] || []).push(s); });
   const upOf = rows => rows.filter(s => s.state === 'UP').length;
+  /* Favoris (⭐) épinglés en tête de chaque section, quel que soit le tri :
+     tri stable — les épinglées gardent leur ordre relatif entre elles. */
+  const favFirst = rows => rows.slice().sort((a, b) => ((b.favorite === true) - (a.favorite === true)));
   const noneMatch = '<div class="empty-sec">aucun serveur ne correspond au filtre</div>';
   localHead.hidden = false;
   count.textContent = upOf(localAll) + '/' + localAll.length;
-  localBox.innerHTML = local.length ? local.map(srvRow).join('')
+  localBox.innerHTML = local.length ? favFirst(local).map(srvRow).join('')
     : (localAll.length ? noneMatch : '<div class="empty-sec">aucun serveur — lance un scan</div>');
   const keys = groupKeys();
   label.hidden = !keys.length;
   groupsBox.innerHTML = keys.map(k => {
     const all = byKey[k] || [];
     const rows = all.filter(s => srvVisible(s, q));
-    const body = rows.length ? rows.map(srvRow).join('')
+    const body = rows.length ? favFirst(rows).map(srvRow).join('')
       : (all.length ? noneMatch
         : '<div class="empty-sec empty-indent">aucun serveur import&eacute; de cette machine</div>');
     return groupHeadHtml(k, k, upOf(all), all.length, true)
@@ -1340,11 +1376,30 @@ const LANG_META = {
 // NB : attributs en simples quotes — guillemet-double suivi de dièse interdit
 // dans ce bloc (cette séquence fermerait la raw string Rust d'INDEX_HTML).
 const RUST_LOGO = "<svg class='rustlogo' viewBox='0 0 24 24' aria-hidden='true'><g stroke='#f97316' stroke-width='1.4' stroke-linecap='round' fill='none'><circle cx='12' cy='12' r='7.9'/><path d='M19.9 12h2M17.6 17.6l1.4 1.4M12 19.9v2M6.4 17.6 5 19M4.1 12h-2M6.4 6.4 5 5M12 4.1v-2M17.6 6.4 19 5'/></g><text x='12' y='16.2' text-anchor='middle' font-size='12' font-weight='800' font-family='inherit' fill='#f97316'>R</text></svg>";
+/* Logos langages embarqués (marques officielles en SVG minimal) :
+   JS = carré jaune officiel ECMAScript ; Python = les deux serpents (la forme
+   bleue est répétée pivotée de 180°, comme le vrai logo) ; Go = tuile cyan
+   officielle ; .NET = carré violet officiel ; Java = la tasse fumante ;
+   Ruby = le gem facetté ; PHP = l'ellipse violette. NB : attributs en simples
+   quotes — guillemet-double suivi de dièse interdit dans ce bloc (fermerait la
+   raw string Rust d'INDEX_HTML). */
+const PY_PATH = "M11.8 2.1c-2.6 0-4.7 1.1-4.7 3.2v2.6h4.9v.9H5.1c-2.1 0-3.8 1.6-3.8 4.4 0 2.9 1.5 4.5 3.6 4.5h2v-2.8c0-1.9 1.6-3.5 3.5-3.5h4.4c1.6 0 2.9-1.3 2.9-2.9V5.3c0-2.1-2.1-3.2-4.7-3.2h-1.2z";
+const LANG_LOGOS = {
+  rust: RUST_LOGO,
+  node: "<svg class='langlogo' viewBox='0 0 24 24' aria-hidden='true'><rect x='1.5' y='1.5' width='21' height='21' rx='3.5' fill='#f7df1e'/><text x='12' y='16.6' text-anchor='middle' font-size='10.5' font-weight='800' font-family='inherit' fill='#0d0d0e'>JS</text></svg>",
+  python: "<svg class='langlogo' viewBox='0 0 24 24' aria-hidden='true'><g><path fill='#3776ab' d='" + PY_PATH + "'/><circle cx='9.7' cy='5' r='.95' fill='#fff'/><g transform='rotate(180 12 12)'><path fill='#ffd43b' d='" + PY_PATH + "'/><circle cx='9.7' cy='5' r='.95' fill='#fff'/></g></g></svg>",
+  go: "<svg class='langlogo' viewBox='0 0 24 24' aria-hidden='true'><rect x='1.5' y='1.5' width='21' height='21' rx='3.5' fill='#00add8'/><text x='12' y='16.2' text-anchor='middle' font-size='10' font-weight='800' font-family='inherit' fill='#fff'>GO</text></svg>",
+  java: "<svg class='langlogo' viewBox='0 0 24 24' aria-hidden='true'><path fill='#f89820' d='M12.4 2.4c-.6 1.4.1 2.4 1.2 3.1 1.1.8 1.7 1.8 1.3 3 1.2-.7 1.6-2.1.8-3.3-.6-1-2-1.7-3.3-2.8z'/><path fill='#f89820' d='M9.4 7c-.5 1.1.1 2 1.1 2.5.9.6 1.4 1.4 1 2.4 1.1-.6 1.5-1.8.8-2.8-.6-.9-1.8-1.4-2.9-2.1z'/><path fill='#5382a1' d='M7.2 12.1h9.3v4.7c0 2.3-1.9 4.2-4.2 4.2h-.9c-2.3 0-4.2-1.9-4.2-4.2z'/><path fill='none' stroke='#5382a1' stroke-width='1.3' stroke-linecap='round' d='M16.9 13.4h1.2c1.1 0 2 .9 2 2s-.9 2-2 2h-1.3'/></svg>",
+  dotnet: "<svg class='langlogo' viewBox='0 0 24 24' aria-hidden='true'><rect x='1.5' y='1.5' width='21' height='21' rx='3.5' fill='#512bd4'/><text x='12' y='15.4' text-anchor='middle' font-size='6.4' font-weight='700' font-family='inherit' fill='#fff'>.NET</text></svg>",
+  ruby: "<svg class='langlogo' viewBox='0 0 24 24' aria-hidden='true'><path fill='#cc342d' d='M7.2 4.5h9.6l3.7 4.6L12 20.5 3.5 9.1z'/><path fill='#e9655c' d='M7.2 4.5h9.6L12 9.5z'/><path fill='#a72b24' d='M3.5 9.1h17L12 20.5z' opacity='.4'/><path fill='none' stroke='#fff' stroke-opacity='.4' stroke-width='.7' d='M7.2 4.5 12 9.5l4.8-5M12 9.5v11M3.5 9.1h17'/></svg>",
+  php: "<svg class='langlogo' viewBox='0 0 24 24' aria-hidden='true'><ellipse cx='12' cy='12' rx='10.6' ry='6.2' fill='#777bb4'/><text x='12' y='14.2' text-anchor='middle' font-size='6.2' font-weight='700' font-style='italic' font-family='inherit' fill='#fff'>php</text></svg>",
+};
 function langChip(s) {
-  if (s.lang === 'rust') return `<span class="rustwrap" title="Langage inféré : Rust">${RUST_LOGO}</span>`;
+  const logo = LANG_LOGOS[s.lang];
+  if (!logo) return '<span class="langchip unk" title="Langage non d\u00e9tect\u00e9 (ni commande ni en-t\u00eates ni process)">?</span>';
   const m = LANG_META[s.lang];
-  if (!m) return '<span class="langchip unk" title="Langage non d\u00e9tect\u00e9 (ni commande ni en-t\u00eates ni process)">?</span>';
-  return `<span class="langchip" style="color:${m.c};border-color:${m.c}66;background:${m.c}14" title="Langage inféré : ${m.n}">${m.t}</span>`;
+  const name = m ? m.n : s.lang;
+  return `<span class="rustwrap" title="Langage inféré : ${esc(name)}">${logo}</span>`;
 }
 
 // Badge du type de MCP : STDIO / HTTP / WS — trois modes, point.
@@ -1393,6 +1448,14 @@ function frameworkBadge(s) {
   const m = LANG_META[f.lang] || LANG_META[s.lang];
   if (!m) return `<span class="tag fw" title="${tip}">${esc(f.label)}</span>`;
   return `<span class="tag fw" style="color:${m.c};border-color:${m.c}66;background:${m.c}14" title="${tip}">${esc(f.label)}</span>`;
+}
+
+function rowFav(s) {
+  const on = !!s.favorite;
+  return `<button class="rowbtn fav ${on?'on':'off'}" title="${on
+    ? 'Retirer des favoris (l\u2019\u00e9pingle maintient la ligne en haut de sa section)'
+    : '\u00c9pingler en favori : la ligne passe en haut de sa section, quel que soit le tri'}"
+    onclick="event.stopPropagation();setFavorite(${js(s.id)},${on?'false':'true'})">${ic('star')}</button>`;
 }
 
 function rowToggle(s) {
@@ -1787,6 +1850,8 @@ function renderDetail() {
         <button onclick="act('refresh',${js(s.id)})">${ic('activity')} Sonder</button>
         ${s.can_start ? `<button class="autobtn ${s.auto_restart?'on':''}" onclick="setAuto(${js(s.id)},${s.auto_restart?'false':'true'})"
           title="Autoboot : relance automatique de ce serveur au d&eacute;marrage de MCP Control et apr&egrave;s un crash">${ic('zap')} Autoboot ${s.auto_restart?'ON':'OFF'}</button>` : ''}
+        <button class="favbtn ${s.favorite?'on':''}" onclick="setFavorite(${js(s.id)},${s.favorite?'false':'true'})"
+          title="Favori : &eacute;pingle ce serveur en haut de sa section dans l'explorateur (persist&eacute;)">${ic('star')} Favori ${s.favorite?'ON':'OFF'}</button>
         <button onclick="act('toggle',${js(s.id)})" title="${s.enabled
           ? 'Mettre en pause : le process est arr&ecirc;t&eacute; et le serveur n&#39;est plus sond&eacute; (il reste dans la liste, r&eacute;activable d&#39;un clic)'
           : 'Reprendre la supervision : le serveur sera sond&eacute; et d&eacute;marr&eacute; si une commande est connue'}">${s.enabled ? ic('pause') + ' Mettre en pause' : ic('play') + ' Reprendre'}</button>
@@ -2070,6 +2135,13 @@ document.addEventListener('keydown', (e) => {
     || el.tagName === 'SELECT' || el.isContentEditable);
   if (!typing && (e.key === '/' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k'))) {
     e.preventDefault();
+    // la boutique ouverte a la priorité : c'est SA recherche qu'on vise
+    const d = document.getElementById('storeDlg');
+    if (d && d.open) {
+      const ss = document.getElementById('storeSearch');
+      if (ss) { ss.focus(); ss.select(); }
+      return;
+    }
     const f = document.getElementById('srvFilter');
     if (f) { f.focus(); f.select(); }
   }
@@ -2087,6 +2159,15 @@ async function act(action, id) {
 async function setAuto(id, enabled) {
   await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action: 'set_auto_restart', id, enabled})});
+  await load();
+  if (selectedId === id) { detailCache = null; await load(); }
+}
+
+// Favori (⭐) : épingle la ligne en haut de sa section (persisté). L'épingle
+// s'applique À L'AFFICHAGE — l'ordre posé au glisser-déposer reste en base.
+async function setFavorite(id, enabled) {
+  await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'set_favorite', id, enabled})});
   await load();
   if (selectedId === id) { detailCache = null; await load(); }
 }
@@ -2594,8 +2675,10 @@ async function openStore() {
 }
 /* Logo d'une carte : glyphe officiel par id (STORE_LOGOS), sinon pour les items
    aitmpl une marque reconnue dans la commande d'installation, sinon un glyphe
-   « paquet » neutre. NB : guillemet-double suivi de dièse interdit dans ce
-   bloc — la séquence fermerait la raw string Rust qui embarque cette page. */
+   « paquet » neutre — TOUTE carte porte une icône (jamais de carte sans logo,
+   avant comme après le chargement de /api/store-logos). NB : guillemet-double
+   suivi de dièse interdit dans ce bloc — la séquence fermerait la raw string
+   Rust qui embarque cette page. */
 const PKG_GLYPH = "<path fill='none' stroke='#8a93a5' stroke-width='2' stroke-linejoin='round' d='m12 2 9 5v10l-9 5-9-5V7Zm0 10 9-5m-9 5-9-5m9 5v10'/>";
 const PKG_LOGOS = [
   ['context7', 'context7'], ['mongodb', 'mongodb'], ['supabase', 'supabase'],
@@ -2611,33 +2694,52 @@ function storeLogoSvg(inner) {
   return `<svg class="slogo" viewBox="0 0 24 24" aria-hidden="true">${inner}</svg>`;
 }
 function storeLogo(i) {
-  if (!storeLogos) return '';
+  if (!storeLogos) return storeLogoSvg(PKG_GLYPH);
   // glyphe officiel par id, préfixes de catalogues additionnels retirés
   const inner = storeLogos[i.id] || storeLogos[i.id.replace(/^(at|gl)-/, '')];
   if (inner) return storeLogoSvg(inner);
-  // items de catalogues additionnels : marque reconnue dans la commande,
-  // sinon glyphe « paquet » neutre
+  // items de catalogues additionnels : marque reconnue dans la commande
   if (/^(at|gl|gh)-/.test(i.id)) {
     const cmd = (i.program + ' ' + (i.args || []).join(' ')).toLowerCase();
     for (const [needle, lid] of PKG_LOGOS) {
       if (storeLogos[lid] && cmd.includes(needle)) return storeLogoSvg(storeLogos[lid]);
     }
-    return storeLogoSvg(PKG_GLYPH);
   }
-  return '';
+  // glyphe « paquet » neutre pour tout ce qui n'a pas de marque reconnue
+  return storeLogoSvg(PKG_GLYPH);
+}
+/* Id serveur d'un item boutique : install_store clé sur « store-<id> ». */
+const storeSrvId = i => 'store-' + i.id;
+let storeHideInst = false;
+function toggleHideInst() {
+  storeHideInst = !storeHideInst;
+  const b = document.getElementById('storeHideInst');
+  if (b) b.classList.toggle('sel', storeHideInst);
+  renderStoreItems();
 }
 function renderStoreItems() {
   if (!storeItems) return;
   const q = (document.getElementById('storeSearch').value || '').toLowerCase();
-  const list = storeItems.filter(i => (storeCat==='Tout' || i.cat===storeCat) &&
+  const sort = document.getElementById('storeSort').value;
+  const installed = new Set((state && state.servers ? state.servers : []).map(s => s.id));
+  let list = storeItems.filter(i => (storeCat==='Tout' || i.cat===storeCat) &&
     (!q || i.name.toLowerCase().includes(q) || i.desc.toLowerCase().includes(q)));
+  if (storeHideInst) list = list.filter(i => !installed.has(storeSrvId(i)));
+  if (sort === 'az') list = [...list].sort((a, b) => a.name.localeCompare(b.name, 'fr', {sensitivity: 'base'}));
+  const res = document.getElementById('storeResults');
+  res.textContent = list.length === storeItems.length
+    ? storeItems.length + ' serveurs'
+    : list.length + ' affiché' + (list.length > 1 ? 's' : '') + ' sur ' + storeItems.length;
   document.getElementById('storeGrid').innerHTML = list.map(i => {
-    const cmd = (i.program + ' ' + i.args.join(' ')).replace(/C:\/Users\/Deamon/g, '~');
+    const isInst = installed.has(storeSrvId(i));
+    /* Pas de ligne de commande sur la carte : la description suffit, la
+       commande est visible dans le détail une fois installé. */
     return `<div class="scard">
       <div class="scard-top">${storeLogo(i)}<b>${esc(i.name)}</b><span class="tag ${i.kind==='npm'?'npm':'py'}">${i.kind}</span></div>
       <div class="scard-desc">${esc(i.desc)}</div>
-      <div class="scard-cmd" title="${esc(i.program + ' ' + i.args.join(' '))}">${esc(cmd)}</div>
-      <button class="primary" onclick="installStore(${js(i.id)}, this)">${ic('download')} Installer</button>
+      ${isInst
+        ? `<button class="btn-inst" disabled title="Ce serveur est d&eacute;j&agrave; dans ta liste">${ic('check')} D&eacute;j&agrave; install&eacute;</button>`
+        : `<button class="primary" onclick="installStore(${js(i.id)}, this)">${ic('download')} Installer</button>`}
     </div>`;
   }).join('') || '<div class="empty-sec">aucun r&eacute;sultat</div>';
 }
@@ -2657,8 +2759,10 @@ async function installStore(id, btn) {
     body: JSON.stringify(body)});
   const j = await r.json();
   if (j.ok) {
-    btn.textContent = j.added ? (j.state === 'UP' ? '\u2713 Install\u00e9 et UP' : '\u2713 Install\u00e9 (d\u00e9marrage\u2026)') : 'D\u00e9j\u00e0 install\u00e9';
+    // re-rendu : la carte bascule sur l'état « Déjà installé » (source de
+    // vérité = state.servers, pas un libellé collé sur le bouton)
     await load();
+    renderStoreItems();
   } else { btn.disabled = false; btn.textContent = 'R\u00e9essayer'; alert(j.error || 'erreur'); }
 }
 

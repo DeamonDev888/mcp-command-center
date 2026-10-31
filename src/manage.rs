@@ -76,6 +76,7 @@ fn default_servers() -> Vec<Server> {
             origin: Origin::Seed,
             enabled,
             auto_restart: true,
+            favorite: false,
             state: if enabled {
                 SState::Down
             } else {
@@ -145,6 +146,7 @@ fn default_servers() -> Vec<Server> {
             origin: Origin::Seed,
             enabled: true,
             auto_restart: true,
+            favorite: false,
             state: SState::Down,
             pid: None,
             bound_host: None,
@@ -444,6 +446,7 @@ fn from_json(s: &Value) -> Option<Server> {
         transport,
         origin: Origin::Manual,
         enabled,
+        favorite: s.get("favorite").and_then(|x| x.as_bool()).unwrap_or(false),
         auto_restart,
         state: if enabled {
             SState::Down
@@ -574,6 +577,11 @@ pub fn save_config(state: &AppState) {
         // true) — config.json reste lisible et le bouton ⚡ survit au redémarrage.
         if !s.auto_restart {
             o.insert("auto_restart".into(), json!(false));
+        }
+        // Favori (⭐) : on n'écrit que l'ACTIVATION (le défaut est false) —
+        // config.json reste lisible et l'épingle survit au redémarrage.
+        if s.favorite {
+            o.insert("favorite".into(), json!(true));
         }
         if !s.tools_disabled.is_empty() {
             o.insert("tools_disabled".into(), json!(s.tools_disabled));
@@ -1068,6 +1076,7 @@ fn entry_to_server(id: String, name: &str, entry: &Value) -> Option<Server> {
             last_seen_ts: None,
             last_error: None,
             auto_restart: true,
+            favorite: false,
             tools_disabled: vec![],
         });
     }
@@ -1101,6 +1110,7 @@ fn entry_to_server(id: String, name: &str, entry: &Value) -> Option<Server> {
             last_seen_ts: None,
             last_error: None,
             auto_restart: true,
+            favorite: false,
             tools_disabled: vec![],
         });
     }
@@ -1215,6 +1225,7 @@ pub fn import_mcp_text(state: &Arc<AppState>, raw: &str) -> Value {
                     last_seen_ts: None,
                     last_error: None,
                     auto_restart: true,
+                    favorite: false,
                     tools_disabled: vec![],
                 });
                 drop(servers);
@@ -1289,6 +1300,7 @@ fn push_imported(state: &Arc<AppState>, name: String, program: String, args: Vec
         last_seen_ts: None,
         last_error: None,
         auto_restart: true,
+        favorite: false,
         tools_disabled: vec![],
     });
     drop(servers);
@@ -1478,6 +1490,7 @@ fn apply_announcement(state: &Arc<AppState>, ann: &Value) -> bool {
                     workdir,
                 }),
                 auto_restart: true,
+                favorite: false,
                 tools_disabled: vec![],
             });
             true
@@ -2538,6 +2551,7 @@ pub fn scan_ports(state: &Arc<AppState>, range: Option<(u16, u16)>) {
                     enabled: true,
                     state: SState::Up,
                     auto_restart: true,
+                    favorite: false,
                     pid: p.pid,
                     bound_host: p.host.clone().or(Some(host)),
                     server_name: p.name.clone(),
@@ -2659,6 +2673,7 @@ pub fn scan_listening(state: &Arc<AppState>) {
             enabled: true,
             state: SState::Up,
             auto_restart: true,
+            favorite: false,
             pid: p.pid,
             bound_host: p.host.clone(),
             server_name: p.name.clone(),
@@ -3023,6 +3038,7 @@ pub fn scan_network_range(
                             enabled: true,
                             state: SState::Up,
                             auto_restart: true,
+                            favorite: false,
                             pid: None,
                             bound_host: Some(ip.clone()),
                             server_name: p.name.clone(),
@@ -3238,6 +3254,7 @@ pub fn import_peer(state: &Arc<AppState>, ip: &str) -> Value {
                 enabled: true,
                 state: SState::Down,
                 auto_restart: true,
+                favorite: false,
                 pid: None,
                 bound_host: None,
                 server_name: name,
@@ -3422,6 +3439,7 @@ pub fn ssh_discover(state: &Arc<AppState>, ip: &str, user: &str) -> Value {
             enabled: true,
             state: SState::Up,
             auto_restart: true,
+            favorite: false,
             pid: None,
             bound_host: Some(ip.to_string()),
             server_name: raw_name.map(String::from),
@@ -3498,6 +3516,7 @@ pub const ACTIONS: &[&str] = &[
     "set_start_cmd",
     "set_host",
     "set_auto_restart",
+    "set_favorite",
     "reorder",
     "import_mcp",
     "install_store",
@@ -3770,6 +3789,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                         workdir: sworkdir,
                     }),
                     auto_restart: true,
+                    favorite: false,
                     tools_disabled: vec![],
                 }
             } else {
@@ -3841,6 +3861,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                     last_error: None,
                     start_cmd: sstart,
                     auto_restart: true,
+                    favorite: false,
                     tools_disabled: vec![],
                 }
             };
@@ -4635,6 +4656,40 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
             );
             json!({"ok": true, "id": id, "auto_restart": enable})
         }
+        "set_favorite" => {
+            // Favori (⭐) par serveur : la ligne est épinglée en haut de sa
+            // section dans l'explorateur, quel que soit le tri. Persisté dans
+            // config.json, indépendant de l'autoboot et de l'ordre posé au
+            // glisser-déposer (l'épingle s'applique À L'AFFICHAGE).
+            let Some(id) = id else {
+                return json!({"ok": false, "error": "id manquant"});
+            };
+            let enable = req.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true);
+            let (label, found) = {
+                let mut servers = lockv(&state.servers);
+                match servers.iter_mut().find(|s| s.id == id) {
+                    Some(srv) => {
+                        srv.favorite = enable;
+                        (srv.label.clone(), true)
+                    }
+                    None => (String::new(), false),
+                }
+            };
+            if !found {
+                return json!({"ok": false, "error": "serveur inconnu"});
+            }
+            save_config(state);
+            add_log(
+                state,
+                "info",
+                &format!(
+                    "[{}] favori {}",
+                    label,
+                    if enable { "épinglé" } else { "retiré" }
+                ),
+            );
+            json!({"ok": true, "id": id, "favorite": enable})
+        }
         "ssh_discover" => {
             let ip = req
                 .get("ip")
@@ -4757,6 +4812,7 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                                 enabled: true,
                                 state: SState::Down,
                                 auto_restart: true,
+                                favorite: false,
                                 pid: None,
                                 bound_host: None,
                                 server_name: None,
@@ -4860,6 +4916,7 @@ fn server_json(s: &Server, managed: bool) -> Value {
         "latency_ms": s.latency_ms,
         "last_seen": s.last_seen_ts, "last_error": s.last_error,
         "can_start": s.start_cmd.is_some(), "auto_restart": s.auto_restart,
+        "favorite": s.favorite,
         "sse": s.sse, "sse_endpoint": s.sse_endpoint, "ws": s.ws, "lang": s.lang,
         "framework": s.framework,
         "via_ssh": s.via_ssh,
@@ -5258,6 +5315,7 @@ mod tests {
                             origin: Origin::Seed,
                             enabled: true,
                             auto_restart: false,
+                            favorite: false,
                             state: SState::Down,
                             pid: None,
                             bound_host: None,
@@ -5348,6 +5406,7 @@ mod tests {
                     origin: Origin::Seed,
                     enabled: true,
                     auto_restart: true,
+                    favorite: false,
                     state: state_etat,
                     pid: None,
                     bound_host: Some("127.0.0.1".into()),
@@ -5540,6 +5599,7 @@ mod tests {
                 origin: Origin::Manual,
                 enabled: true,
                 auto_restart: true,
+                favorite: false,
                 state: SState::Up,
                 pid: Some(42),
                 bound_host: None,
@@ -5608,6 +5668,7 @@ mod tests {
                 origin: Origin::Seed,
                 enabled: true,
                 auto_restart: true,
+                favorite: false,
                 state: SState::Up,
                 pid: None,
                 bound_host: None,
@@ -5677,6 +5738,7 @@ mod tests {
                 origin: Origin::Seed,
                 enabled: true,
                 auto_restart: true,
+                favorite: false,
                 state: SState::Up,
                 pid: None,
                 bound_host: None,
@@ -5741,6 +5803,7 @@ mod tests {
                     origin: Origin::Seed,
                     enabled: true,
                     auto_restart: true,
+                    favorite: false,
                     state: SState::Up,
                     pid: None,
                     bound_host: None,
@@ -5774,6 +5837,7 @@ mod tests {
                     origin: Origin::Seed,
                     enabled: false,
                     auto_restart: true,
+                    favorite: false,
                     state: SState::Disabled,
                     pid: None,
                     bound_host: None,
@@ -5804,6 +5868,7 @@ mod tests {
                     origin: Origin::Seed,
                     enabled: true,
                     auto_restart: true,
+                    favorite: false,
                     state: SState::PortOnly,
                     pid: None,
                     bound_host: None,
@@ -5924,6 +5989,7 @@ mod tests {
             last_error: None,
             start_cmd: None,
             auto_restart: false,
+            favorite: false,
             tools_disabled: vec![],
         }
     }
@@ -6124,6 +6190,7 @@ mod tests {
                     workdir: None,
                 }),
                 auto_restart: true,
+                favorite: false,
                 tools_disabled: vec![],
             });
         }
@@ -6212,6 +6279,7 @@ mod tests {
                 last_error: None,
                 start_cmd: None,
                 auto_restart: true,
+                favorite: false,
                 tools_disabled: vec![],
             });
             // serveur manuel HTTP importé d'une machine (host à déplacer)
@@ -6243,6 +6311,7 @@ mod tests {
                 last_error: None,
                 start_cmd: None,
                 auto_restart: true,
+                favorite: false,
                 tools_disabled: vec![],
             });
             // stdio : jamais concerné par un re-host
@@ -6274,6 +6343,7 @@ mod tests {
                 last_error: None,
                 start_cmd: None,
                 auto_restart: true,
+                favorite: false,
                 tools_disabled: vec![],
             });
         }
@@ -6383,6 +6453,7 @@ mod tests {
                 last_error: None,
                 start_cmd: None,
                 auto_restart: true,
+                favorite: false,
                 tools_disabled: vec![],
             });
             // distant importé (jamais startable ici)
@@ -6414,6 +6485,7 @@ mod tests {
                 last_error: None,
                 start_cmd: None,
                 auto_restart: true,
+                favorite: false,
                 tools_disabled: vec![],
             });
             // seed local (commande figée par la config par défaut)
@@ -6445,6 +6517,7 @@ mod tests {
                 last_error: None,
                 start_cmd: None,
                 auto_restart: true,
+                favorite: false,
                 tools_disabled: vec![],
             });
         }
@@ -6555,6 +6628,7 @@ mod tests {
                 last_error: None,
                 start_cmd: None,
                 auto_restart: true,
+                favorite: false,
                 tools_disabled: vec![],
             });
             // même serveur mais avec une commande déjà posée (choix utilisateur)
@@ -6590,6 +6664,7 @@ mod tests {
                     workdir: None,
                 }),
                 auto_restart: true,
+                favorite: false,
                 tools_disabled: vec![],
             });
         }
@@ -6920,6 +6995,88 @@ mod tests {
     }
 
     #[test]
+    fn set_favorite_epingle_persiste_et_se_relit() {
+        // Bouton ⭐ de l'explorateur : épingler un serveur persiste le favori
+        // dans config.json (seulement quand actif — défaut false), survit à la
+        // relecture, est exposé à l'UI, et se retire proprement.
+        let path = tmp_config("cfg_set_favorite.json", Some("{\"servers\":[]}"));
+        let mut base = match Arc::try_unwrap(test_state()) {
+            Ok(s) => s,
+            Err(_) => panic!("test_state doit être unique"),
+        };
+        base.config_path = path.clone();
+        let state = Arc::new(base);
+        lockv(&state.servers).push(Server {
+            id: "fav-srv".into(),
+            label: "FAV".into(),
+            transport: Transport::Http {
+                host: None,
+                port: 3_211,
+                path: "/mcp".into(),
+            },
+            origin: Origin::Manual,
+            enabled: true,
+            auto_restart: true,
+            favorite: false,
+            state: SState::Down,
+            pid: None,
+            bound_host: None,
+            server_name: None,
+            version: None,
+            protocol: None,
+            sse: false,
+            sse_endpoint: false,
+            ws: false,
+            lang: None,
+            framework: None,
+            via_ssh: false,
+            tools: vec![],
+            latency_ms: None,
+            last_seen_ts: None,
+            last_error: None,
+            start_cmd: None,
+            tools_disabled: vec![],
+        });
+
+        // 1. épingle → ok + état interne + persisté dans config.json
+        let j = handle_action(
+            &state,
+            "{\"action\":\"set_favorite\",\"id\":\"fav-srv\",\"enabled\":true}",
+        );
+        assert_eq!(j["ok"], serde_json::json!(true));
+        assert_eq!(j["favorite"], serde_json::json!(true));
+        assert!(lockv(&state.servers)[0].favorite);
+        let cfg = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(cfg.contains("\"favorite\": true"), "persisté : {}", cfg);
+
+        // 2. /api/state l'expose (l'UI épingle d'après ce champ)
+        let full = state_json(&state);
+        assert_eq!(full["servers"][0]["favorite"], serde_json::json!(true));
+
+        // 3. relecture : le favori survit au redémarrage du moteur
+        let (servers, _) = load_config(&path);
+        let s = servers.iter().find(|s| s.id == "fav-srv").unwrap();
+        assert!(s.favorite, "le favori doit être relu du disque");
+
+        // 4. retrait → la clé disparaît (défaut false, config lisible)
+        let j2 = handle_action(
+            &state,
+            "{\"action\":\"set_favorite\",\"id\":\"fav-srv\",\"enabled\":false}",
+        );
+        assert_eq!(j2["ok"], serde_json::json!(true));
+        let cfg2 = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(!cfg2.contains("favorite"), "défaut non écrit : {}", cfg2);
+
+        // 5. serveur inconnu → erreur nette
+        let j3 = handle_action(
+            &state,
+            "{\"action\":\"set_favorite\",\"id\":\"nope\",\"enabled\":true}",
+        );
+        assert_eq!(j3["ok"], serde_json::json!(false));
+        assert_eq!(j3["error"], serde_json::json!("serveur inconnu"));
+    }
+
+    #[test]
     fn reset_state_placements_detection_et_oublis() {
         // Bouton ⚙ → Réinitialiser : placement (ordre), detection (découverts
         // + imports natifs + pairs), oublis (seeds retirés réinjectés + machines
@@ -6973,6 +7130,7 @@ mod tests {
                 last_error: None,
                 start_cmd: None,
                 auto_restart: true,
+                favorite: false,
                 tools_disabled: vec![],
             });
             servers.push(Server {
@@ -7003,6 +7161,7 @@ mod tests {
                 last_error: None,
                 start_cmd: None,
                 auto_restart: true,
+                favorite: false,
                 tools_disabled: vec![],
             });
             servers.push(Server {
@@ -7033,6 +7192,7 @@ mod tests {
                 last_error: None,
                 start_cmd: None,
                 auto_restart: true,
+                favorite: false,
                 tools_disabled: vec![],
             });
         }

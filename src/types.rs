@@ -136,6 +136,9 @@ pub struct Server {
     pub last_error: Option<String>,
     pub start_cmd: Option<StartCmd>,
     pub auto_restart: bool,
+    /// Favori (⭐ de l'UI) : la ligne est épinglée en haut de sa section,
+    /// quel que soit le mode de tri. Persisté dans config.json.
+    pub favorite: bool,
     /// Tools désactivés individuellement pour ce serveur
     pub tools_disabled: Vec<String>,
 }

@@ -1322,6 +1322,7 @@ mod tests {
             origin: crate::types::Origin::Seed,
             enabled: true,
             auto_restart: true,
+            favorite: false,
             state: crate::types::SState::Up,
             pid: None,
             bound_host: None,
