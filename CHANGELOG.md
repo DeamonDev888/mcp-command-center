@@ -12,6 +12,15 @@
   - **Go** : tuile cyan officielle ; **.NET** : carré violet officiel ;
   - **Java** : la tasse bleue à vapeur orange ; **Ruby** : le gem facetté rouge ; **PHP** : l'ellipse violette « php ».
 - Zéro requête réseau (SVG inline au binaire), tooltips inchangés (« Langage inféré : … »), badge framework toujours coloré par langage.
+- Dans l'explorateur tous les logos descendent à **14 px** (hauteur de ligne préservée) ; 18 px dans l'en-tête de détail.
+
+### Boutique refondue : navigation, icônes et état « Déjà installé »
+- **En-tête collant** : recherche, tri et catégories restent visibles pendant le défilement de la grille ; **compteur de résultats** (« 63 serveurs » / « 12 affichés sur 63 »).
+- **Tri** « Ordre du catalogue » / **A→Z** ; bascule **« Masquer les installés »** (pilule cohérente avec les catégories, état actif marqué).
+- **Icône sur TOUTES les cartes** : les items sans marque reconnue reçoivent le glyphe « paquet » neutre — plus aucune carte sans icône, avant comme après le chargement des logos.
+- **« ✓ Déjà installé »** : une carte dont le serveur (`store-<id>`) est déjà dans ta liste affiche un état vert non cliquable à la place d'Installer (source de vérité = `state.servers`, re-rendu après installation réussie) — plus de double installation possible d'un clic distrait.
+- **Ligne de commande retirée des cartes** : la description suffit ; la commande reste visible dans le détail une fois installé. Au passage, plus aucun chemin personnel n'est affiché dans la boutique.
+- Raccourci **`/`** et **Ctrl+K** : la recherche de la boutique a le focus quand le dialog est ouvert (sinon le filtre de l'explorateur, inchangé).
 
 ### Explorateur refondu : les noms de serveurs sont redevenus visibles
 - **Bug d'affichage sérieux** : dans la sidebar, les badges (langage, transport, framework) écrasaient le nom du serveur (`flex:1` sans largeur plancher) — plusieurs serveurs n'affichaient **aucun nom** (largeur mesurée : 0 px), les autres un tronçon « r… », « to… ».
@@ -40,6 +49,8 @@
 - **Toasts sémantiques** : succès (filet vert) et erreur (filet rouge, affichée 3,5 s au lieu de 1,2 s — un échec se lit).
 - Halo LiteMCP **statique** (fin du pulse permanent qui attirait l'œil en continu) ; « désuet » → « **legacy** » (vocabulaire standard du domaine) ; tooltips explicites sur les badges de la barre de titre (UP, outils, refresh) ; message de vérification de mise à jour sans emoji.
 - **Correctif « vv »** : le tag GitHub arrivait avec son « v » et chaque affichage en rajoutait un — le journal disait « mise à jour disponible : vv0.7.16 ». Le tag est normalisé à la source (`check_update`), tous les affichages (journal, badge, Réglages) sont cohérents.
+- **Version et bouton ⬆ sur la ligne Journal** : la barre d'état séparée est retirée — « vX.Y.Z » et « ⬆ Mettre à jour » vivent sur la même ligne que « Journal » et « auto-détection », visibles même journal replié (le clic sur le bouton ne replie pas le journal — propagation coupée).
+- **Jaune JS assagi** (`#f7df1e` → `#dcc94f`) : le carré ECMAScript et les badges framework dérivés gardent leur identité sans flasher au neon.
 
 ### Le bouton « ⬆ Mettre à jour » télécharge directement le BON fichier
 - Avant : le bouton ouvrait la **page des releases** — il fallait encore trouver le bon fichier parmi les plateformes.

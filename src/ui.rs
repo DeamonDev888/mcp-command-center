@@ -154,18 +154,16 @@ body{background:var(--chrome);color:var(--t1);font:13px/1.5 var(--sans);display:
 #stAuto:hover{border-color:var(--accent);color:var(--accent);background:var(--hover)}
 #stAuto.auto-off{color:var(--t4);border-style:dashed}
 #stAuto.auto-on{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08)}
-/* ===== Barre d'état (bas de fenêtre) : version + mise à jour, à droite ===== */
-#statusbar{height:28px;flex-shrink:0;display:flex;align-items:center;gap:10px;
-  padding:0 14px;background:var(--sidebar);border-top:1px solid var(--border-soft);
-  user-select:none}
-.sb-spacer{flex:1}
-.sb-ver{font:11px/1 var(--mono);color:var(--t3);letter-spacing:.02em}
-#statusbar .sb-upd{height:22px;padding:0 12px;font:11px/1 var(--sans);font-weight:700;gap:5px;
+/* Version + mise à jour : à droite de la ligne Journal (le pied de fenêtre
+   reste une seule ligne, même journal replié). Le bouton coupe la propagation
+   du clic : cliquer « Mettre à jour » ne doit pas replier le journal. */
+.sb-ver{font:11px/1 var(--mono);color:var(--t3);letter-spacing:.02em;flex-shrink:0}
+.sb-upd{height:22px;padding:0 12px;font:11px/1 var(--sans);font-weight:700;gap:5px;flex-shrink:0;
   color:#07293d;border-color:#8fd3ff;background:#8fd3ff;border-radius:var(--rpill);
   box-shadow:0 1px 6px rgba(143,211,255,.35)}
-#statusbar .sb-upd:hover{background:#a9dcff;border-color:#a9dcff;color:#07293d}
-#statusbar .sb-upd:active{background:#8fd3ff;border-color:#8fd3ff}
-:root[data-theme="light"] #statusbar .sb-upd{border-color:#5eb8ef}
+.sb-upd:hover{background:#a9dcff;border-color:#a9dcff;color:#07293d}
+.sb-upd:active{background:#8fd3ff;border-color:#8fd3ff}
+:root[data-theme="light"] .sb-upd{border-color:#5eb8ef}
 .tb-spacer{flex:1;height:100%}
 /* Groupe d'actions : un seul bloc, filets internes alignés. */
 .tb-actions{display:flex;gap:6px;align-items:center}
@@ -729,17 +727,13 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
   <section id="content"></section>
 </div>
 
-<div id="statusbar">
-  <span class="sb-spacer"></span>
-  <span class="sb-ver" title="Version installée">v__MCC_VERSION__</span>
-  <button id="stUpdate" class="sb-upd" hidden onclick="downloadUpdate()"
-    title="Télécharge directement la mise à jour pour cette machine"></button>
-</div>
-
 <div id="logpanel">
   <div id="loghead" onclick="toggleLog()">
     <span class="arrow">&#9662;</span><span class="lbl">Journal</span>
     <span class="tb-badge tb-push">auto-d&eacute;tection : HTTP streamable &middot; stdio JSON-RPC</span>
+    <span class="sb-ver" title="Version install&eacute;e">v__MCC_VERSION__</span>
+    <button id="stUpdate" class="sb-upd" hidden onclick="event.stopPropagation();downloadUpdate()"
+      title="T&eacute;l&eacute;charge directement la mise &agrave; jour pour cette machine"></button>
   </div>
   <div id="logbody"></div>
 </div>
@@ -1363,7 +1357,7 @@ function renderServers() {
 
 // Chip du langage MCP (inféré : commande stdio ou en-têtes HTTP) — monogramme coloré façon logo
 const LANG_META = {
-  node:   { t: 'JS',  c: '#f7df1e', n: 'Node.js / TypeScript' },
+  node:   { t: 'JS',  c: '#dcc94f', n: 'Node.js / TypeScript' },
   python: { t: 'PY',  c: '#3fb950', n: 'Python' },
   rust:   { t: 'RS',  c: '#f97316', n: 'Rust' },
   go:     { t: 'GO',  c: '#00add8', n: 'Go' },
@@ -1386,7 +1380,7 @@ const RUST_LOGO = "<svg class='rustlogo' viewBox='0 0 24 24' aria-hidden='true'>
 const PY_PATH = "M11.8 2.1c-2.6 0-4.7 1.1-4.7 3.2v2.6h4.9v.9H5.1c-2.1 0-3.8 1.6-3.8 4.4 0 2.9 1.5 4.5 3.6 4.5h2v-2.8c0-1.9 1.6-3.5 3.5-3.5h4.4c1.6 0 2.9-1.3 2.9-2.9V5.3c0-2.1-2.1-3.2-4.7-3.2h-1.2z";
 const LANG_LOGOS = {
   rust: RUST_LOGO,
-  node: "<svg class='langlogo' viewBox='0 0 24 24' aria-hidden='true'><rect x='1.5' y='1.5' width='21' height='21' rx='3.5' fill='#f7df1e'/><text x='12' y='16.6' text-anchor='middle' font-size='10.5' font-weight='800' font-family='inherit' fill='#0d0d0e'>JS</text></svg>",
+  node: "<svg class='langlogo' viewBox='0 0 24 24' aria-hidden='true'><rect x='1.5' y='1.5' width='21' height='21' rx='3.5' fill='#dcc94f'/><text x='12' y='16.6' text-anchor='middle' font-size='10.5' font-weight='800' font-family='inherit' fill='#221e08'>JS</text></svg>",
   python: "<svg class='langlogo' viewBox='0 0 24 24' aria-hidden='true'><g><path fill='#3776ab' d='" + PY_PATH + "'/><circle cx='9.7' cy='5' r='.95' fill='#fff'/><g transform='rotate(180 12 12)'><path fill='#ffd43b' d='" + PY_PATH + "'/><circle cx='9.7' cy='5' r='.95' fill='#fff'/></g></g></svg>",
   go: "<svg class='langlogo' viewBox='0 0 24 24' aria-hidden='true'><rect x='1.5' y='1.5' width='21' height='21' rx='3.5' fill='#00add8'/><text x='12' y='16.2' text-anchor='middle' font-size='10' font-weight='800' font-family='inherit' fill='#fff'>GO</text></svg>",
   java: "<svg class='langlogo' viewBox='0 0 24 24' aria-hidden='true'><path fill='#f89820' d='M12.4 2.4c-.6 1.4.1 2.4 1.2 3.1 1.1.8 1.7 1.8 1.3 3 1.2-.7 1.6-2.1.8-3.3-.6-1-2-1.7-3.3-2.8z'/><path fill='#f89820' d='M9.4 7c-.5 1.1.1 2 1.1 2.5.9.6 1.4 1.4 1 2.4 1.1-.6 1.5-1.8.8-2.8-.6-.9-1.8-1.4-2.9-2.1z'/><path fill='#5382a1' d='M7.2 12.1h9.3v4.7c0 2.3-1.9 4.2-4.2 4.2h-.9c-2.3 0-4.2-1.9-4.2-4.2z'/><path fill='none' stroke='#5382a1' stroke-width='1.3' stroke-linecap='round' d='M16.9 13.4h1.2c1.1 0 2 .9 2 2s-.9 2-2 2h-1.3'/></svg>",

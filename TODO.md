@@ -5,6 +5,27 @@ Tailles : **S** = ≤ ½ jour · **M** = 1-2 j · **L** = 3+ j.
 
 ---
 
+## ✅ Lot 2026-10-30 (2) — Finitions UI « niveau produit » — LIVRÉ (v0.7.18)
+
+Revue UI complète (moteur réel + mesures DOM) → lot livré dans `ui.rs` + `manage.rs` :
+
+| # | Quoi | Statut |
+|---|---|---|
+| B1 | **Noms de serveurs écrasés à 0 px** (badges vs `flex:1`) : ligne 1 = état + nom + actions, ligne 2 = badges + compteurs ; explorateur 280 → 320 px | ✅ v0.7.18 |
+| B2 | **Icônes SVG uniques** (trait 1.5, `currentColor`) partout — toolbar, dialogs, menus, détail, tuiles — fin des emojis | ✅ v0.7.18 |
+| B3 | **Destructif assumé** : bordure rouge permanente, « Supprimer » séparé, `confirm()` sur la suppression d'un serveur importé (les seeds l'avaient déjà) | ✅ v0.7.18 |
+| B4 | **Filtre d'explorateur** (nom/id/framework/port/état) + raccourcis `/`, Ctrl+K, Échap | ✅ v0.7.18 |
+| B5 | **Tuiles d'accueil cliquables** : filtre UP, tri tools, dialog machines ; tuile active marquée | ✅ v0.7.18 |
+| B6 | **Markdown inline des descriptions d'outils** (gras/italique/code, échappé avant transformation) | ✅ v0.7.18 |
+| B7 | **Micro-finitions** : kv copiables d'un clic, tiret cadratin « — », toasts succès/erreur, halo LiteMCP statique, « désuet » → « legacy », tooltips badges, correctif « vv » (tag GitHub normalisé dans `check_update`) | ✅ v0.7.18 |
+| B8 | **Boutique : navigation** — en-tête collant (recherche + tri + catégories visibles au défilement), tri Ordre catalogue / A→Z, compteur de résultats, bascule « Masquer les installés » | ✅ v0.7.18 |
+| B9 | **Boutique : cartes** — icône sur TOUTES les cartes (glyphe neutre en repli), état « ✓ Déjà installé » vert non cliquable selon `state.servers` (re-rendu après install), ligne de commande retirée | ✅ v0.7.18 |
+| B10 | **Raccourcis boutique** — `/` et Ctrl+K visent la recherche de la boutique quand son dialog est ouvert | ✅ v0.7.18 |
+
+Vérification navigateur sur moteur mocké (réponses réelles capturées, zéro contact avec l'instance en cours) : 157 tests verts (contrats UI étendus aux nouveaux handlers), vérification visuelle complète (boutique, logos, filtre, tri, bascule installés).
+
+---
+
 ## ✅ Lot 2026-10-30 — Réglages professionnels + contrat « tout bouton » — LIVRÉ (v0.7.16)
 
 Audit complet au 2026-10-30 (base saine : 141 tests unitaires + 44/45 E2E verts, clippy 0 warning) → lot livré :
