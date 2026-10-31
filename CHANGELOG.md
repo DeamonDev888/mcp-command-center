@@ -49,7 +49,7 @@
 - **Toasts sémantiques** : succès (filet vert) et erreur (filet rouge, affichée 3,5 s au lieu de 1,2 s — un échec se lit).
 - Halo LiteMCP **statique** (fin du pulse permanent qui attirait l'œil en continu) ; « désuet » → « **legacy** » (vocabulaire standard du domaine) ; tooltips explicites sur les badges de la barre de titre (UP, outils, refresh) ; message de vérification de mise à jour sans emoji.
 - **Correctif « vv »** : le tag GitHub arrivait avec son « v » et chaque affichage en rajoutait un — le journal disait « mise à jour disponible : vv0.7.16 ». Le tag est normalisé à la source (`check_update`), tous les affichages (journal, badge, Réglages) sont cohérents.
-- **Version et bouton ⬆ sur la ligne Journal** : la barre d'état séparée est retirée — « vX.Y.Z » et « ⬆ Mettre à jour » vivent sur la même ligne que « Journal » et « auto-détection », visibles même journal replié (le clic sur le bouton ne replie pas le journal — propagation coupée).
+- **Version et bouton ⬆ sur la ligne Journal** : la barre d'état séparée est retirée — « vX.Y.Z » et « ⬆ Mettre à jour » vivent sur la même ligne que « Journal » et « auto-détection », visibles même journal replié (le clic sur le bouton ne replie pas le journal — propagation coupée). Libellé épuré : juste **« Mettre à jour »** (icône download) — les versions (dispo + installée) s'affichent **en survol**.
 - **Jaune JS assagi** (`#f7df1e` → `#dcc94f`) : le carré ECMAScript et les badges framework dérivés gardent leur identité sans flasher au neon.
 
 ### Le bouton « ⬆ Mettre à jour » télécharge directement le BON fichier

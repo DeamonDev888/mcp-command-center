@@ -1234,8 +1234,9 @@ function render() {
   const upd = document.getElementById('stUpdate');
   if (state.update_available && state.latest_version) {
     upd.hidden = false;
-    upd.innerHTML = ic('upload') + ' Mettre &agrave; jour &mdash; v' + esc(state.latest_version) + ' dispo';
-    upd.title = 'Nouvelle version ' + state.latest_version + ' publiée sur GitHub (installée : v' + MCC_VERSION
+    // libellé épuré : « Mettre à jour » — les versions vivent en survol
+    upd.innerHTML = ic('download') + ' Mettre &agrave; jour';
+    upd.title = 'Mettre à jour vers v' + state.latest_version + ' (installée : v' + MCC_VERSION
       + ') — clic : téléchargement direct pour cette machine';
   } else upd.hidden = true;
   renderServers();
