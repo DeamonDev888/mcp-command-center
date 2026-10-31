@@ -1,0 +1,652 @@
+/* ===== Jetons de design ====================================================
+   Une seule échelle pour tout : rayons, hauteurs de contrôle, filets.
+   Toute valeur « à la main » dans un composant est une dette — elle est ici.
+   Chrome #0d0d0e · Sidebar #0a0a0b · Card #161618 · Accent #4a84fe
+   Textes 94/74/54/36 % · hover accent 4 % · actif 8 % · filet 9/12/16 %      */
+:root{
+  --chrome:#0d0d0e;--sidebar:#0a0a0b;--card:#161618;--elevated:#1c1c1f;
+  --accent:#4a84fe;
+  --t1:rgba(255,255,255,.94);--t2:rgba(255,255,255,.74);--t3:rgba(255,255,255,.54);--t4:rgba(255,255,255,.36);
+  --border:rgba(255,255,255,.12);--border-soft:rgba(255,255,255,.07);--border-strong:rgba(255,255,255,.2);
+  --hover:rgba(74,132,254,.04);--active:rgba(74,132,254,.08);--active2:rgba(74,132,254,.14);
+  --wash:rgba(255,255,255,.035);
+  --ok:#55a583;--bad:#e75e78;--warn:#c08532;--orange:#db704b;--cyan:#6f9ba6;--purple:#9e94d5;
+  --mono:'JetBrains Mono',ui-monospace,'Cascadia Code',Consolas,monospace;
+  --sans:-apple-system,'Segoe UI',system-ui,sans-serif;
+  /* échelle de rayons */
+  --r1:4px;--r2:6px;--r3:8px;--r4:10px;--r5:12px;--rpill:999px;
+  /* hauteurs de contrôle : une seule par rang */
+  --h-ctl:26px;--h-sm:22px;--h-xs:18px;
+  /* ombres : deux niveaux, pas plus */
+  --sh-pop:0 14px 34px rgba(0,0,0,.55),0 2px 6px rgba(0,0,0,.35);
+  --sh-dlg:0 24px 64px rgba(0,0,0,.6),0 2px 8px rgba(0,0,0,.4);
+  /* rythme vertical */
+  --gap:8px;--pad-sec:16px;
+}
+/* Thème clair — bascule <html data-theme="light"> (préférence ⚙ Réglages).
+   Hiérarchie de surfaces : chrome (fond de la zone de contenu) plus soutenu,
+   sidebar légèrement plus claire, cartes BLANCHES détachées (fond + ombre),
+   filets nettement visibles. Les rayons/hauteurs/ombres viennent des jetons
+   du design system — rien n'est « à la main » ici. */
+:root[data-theme="light"]{
+  --chrome:#e4e7ed;--sidebar:#f1f3f7;--card:#ffffff;--elevated:#fafbfd;
+  --t1:rgba(13,17,24,.94);--t2:rgba(13,17,24,.72);--t3:rgba(13,17,24,.54);--t4:rgba(13,17,24,.40);
+  --border:rgba(13,17,24,.30);--border-soft:rgba(13,17,24,.15);--border-strong:rgba(13,17,24,.44);
+  --hover:rgba(74,132,254,.09);--active:rgba(74,132,254,.16);--active2:rgba(74,132,254,.30);
+  --wash:rgba(13,17,24,.04);
+  --ok:#2e7a5c;--bad:#c23f5c;--warn:#8f5c10;--orange:#a94f2c;--cyan:#3f7180;--purple:#6d64c0;
+  --sh-pop:0 10px 26px rgba(16,22,34,.14),0 2px 6px rgba(16,22,34,.10);
+  --sh-dlg:0 24px 60px rgba(16,22,34,.24),0 3px 10px rgba(16,22,34,.14);
+}
+/* Correctifs clairs pour les rares couleurs fixes du thème sombre */
+:root[data-theme="light"] .netbanner{color:#a93250}
+:root[data-theme="light"] .netbanner b{color:#c9405e}
+:root[data-theme="light"] .tag.http,
+:root[data-theme="light"] .tag.https,
+:root[data-theme="light"] .tag.stdio,
+:root[data-theme="light"] .tag.ws{color:var(--t2);border-color:rgba(13,17,24,.34);background:rgba(13,17,24,.05)}
+:root[data-theme="light"] .dot.DOWN{background:#b6bcc7}
+/* Relief du thème clair : les cartes deviennent BLANCHES sur le fond gris et
+   portent une ombre douce — sans elles, cartes et fond se confondent. */
+:root[data-theme="light"] .tile{background:var(--card);border:1px solid var(--border-soft);
+  box-shadow:0 1px 2px rgba(16,22,34,.10),0 4px 12px rgba(16,22,34,.07)}
+:root[data-theme="light"] .conf-block{background:var(--card);border:1px solid var(--border-soft);
+  box-shadow:0 1px 2px rgba(16,22,34,.08),0 3px 10px rgba(16,22,34,.05)}
+:root[data-theme="light"] .sec-label{color:var(--t3);border-bottom:1px solid var(--border-soft);padding-bottom:8px}
+:root[data-theme="light"] .srow{background:var(--card);border:1px solid var(--border-soft);
+  box-shadow:0 1px 1px rgba(16,22,34,.06)}
+:root[data-theme="light"] .srow:hover{background:var(--elevated);border-color:var(--border);
+  box-shadow:0 2px 7px rgba(16,22,34,.12)}
+:root[data-theme="light"] .srow.sel{background:var(--active);border-color:var(--accent);
+  box-shadow:0 2px 8px rgba(74,132,254,.18)}
+:root[data-theme="light"] .grphead{background:var(--card);border:1px solid var(--border-soft);
+  box-shadow:0 1px 1px rgba(16,22,34,.05)}
+:root[data-theme="light"] .grphead:hover{background:var(--elevated);border-color:var(--border)}
+:root[data-theme="light"] .machine-row,
+:root[data-theme="light"] .peer-row,
+:root[data-theme="light"] .scard{background:var(--card);border:1px solid var(--border-soft);
+  box-shadow:0 1px 2px rgba(16,22,34,.08)}
+:root[data-theme="light"] .machine-row:hover,
+:root[data-theme="light"] .scard:hover{border-color:var(--border);box-shadow:0 2px 7px rgba(16,22,34,.12)}
+:root[data-theme="light"] dialog{background:var(--card);border:1px solid var(--border);
+  box-shadow:var(--sh-dlg)}
+:root[data-theme="light"] dialog::backdrop{background:rgba(16,22,34,.46);backdrop-filter:blur(3px)}
+:root[data-theme="light"] input,
+:root[data-theme="light"] select{background:var(--elevated);border:1px solid var(--border);
+  box-shadow:inset 0 1px 2px rgba(16,22,34,.05)}
+:root[data-theme="light"] input:hover,
+:root[data-theme="light"] select:hover{border-color:var(--border-strong)}
+:root[data-theme="light"] .sw.on{border-color:rgba(46,122,92,.55);background:rgba(46,122,92,.10)}
+:root[data-theme="light"] .sw.off{border-color:var(--border);color:var(--t4)}
+:root[data-theme="light"] .tgl.on{border-color:rgba(46,122,92,.55);background:rgba(46,122,92,.10)}
+:root[data-theme="light"] .legacy{border-color:var(--border)}
+:root[data-theme="light"] .crumb{color:var(--t3)}
+:root[data-theme="light"] .logline{color:var(--t3)}
+:root[data-theme="light"] #logpanel{background:var(--sidebar);border-top:1px solid var(--border)}
+:root[data-theme="light"] .tb-badge{background:var(--card);border-color:var(--border-soft)}
+/* Séparateurs de zone : un filet + un fond très légèrement teinté sous les
+   titres de section, pour que l'explorateur soit lisible d'un coup d'œil. */
+:root[data-theme="light"] #explorer{background:var(--sidebar);border-right:1px solid var(--border);
+  box-shadow:1px 0 0 rgba(16,22,34,.03)}
+:root[data-theme="light"] .sec-label{background:linear-gradient(var(--sidebar),var(--sidebar))}
+:root[data-theme="light"] details.fold,
+:root[data-theme="light"] .tabs{background:var(--card);border:1px solid var(--border-soft);
+  border-radius:var(--r3);box-shadow:0 1px 2px rgba(16,22,34,.07)}
+:root[data-theme="light"] .tool{background:var(--card);border-color:var(--border-soft)}
+:root[data-theme="light"] .pill{background:var(--elevated)}
+
+*{box-sizing:border-box;margin:0;padding:0}
+/* L'attribut hidden doit gagner contre les display:flex/inline-flex des
+   classes : sans cette règle, un élément masqué reste visible. */
+[hidden]{display:none !important}
+html,body{height:100%}
+body{background:var(--chrome);color:var(--t1);font:13px/1.5 var(--sans);display:flex;flex-direction:column;
+  overflow:hidden;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+
+/* Barres de défilement fines : le défaut du système casse la densité de l'UI. */
+*{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.16) transparent}
+*::-webkit-scrollbar{width:11px;height:11px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:var(--rpill);
+  border:3px solid transparent;background-clip:padding-box}
+*::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.26);background-clip:padding-box}
+*::-webkit-scrollbar-corner{background:transparent}
+:root[data-theme="light"] *{scrollbar-color:rgba(15,18,25,.25) transparent}
+:root[data-theme="light"] *::-webkit-scrollbar-thumb{background:rgba(15,18,25,.22);background-clip:padding-box}
+
+/* Focus clavier : visible partout, jamais au clic souris. */
+:focus{outline:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-radius:var(--r2)}
+::selection{background:var(--active2)}
+
+/* ===== Barre de titre ===== */
+#titlebar{height:44px;flex-shrink:0;display:flex;align-items:center;gap:var(--gap);padding:0 10px 0 var(--pad-sec);
+  background:var(--sidebar);border-bottom:1px solid var(--border);user-select:none;position:relative;z-index:20}
+#titlebar::after{content:'';position:absolute;inset:0 0 auto;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.06),transparent);pointer-events:none}
+/* Marque : monogramme « console » (fenêtre + smile) + wordmark discret.
+   L'ancien point bleu + « MCP Command Center » était trop bruyant. */
+#titlebar .logo{white-space:nowrap;display:flex;align-items:center;gap:7px;margin-right:6px}
+#titlebar .logo .mark{width:17px;height:17px;color:var(--t3);flex-shrink:0}
+#titlebar .logo:hover .mark{color:var(--accent)}
+#titlebar .logo .wordmark{font-weight:600;font-size:12.5px;letter-spacing:.24px;color:var(--t1);
+  text-transform:uppercase}
+#titlebar .logo .wm-dim{color:var(--t4);font-weight:500;margin-left:6px;letter-spacing:.18px}
+.tb-logout{background:none;border:1px solid var(--border);border-radius:var(--r2);color:var(--t3);
+  font-size:10px;line-height:16px;padding:0 6px}
+.tb-logout:hover{color:var(--bad);border-color:var(--bad)}
+.tb-logout[hidden]{display:none}
+/* Pastilles d'état : une seule hauteur, un seul rayon, une seule typo. */
+.tb-badge{display:inline-flex;align-items:center;gap:4px;height:var(--h-sm);padding:0 8px;
+  font:11px/1 var(--mono);color:var(--t3);background:var(--wash);border:1px solid var(--border-soft);
+  border-radius:var(--r2);white-space:nowrap}
+.tb-badge b{color:var(--t1);font-weight:600;font-variant-numeric:tabular-nums}
+.tb-badge.ok b{color:var(--ok)}
+#stAuto{height:var(--h-sm);padding:0 9px;font:11px/1 var(--sans);border-radius:var(--r2);
+  border:1px solid var(--border);color:var(--t3);background:transparent}
+#stAuto:hover{border-color:var(--accent);color:var(--accent);background:var(--hover)}
+#stAuto.auto-off{color:var(--t4);border-style:dashed}
+#stAuto.auto-on{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08)}
+/* Version + mise à jour : à droite de la ligne Journal (le pied de fenêtre
+   reste une seule ligne, même journal replié). Le bouton coupe la propagation
+   du clic : cliquer « Mettre à jour » ne doit pas replier le journal. */
+.sb-ver{font:11px/1 var(--mono);color:var(--t3);letter-spacing:.02em;flex-shrink:0}
+.sb-upd{height:22px;padding:0 12px;font:11px/1 var(--sans);font-weight:700;gap:5px;flex-shrink:0;
+  color:#07293d;border-color:#8fd3ff;background:#8fd3ff;border-radius:var(--rpill);
+  box-shadow:0 1px 6px rgba(143,211,255,.35)}
+.sb-upd:hover{background:#a9dcff;border-color:#a9dcff;color:#07293d}
+.sb-upd:active{background:#8fd3ff;border-color:#8fd3ff}
+:root[data-theme="light"] .sb-upd{border-color:#5eb8ef}
+.tb-spacer{flex:1;height:100%}
+/* Groupe d'actions : un seul bloc, filets internes alignés. */
+.tb-actions{display:flex;gap:6px;align-items:center}
+.tb-actions button{height:var(--h-ctl);padding:0 10px;font-size:12px}
+/* Contrôles de fenêtre (mode desktop Tauri, fenêtre sans décorations) */
+#winCtrls{display:none;gap:2px;margin-left:6px;align-items:center}
+.wbtn{width:34px;height:var(--h-ctl);padding:0;display:flex;align-items:center;justify-content:center;
+  border:none;border-radius:var(--r2);background:transparent;color:var(--t3);font-size:12px;cursor:pointer}
+.wbtn:hover{background:var(--wash);color:var(--t1)}
+.wbtn.wclose:hover{background:rgba(231,94,120,.16);color:var(--bad)}
+
+/* ===== Boutons ===========================================================
+   Une hauteur, un rayon, une transition. Le survol teinte, l'accent marque. */
+button{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  height:var(--h-ctl);padding:0 11px;background:transparent;color:var(--t2);
+  border:1px solid var(--border);border-radius:var(--r2);cursor:pointer;
+  font:12px/1 var(--sans);white-space:nowrap;
+  transition:background .12s,border-color .12s,color .12s,box-shadow .12s}
+button:hover{background:var(--hover);border-color:var(--border-strong);color:var(--t1)}
+button:active{background:var(--active)}
+button.primary{background:var(--active);border-color:var(--active2);color:var(--accent);font-weight:500}
+button.primary:hover{background:var(--active2);border-color:var(--accent);color:var(--accent)}
+#tDark.sel,#tLight.sel{background:var(--active);border-color:var(--accent);color:var(--accent)}
+/* Destructif : bordure rouge PERMANENTE, pas seulement au survol — une action
+   irréversible ne doit pas se fondre visuellement dans les actions neutres. */
+button.danger{border-color:rgba(231,94,120,.38);color:var(--bad)}
+button.danger:hover{border-color:var(--bad);color:var(--bad);background:rgba(231,94,120,.08)}
+/* La suppression est séparée du groupe d'actions courantes du détail. */
+.d-actions button.danger{margin-left:12px}
+button:disabled{opacity:.35;cursor:not-allowed}
+
+/* ===== Layout principal : explorateur + éditeur ===== */
+#main{flex:1;display:flex;min-height:0}
+
+/* --- Explorateur (gauche) --- */
+#explorer{width:320px;flex-shrink:0;background:var(--sidebar);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;padding-bottom:2px}
+.sec-label{font:10px/1 var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.09em;
+  color:var(--t4);padding:14px var(--pad-sec) 7px;user-select:none;
+  display:flex;align-items:center;justify-content:space-between;gap:6px}
+.sec-label select{width:auto;flex-shrink:0;height:var(--h-xs);background:var(--chrome);border:1px solid var(--border-soft);
+  border-radius:var(--r1);color:var(--t3);font:10px/1 var(--mono);padding:0 2px;cursor:pointer;
+  text-transform:none;letter-spacing:0}
+.sec-label select:hover{color:var(--accent);border-color:var(--accent)}
+/* Filtre de l'explorateur (raccourcis : / ou Ctrl+K, Échap pour effacer). */
+#srvFilterWrap{padding:7px 8px 3px;display:flex;gap:6px;align-items:center}
+#srvFilter{height:24px;font-size:11.5px;flex:1;min-width:0;padding:0 8px}
+#srvFilterClear{width:22px;height:22px;padding:0;font-size:13px;color:var(--t4);border-color:transparent;flex-shrink:0}
+#srvFilterClear:hover{color:var(--t1);background:var(--wash);border-color:transparent}
+/* Barre « serveurs masqués » (session seulement — l'app fermée les rend). */
+#hiddenBar{display:flex;align-items:center;gap:7px;margin:3px 8px 2px;padding:5px 10px;
+  font:11px/1.3 var(--sans);color:var(--t3);background:var(--wash);
+  border:1px dashed var(--border);border-radius:var(--r2);cursor:pointer;user-select:none}
+#hiddenBar[hidden]{display:none}
+#hiddenBar:hover{color:var(--t1);border-color:var(--border-strong)}
+#hiddenBar .ic{width:13px;height:13px;flex-shrink:0}
+#hiddenBar b{margin-left:auto;color:var(--accent);font-weight:600;white-space:nowrap}
+/* Lignes de serveur : 34 px de haut, filet de sélection aligné sur le texte. */
+.srow{padding:6px 10px 6px 13px;margin:1px 8px;border-radius:var(--r3);cursor:pointer;position:relative;
+  border:1px solid transparent;transition:background .1s,border-color .1s}
+.srow:hover{background:var(--wash)}
+.srow.sel{background:var(--active);border-color:var(--active2)}
+.srow.sel::before{content:'';position:absolute;left:0;top:6px;bottom:6px;width:2px;
+  border-radius:var(--rpill);background:var(--accent)}
+.srow.off{opacity:.45}
+.srow .l1{display:flex;align-items:center;gap:7px;min-width:0;height:18px}
+/* Le nom est SEUL en ligne 1 avec les boutons d'action ; les badges descendent
+   en ligne 2. Sur une ligne commune, les badges (non rétractables) écrasaient
+   le nom (flex:1) jusqu'à 0 px : plusieurs serveurs n'affichaient plus leur
+   nom dans l'explorateur. */
+.srow .l1 .nm{flex:1;min-width:0;font-size:12.5px;font-weight:500;color:var(--t1);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;letter-spacing:.1px}
+.srow .cnt{font:10px/1 var(--mono);color:var(--t4);font-variant-numeric:tabular-nums;flex-shrink:0}
+.legacy{font:9px/1 var(--mono);text-transform:uppercase;letter-spacing:.04em;color:var(--t4);
+  border:1px dashed var(--border);border-radius:var(--r1);padding:1px 5px;white-space:nowrap;flex-shrink:0}
+.ctxmenu{position:fixed;z-index:9999;min-width:270px;background:var(--elevated);border:1px solid var(--border);
+  border-radius:var(--r3);padding:5px;box-shadow:var(--sh-pop);font-size:12px}
+.ctxmenu[hidden]{display:none}
+.ctxitem{padding:6px 9px;border-radius:var(--r2);cursor:pointer;color:var(--t2);white-space:nowrap;
+  display:flex;gap:8px;align-items:center;line-height:1.35}
+.ctxitem:hover{background:var(--active);color:var(--t1)}
+.ctxitem.dis{opacity:.35;cursor:default;pointer-events:none}
+.ctxsep{height:1px;background:var(--border-soft);margin:5px 7px}
+#toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(8px);
+  background:var(--elevated);color:var(--t1);border:1px solid var(--border);border-radius:var(--r3);
+  padding:7px 14px;font-size:12px;box-shadow:var(--sh-pop);opacity:0;pointer-events:none;
+  transition:opacity .15s,transform .15s;z-index:10000}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+/* Variantes sémantiques : succès et erreur ne passent plus inaperçus. */
+#toast.ok{border-color:rgba(85,165,131,.5)}
+#toast.err{border-color:rgba(231,94,120,.55);color:#f2b0bd}
+.netbanner{background:rgba(231,94,120,.12);border-bottom:1px solid rgba(231,94,120,.45);
+  color:#f0a8b6;font-size:11.5px;padding:6px 12px;display:flex;gap:8px;align-items:center}
+.netbanner b{color:#ffd7de}
+.netbanner[hidden]{display:none}
+/* Boutons de ligne : 18 px, rayon 4, jamais plus hauts que le texte. */
+.rowbtn{display:inline-flex;align-items:center;justify-content:center;height:var(--h-xs);min-width:20px;
+  padding:0 5px;background:none;border:1px solid var(--border-soft);border-radius:var(--r1);color:var(--t3);
+  font:9px/1 var(--mono);flex-shrink:0}
+.rowbtn:hover{color:var(--accent);border-color:var(--accent);background:var(--hover)}
+/* Autoboot par serveur (⚡) : allumé = relance auto au démarrage/crash */
+.rowbtn.auto{color:var(--t3);opacity:.45}
+.rowbtn.auto.on{color:#f0a35e;border-color:#f0a35e66;background:#f0a35e14;opacity:1}
+.rowbtn.auto.on:hover{color:var(--bad);border-color:var(--bad);background:rgba(231,94,120,.08)}
+/* Favori (⭐) : épinglé = la ligne passe en haut de sa section (persisté). */
+.rowbtn.fav{color:var(--t4);opacity:.45}
+.rowbtn.fav:hover{color:#f0c05e;border-color:#f0c05e;background:#f0c05e14;opacity:1}
+.rowbtn.fav.on{color:#f0c05e;border-color:#f0c05e66;background:#f0c05e14;opacity:1}
+.rowbtn.fav.on .ic{fill:currentColor}
+.rowbtn.fav.on:hover{color:var(--bad);border-color:var(--bad);background:rgba(231,94,120,.08)}
+/* Bouton Favori du panneau de détail */
+.favbtn.on{color:#f0c05e;border-color:#f0c05e66;background:#f0c05e14}
+.favbtn.on:hover{color:var(--bad);border-color:var(--bad);background:rgba(231,94,120,.08)}
+.srow.off .rowbtn{opacity:.5}
+/* Drag & drop de réordonnancement (préférence / priorité de sondage) */
+.srow.dragging{opacity:.35}
+.srow.drop-above{box-shadow:0 -2px 0 var(--accent)}
+.srow.drop-below{box-shadow:0 2px 0 var(--accent)}
+/* ===== Sections repliables de l'explorateur =====
+   Serveurs locaux à plat, puis UN GROUPE REPLIABLE PAR MACHINE DISTANTE
+   (VPS/LAN) : les serveurs importés d'une machine sont rangés sous son IP. */
+.sec-label[hidden]{display:none}
+.grphead{display:flex;align-items:center;gap:6px;margin:1px 8px;padding:5px 8px;border-radius:var(--r2);
+  cursor:pointer;user-select:none;color:var(--t3);border:1px solid transparent;transition:background .1s}
+.grphead:hover{background:var(--wash);color:var(--t2)}
+.grphead .gchev{font-size:9px;width:10px;flex-shrink:0;color:var(--t4);transition:transform .12s}
+.grphead.closed .gchev{transform:rotate(-90deg)}
+.grphead .gname{flex:1;font-size:11px;font-weight:600;letter-spacing:.03em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.grphead .gcount{font:10px/1 var(--mono);color:var(--t4);flex-shrink:0;font-variant-numeric:tabular-nums}
+.grphead .gact{background:none;border:none;padding:0 3px;font-size:11px;line-height:16px;color:var(--t4);flex-shrink:0}
+.grphead .gact:hover{color:var(--bad);background:none;border:none}
+.grphead.closed .gact{display:none}
+.grphead.drag-over-group{border-color:var(--accent);background:var(--active)}
+.grpbody.closed{display:none}
+/* Rangées distantes : légère indentation sous leur groupe machine */
+.mbody .srow{padding-left:23px}
+.mbody .srow.sel::before{left:10px}
+.sw{display:inline-flex;align-items:center;justify-content:center;height:var(--h-xs);min-width:34px;
+  font:9px/1 var(--mono);font-weight:600;border-radius:var(--rpill);padding:0 6px;flex-shrink:0;
+  border:1px solid var(--border-soft);background:none;color:var(--t3)}
+.sw.on{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08)}
+.sw.on:hover{border-color:var(--bad);color:var(--bad);background:rgba(231,94,120,.06)}
+.sw.off{color:var(--t4);border-color:var(--border);text-decoration:line-through}
+.sw.off:hover{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08);text-decoration:none}
+.srow .l2{display:flex;align-items:center;gap:6px;margin-top:2px;padding-left:20px;min-width:0;
+  font:10.5px/1.35 var(--mono);color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.srow .l2 .langchip{height:14px}
+/* Les logos de langage sont plus petits dans l'explorateur que dans le détail. */
+.srow .rustlogo{width:14px;height:14px}
+.srow .l2 .st{font-weight:600}
+.srow .l2 .st.UP{color:var(--ok)}.srow .l2 .st.PORT-ONLY{color:var(--orange)}
+.srow .l2 .st.DOWN{color:var(--t4)}.srow .l2 .st.DISABLED{color:var(--t4)}
+.srow .l2 .st.PROBING,.srow .l2 .st.STARTING{color:var(--accent)}
+.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.dot.UP{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+.dot.PORT-ONLY{background:var(--orange);box-shadow:0 0 6px var(--orange)}
+.dot.DOWN{background:#3d3d40}
+.dot.DISABLED{background:transparent;border:1px solid var(--border)}
+.dot.PROBING,.dot.STARTING{background:var(--accent);animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.25}}
+.peer-row{padding:6px 10px 6px 13px;margin:1px 8px;border-radius:var(--r3)}
+.peer-row .l1{display:flex;align-items:center;gap:8px}
+.peer-row .l1 .nm{flex:1;font:12px/1.35 var(--mono);color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.peer-row .l2{font:10.5px/1.35 var(--mono);color:var(--t3);padding-left:20px;margin-top:1px}
+.peer-row button{margin-top:5px;margin-left:20px;height:var(--h-sm);padding:0 9px;font-size:11px}
+#addWrap{margin-top:auto;padding:10px 8px 12px;border-top:1px solid var(--border-soft)}
+#addWrap button{width:100%;height:30px}
+.empty-sec{font:11px/1.4 var(--sans);color:var(--t4);padding:4px var(--pad-sec) 10px;font-style:italic}
+
+/* --- Zone détail (droite) --- */
+#content{flex:1;min-width:0;overflow-y:auto;padding:24px 28px 32px}
+.crumb{font:11px/1 var(--mono);color:var(--t4);margin-bottom:12px;letter-spacing:.02em}
+.crumb b{color:var(--t3);font-weight:400}
+.d-head{display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap}
+.d-head h1{font-size:19px;font-weight:600;letter-spacing:.1px;line-height:1.2}
+.d-head .sub{font:12px/1.35 var(--mono);color:var(--t3)}
+.d-actions{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+.pill{display:inline-flex;align-items:center;height:var(--h-sm);font:10.5px/1 var(--mono);font-weight:600;
+  padding:0 10px;border-radius:var(--rpill);border:1px solid}
+.pill.UP{color:var(--ok);border-color:rgba(85,165,131,.4);background:rgba(85,165,131,.08)}
+.pill.PORT-ONLY{color:var(--orange);border-color:rgba(219,112,75,.4);background:rgba(219,112,75,.08)}
+.pill.DOWN{color:var(--t3);border-color:var(--border);background:var(--wash)}
+.pill.DISABLED{color:var(--t4);border-color:var(--border);background:transparent;border-style:dashed}
+.pill.PROBING,.pill.STARTING{color:var(--accent);border-color:var(--active2);background:var(--active)}
+.d-err{color:var(--bad);font:11.5px/1.5 var(--mono);background:rgba(231,94,120,.06);
+  border:1px solid rgba(231,94,120,.25);border-radius:var(--r3);padding:9px 12px;margin:14px 0 0;word-break:break-word}
+.seed-note{font-size:11.5px/1.5 var(--sans);color:var(--t3);background:var(--wash);border:1px solid var(--border-soft);
+  border-radius:var(--r3);padding:8px 12px;margin:14px 0 0}
+.seed-note b{color:var(--t2)}
+
+/* ===== Onglets ===========================================================
+   Bandeau plein, filet continu, soulignement 2 px qui RECOUVRE le filet :
+   l'onglet actif est une marque, pas une pastille. */
+.tabs{display:flex;gap:2px;margin:22px 0 0;border-bottom:1px solid var(--border)}
+.tab{height:30px;padding:0 13px;border:1px solid transparent;border-bottom:2px solid transparent;
+  background:none;border-radius:var(--r2) var(--r2) 0 0;color:var(--t3);font:12px/1 var(--sans);
+  margin-bottom:-1px;transition:color .12s,background .12s,border-color .12s}
+.tab:hover{color:var(--t1);background:var(--wash);border-bottom-color:transparent}
+.tab.sel{color:var(--t1);font-weight:600;background:transparent;border-bottom:2px solid var(--accent)}
+.tab.sel:hover{background:var(--hover)}
+.conf-note{font:11.5px/1.5 var(--sans);color:var(--t4);margin:14px 0 12px}
+.conf-note b{color:var(--t3)}
+.conf-block{background:var(--sidebar);border:1px solid var(--border-soft);border-radius:var(--r3);
+  margin-bottom:10px;overflow:hidden}
+.conf-head{display:flex;align-items:center;gap:8px;padding:0 12px;height:32px;font:11px/1 var(--sans);
+  color:var(--t3);border-bottom:1px solid var(--border-soft);background:var(--wash)}
+.conf-head button{margin-left:auto;height:var(--h-sm);padding:0 10px;font-size:11px}
+.conf-block pre{margin:0;padding:12px 14px;font:11.5px/1.6 var(--mono);color:var(--t2);overflow-x:auto;white-space:pre}
+/* Barre latérale ajustable */
+#grip{width:5px;flex-shrink:0;cursor:col-resize;background:transparent;transition:background .12s}
+#grip:hover,#grip.drag{background:var(--active2)}
+h4.sec{font:10px/1 var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--t4);
+  margin:26px 0 11px;display:flex;align-items:center;gap:10px}
+h4.sec::after{content:'';flex:1;height:1px;background:var(--border-soft)}
+/* Replis du détail (Informations / Démarrage) — même style que h4.sec */
+details.fold{margin:26px 0 0}
+details.fold summary{list-style:none;cursor:pointer;user-select:none;
+  font:10px/1 var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--t4);
+  display:flex;align-items:center;gap:10px;transition:color .12s}
+details.fold summary::-webkit-details-marker{display:none}
+details.fold summary::before{content:'\25B8';font-size:9px;flex-shrink:0;transition:color .12s}
+details.fold[open] summary::before{content:'\25BE'}
+details.fold summary::after{content:'';flex:1;height:1px;background:var(--border-soft)}
+details.fold summary:hover{color:var(--accent)}
+details.fold .kv{margin-top:12px}
+.kv{display:grid;grid-template-columns:168px 1fr;gap:7px 16px;font-size:12.5px;align-items:baseline}
+.kv .k{color:var(--t4);font-size:12px}
+.kv .v{font:12px/1.45 var(--mono);color:var(--t2);word-break:break-all}
+/* Valeur copiable d'un clic (pid, commande, url…) — l'affordance est au
+   survol, le menu contextuel reste disponible. */
+.kv .v.cpy{cursor:pointer}
+.kv .v.cpy:hover{color:var(--accent)}
+
+/* ===== Outils ============================================================
+   Lignes nettes : nom en mono accent, description en gris, bascule à droite. */
+.tool{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border-soft);
+  border-radius:var(--r3);padding:8px 12px;margin-bottom:6px;transition:border-color .1s,background .1s}
+.tool:hover{border-color:var(--border);background:var(--elevated)}
+.tool.off{opacity:.55}
+.tool code{color:var(--accent);font:12px/1.35 var(--mono);flex-shrink:0}
+.tool .desc{flex:1;font-size:12px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Rendu markdown inline des descriptions : le gras ressort légèrement, le
+   code s'affiche comme du code — au lieu d'astérisques bruts. */
+.tool .desc b{color:var(--t2);font-weight:600}
+.tool .desc code{font:11px/1.3 var(--mono);color:var(--t2);background:var(--wash);
+  border:1px solid var(--border-soft);border-radius:3px;padding:0 4px}
+.tgl{display:inline-flex;align-items:center;justify-content:center;height:var(--h-sm);min-width:52px;
+  font:10.5px/1 var(--mono);font-weight:600;border-radius:var(--rpill);padding:0 12px;
+  border:1px solid var(--border-soft);background:transparent;color:var(--t3)}
+.tgl.on{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08)}
+.tgl.on:hover{border-color:var(--bad);color:var(--bad);background:rgba(231,94,120,.06)}
+.tgl.off{color:var(--t4);border-color:var(--border);text-decoration:line-through}
+.tgl.off:hover{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08);text-decoration:none}
+
+/* Vue d'ensemble */
+.welcome{max-width:560px;margin:64px auto 0;text-align:center}
+.welcome .big{font-size:15px;color:var(--t2);margin-bottom:6px}
+.welcome .hint{font-size:12.5px;color:var(--t4);margin-bottom:22px}
+.welcome .qa{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:6px}
+.tile{background:var(--card);border:1px solid var(--border-soft);border-radius:var(--r4);padding:13px 14px}
+.tile .n{font:22px/1.1 var(--mono);font-weight:600;color:var(--t1);font-variant-numeric:tabular-nums}
+.tile .n.ok{color:var(--ok)}
+.tile .lbl{font-size:11px;color:var(--t4);margin-top:3px}
+/* Tuiles cliquables (filtre UP, tri par tools, machines) : une tuile est un
+   bouton sans l'apparence bouton par défaut. */
+button.tile{height:auto;text-align:left;font:inherit;color:inherit;cursor:pointer}
+button.tile:hover{border-color:var(--border-strong)}
+.tile.sel{border-color:var(--active2);background:var(--active)}
+
+/* --- Journal (bas, style console IDE) --- */
+#logpanel{flex-shrink:0;height:170px;background:var(--sidebar);border-top:1px solid var(--border);
+  display:flex;flex-direction:column}
+#logpanel.min{height:32px}
+#loghead{height:32px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 14px;cursor:pointer;
+  user-select:none;border-bottom:1px solid var(--border-soft)}
+#logpanel.min #loghead{border-bottom:none}
+#loghead .lbl{font:10px/1 var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--t4)}
+#loghead .arrow{color:var(--t4);font-size:10px;transition:transform .15s}
+#logpanel.min #loghead .arrow{transform:rotate(-90deg)}
+#logbody{flex:1;overflow-y:auto;padding:4px 14px 10px;font:11px/1.6 var(--mono)}
+#logpanel.min #logbody{display:none}
+.logline{padding:1px 0;color:var(--t3);white-space:pre-wrap}
+.logline .t{color:var(--t4);font-variant-numeric:tabular-nums}
+.logline.warn{color:var(--warn)}
+.logline.error{color:var(--bad)}
+
+/* --- Boutique MCP (directory à cartes + import) --- */
+.tag{display:inline-flex;align-items:center;height:var(--h-xs);font:10px/1 var(--mono);padding:0 7px;
+  border-radius:var(--r1);border:1px solid var(--border);color:var(--t3);white-space:nowrap}
+.tag.npm{color:#bc8cff;border-color:#bc8cff44}
+.tag.py{color:#39c5cf;border-color:#39c5cf44}
+/* Transports : MONOCHROME, trois niveaux de gris distincts (aucune teinte de
+   langage). http = le plus clair, stdio = médian, ws = le plus sourd. */
+.tag.stdio{color:#b9bdc7;border-color:rgba(185,189,199,.42);background:rgba(185,189,199,.06)}
+.tag.http{color:#e8e8ec;border-color:rgba(232,232,236,.45);background:rgba(232,232,236,.07)}
+.tag.sse{color:var(--ok);border-color:rgba(85,165,131,.45)}
+.tag.ws{color:#8b909b;border-color:rgba(139,144,155,.42);background:rgba(139,144,155,.06)}
+.tag.https{color:#e8e8ec;border-color:rgba(232,232,236,.45);background:rgba(232,232,236,.07)}
+/* LiteMCP (fingerprint) : le SEUL badge à halo — orange, la couleur de Rust.
+   Halo STATIQUE : un pulse permanent sur une liste attire l'œil sans fin ;
+   l'effet reste lisible sans animation. */
+.tag.litemcp{color:#fdba74;border-color:#f9731699;background:#f973161f;box-shadow:0 0 8px rgba(249,115,22,.4)}
+/* FastMCP (mcp-proxy httpStream) : repli neutre — le JS inline impose la couleur du langage */
+.tag.fastmcp{color:#8fd3dE;border-color:#6f9ba688;background:#6f9ba61f;box-shadow:0 0 8px rgba(111,155,166,.45)}
+/* autres frameworks MCP détectés par nom (rmcp, mcp-go, Spring AI, xmcp…) */
+.tag.fw{color:#a5b4fc;border-color:#a5b4fc55;background:#a5b4fc11}
+/* Icônes SVG (jeu unique, trait 1.5, couleur courante — aucun emoji) :
+   rendu identique quelle que soit la version d'Windows, alignement
+   typographique propre, cohérence avec l'interface monochrome. */
+.ic{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5;
+  stroke-linecap:round;stroke-linejoin:round;display:inline-block;vertical-align:-2px;flex-shrink:0}
+.rowbtn .ic{width:10px;height:10px}
+.ctxitem .ic{width:13px;height:13px}
+.tb-badge .ic{width:12px;height:12px}
+.scard .ic,.set-nav-btn .ic{width:13px;height:13px}
+.netbanner .ic,.d-err .ic{width:13px;height:13px}
+.srow .l2 .tag{font-size:8.5px;padding:0 5px;height:14px}
+.langchip{display:inline-flex;align-items:center;height:15px;font:8.5px/1 var(--mono);font-weight:700;
+  border:1px solid;border-radius:var(--r1);padding:0 4px;flex-shrink:0}
+.langchip.unk{color:var(--t4);border-color:var(--border-soft);background:transparent;font-weight:400}
+/* Logo Rust (langage inféré) : « R » cerclé d'un engrenage, comme l'icône .rs des éditeurs */
+.rustwrap{display:inline-flex;align-items:center;flex-shrink:0;margin:0 1px}
+.rustlogo{width:18px;height:18px}
+/* Logos langages (SVG officiels embarqués : JS, Python, Go, Java, .NET, Ruby, PHP) */
+.langlogo{width:18px;height:18px;display:block}
+/* Dans l'explorateur, tous les logos de langage (Rust comme les autres)
+   descendent à 14 px pour ne pas gonfler la hauteur des lignes. */
+.srow .langlogo{width:14px;height:14px}
+#storeDlg{width:min(1180px,96vw)}
+/* Tête de boutique COLLANTE : recherche, tri et catégories restent visibles
+   pendant le défilement de la grille (le dialog est le conteneur défilant). */
+.store-head{position:sticky;top:0;z-index:3;background:var(--card);
+  margin:-14px -16px 0;padding:12px 16px 10px;border-bottom:1px solid var(--border-soft)}
+.store-bar{display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.store-bar input{flex:1;min-width:180px}
+.store-bar select{width:auto;flex:0 0 auto;height:26px;font-size:11px}
+/* Bascule « Masquer les installés » : une pilule cohérente avec les
+   catégories (état .sel), pas une case à cocher minuscule. */
+#storeHideInst{flex:0 0 auto}
+#storeHideInst.sel{background:var(--active2);border-color:var(--accent);color:var(--accent)}
+.store-results{font:10.5px/1 var(--mono);color:var(--t4);margin-bottom:8px}
+.store-count{color:var(--t3);font-weight:400;font-size:12.5px;margin-left:2px}
+/* Machines distantes (dialog SSH) */
+.machine-form{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.machine-form input{flex:1;min-width:170px}
+.machine-msg{font:11px/1.5 var(--mono);color:var(--t2);min-height:16px;margin-bottom:8px}
+.machine-row{background:var(--sidebar);border:1px solid var(--border-soft);border-radius:var(--r3);padding:9px 11px;margin-bottom:8px}
+.machine-row .l1{display:flex;align-items:center;gap:8px}
+.machine-row .nm{font:12.5px/1.35 var(--mono);color:var(--t1)}
+.machine-row .l2{font:10.5px/1.4 var(--mono);color:var(--t3);margin:3px 0 7px}
+.machine-row .macts{display:flex;gap:6px;flex-wrap:wrap}
+.store-cats{display:flex;gap:6px;flex-wrap:wrap}
+.scat{height:var(--h-sm);padding:0 12px;border-radius:var(--rpill);font-size:11px}
+.scat.sel{background:var(--active2);border-color:var(--accent);color:var(--accent)}
+.store-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(184px,1fr));gap:7px}
+.scard{background:var(--sidebar);border:1px solid var(--border-soft);border-radius:var(--r3);padding:9px 10px;
+  display:flex;flex-direction:column;gap:4px;transition:border-color .1s}
+.scard:hover{border-color:var(--border)}
+.scard-top{display:flex;align-items:center;gap:6px}
+.scard-top b{flex:1;font-size:12px}
+.slogo{width:18px;height:18px;flex-shrink:0}
+.scard-desc{font-size:10.5px/1.45 var(--sans);color:var(--t3);flex:1;display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden}
+.scard button{align-self:flex-start;height:var(--h-sm);padding:0 9px;font-size:11px}
+/* Déjà installé : plus de bouton Installer — état vert non cliquable. */
+.scard button.btn-inst{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08);cursor:default}
+.scard button.btn-inst:disabled{opacity:1}
+
+/* --- Dialogues (modal) --- */
+dialog{background:var(--card);color:var(--t1);border:1px solid var(--border);border-radius:var(--r5);padding:0;
+  width:min(680px,92vw);max-height:85vh;box-shadow:var(--sh-dlg);
+  /* le reset global `*{margin:0}` supprime le `margin:auto` du navigateur :
+     sans cette ligne les modales s'ouvrent collées en haut à gauche */
+  margin:auto;max-width:92vw}
+dialog::backdrop{background:rgba(0,0,0,.62);backdrop-filter:blur(2px)}
+.dlg-head{display:flex;align-items:center;gap:10px;padding:0 20px;height:52px;
+  border-bottom:1px solid var(--border-soft)}
+.dlg-head h2{font-size:15px;font-weight:600;flex:1;letter-spacing:.1px}
+.dlg-head .close{background:none;border:none;height:var(--h-ctl);width:var(--h-ctl);padding:0;
+  font-size:16px;color:var(--t4);cursor:pointer;border-radius:var(--r2)}
+.dlg-head .close:hover{color:var(--t1);background:var(--wash);border:none}
+/* ===== Dialog « Réglages » : mise en page réglages système =====
+   Navigation par sections à gauche (volets), lignes libellé/description à
+   gauche et contrôle à droite, segmented control pour le thème, switch pour
+   les booleans. L'état « non enregistré » est affiché dans le pied. */
+.settings-dlg{width:min(820px,95vw)}
+.dlg-title{display:flex;align-items:center;gap:11px;flex:1;min-width:0}
+.dlg-title .mark{width:19px;height:19px;color:var(--t3);flex-shrink:0}
+.dlg-title h2{margin:0;font-size:14.5px;font-weight:600;letter-spacing:.1px}
+.dlg-title p{margin:2px 0 0;font:11.5px/1.3 var(--sans);color:var(--t4)}
+/* Volets : nav étroite + panneau courant, hauteur bornée avec défilement. */
+.set-shell{display:flex;min-height:0}
+.set-nav{width:162px;flex-shrink:0;padding:12px 8px;border-right:1px solid var(--border-soft);
+  background:var(--sidebar);display:flex;flex-direction:column;gap:2px}
+.set-nav-btn{display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;justify-content:flex-start;
+  border:none;background:none;color:var(--t3);font:12px/1 var(--sans);text-align:left;border-radius:var(--r2);
+  white-space:nowrap;transition:background .1s,color .1s}
+.set-nav-btn:hover{background:var(--wash);color:var(--t1)}
+.set-nav-btn.sel{background:var(--active);color:var(--accent);font-weight:600}
+.set-nav-btn.danger:hover{color:var(--bad);background:rgba(231,94,120,.08)}
+.set-nav-btn.danger.sel{background:rgba(231,94,120,.12);color:var(--bad)}
+.set-nav-sep{height:1px;background:var(--border-soft);margin:8px 6px;flex-shrink:0}
+.set-panes{flex:1;min-width:0;max-height:min(62vh,560px);overflow-y:auto}
+.set-pane{display:none}
+.set-pane.sel{display:block}
+/* Ligne de réglage */
+.set-list{background:var(--card);border:1px solid var(--border-soft);border-radius:var(--r4);overflow:hidden}
+.set-row{display:flex;align-items:center;gap:18px;padding:12px 15px;min-height:52px}
+.set-row+.set-row{border-top:1px solid var(--border-soft)}
+/* Variante empilée : libellé au-dessus, contrôle pleine largeur dessous
+   (webhook, en-têtes — un contrôle large ne doit jamais écraser le libellé). */
+.set-row.col{flex-direction:column;align-items:stretch;gap:9px}
+.set-row.col .set-ctrl{max-width:none}
+.set-label{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.set-label span{font:12.5px/1.3 var(--sans);color:var(--t1)}
+.set-label em{font:11.5px/1.45 var(--sans);color:var(--t4);font-style:normal;max-width:46ch}
+.set-ctrl{display:flex;align-items:center;gap:8px;flex-shrink:0;justify-content:flex-end;max-width:52%}
+.set-ctrl-wide{justify-content:flex-start;width:100%;max-width:none}
+.set-ctrl-wide input,.set-ctrl-wide textarea{width:100%}
+.set-num{width:86px !important;height:30px !important;text-align:right}
+.set-txt{width:150px !important;height:30px !important}
+.set-unit,.set-dash{font:11.5px var(--mono);color:var(--t4);flex-shrink:0}
+.set-static{font:12px var(--mono);color:var(--t2);min-width:64px;text-align:right}
+.set-note{font:11.5px var(--sans);color:var(--t2)}
+.set-msgline{padding:0 20px}
+/* Erreur de champ (validation par ligne, sous la description) */
+.set-err{font:11px/1.4 var(--sans);color:var(--bad)}
+.set-err[hidden]{display:none}
+/* Pied : indicateur de modifications non enregistrées */
+.set-dirty{font:11.5px/1.3 var(--sans);color:var(--warn);white-space:nowrap}
+/* Cases à cocher simples (états notifiés) */
+.set-inline{flex-wrap:wrap}
+.set-chk{display:inline-flex;align-items:center;gap:6px;font:12px var(--sans);color:var(--t2);cursor:pointer}
+.set-chk input{width:14px;height:14px;accent-color:var(--accent);cursor:pointer}
+/* Zone d'en-têtes webhook (même style que les inputs) */
+textarea{width:100%;min-height:56px;background:var(--chrome);border:1px solid var(--border);border-radius:var(--r2);
+  padding:8px 10px;color:var(--t1);font:12px/1.5 var(--mono);resize:vertical;
+  transition:border-color .12s,box-shadow .12s}
+textarea:hover{border-color:var(--border-strong)}
+textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--active)}
+/* Segmented control (thème) */
+.seg{background:var(--chrome);border:1px solid var(--border);border-radius:var(--r2);padding:2px;gap:2px}
+.seg-btn{border:none !important;background:transparent !important;height:24px;padding:0 13px;
+  font-size:11.5px !important;color:var(--t3) !important;border-radius:var(--r1) !important}
+.seg-btn:hover{color:var(--t1) !important;background:var(--hover) !important}
+.seg-btn.sel{background:var(--card) !important;color:var(--accent) !important;font-weight:600;
+  box-shadow:0 1px 2px rgba(0,0,0,.18)}
+/* Switch (booleens) */
+.switch{position:relative;display:inline-flex;align-items:center;cursor:pointer}
+.switch input{position:absolute;opacity:0;width:0;height:0}
+.switch-track{width:34px;height:20px;border-radius:var(--rpill);background:var(--chrome);
+  border:1px solid var(--border);position:relative;transition:background .14s,border-color .14s}
+.switch-track::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+  background:var(--t3);transition:transform .14s,background .14s}
+.switch input:checked+.switch-track{background:var(--accent);border-color:var(--accent)}
+.switch input:checked+.switch-track::after{transform:translateX(14px);background:#fff}
+.switch input:focus-visible+.switch-track{box-shadow:0 0 0 3px var(--active)}
+.dlg-foot{display:flex;align-items:center;gap:12px;padding:13px 20px;border-top:1px solid var(--border-soft);
+  background:var(--sidebar)}
+.dlg-foot .row{margin-left:auto}
+.dlg-foot-note{font:11.5px var(--sans);color:var(--t4)}
+/* Volets clairs : la nav garde son fond, la carte suit le thème */
+:root[data-theme="light"] .set-nav{background:var(--sidebar)}
+:root[data-theme="light"] .set-pane .set-list{background:var(--card)}
+
+.dlg-body{padding:18px 20px 20px}
+form{display:grid;gap:12px}
+form label{font-size:11px;color:var(--t4);display:block;margin-bottom:5px;letter-spacing:.02em}
+input,select{width:100%;height:32px;background:var(--chrome);border:1px solid var(--border);border-radius:var(--r2);
+  padding:0 10px;color:var(--t1);font:12.5px var(--mono);transition:border-color .12s,box-shadow .12s}
+input:hover,select:hover{border-color:var(--border-strong)}
+input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--active)}
+.row{display:flex;gap:10px}
+.row>div{flex:1}
+
+
+/* ===== Utilitaires de mise en page =======================================
+   Ces classes remplacent les anciens style="" dispersés dans le HTML :
+   la mise en page vit dans la feuille de style, pas dans les balises. */
+.tb-push{margin-left:auto}
+/* Utilitaires référencés par le HTML/JS (refonte : les style="" dispersés
+   sont devenus des classes — les règles ci-dessous les réalisent). */
+.stack{display:grid;gap:6px}
+.row.row-gap{gap:8px}
+.row.row-end{justify-content:flex-end}
+.row.row-between{justify-content:space-between}
+.note-gap,.hint-gap{margin-top:14px}
+.dlg-body-tight{padding:14px 16px 16px}
+.empty-note{font:11px/1.4 var(--sans);color:var(--t4);padding:10px 0;font-style:italic}
+.empty-indent{padding-left:23px}
+.dot.dot-lg{width:10px;height:10px}

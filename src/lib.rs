@@ -28,9 +28,12 @@ const MAX_BODY: usize = 2 * 1024 * 1024;
 const MAX_CONNS: usize = 64;
 /// CSP de la page UI (servie en en-tête HTTP par CE serveur — le webview Tauri
 /// charge une URL externe, la config `csp` de tauri.conf.json ne s'y applique
-/// pas). Scripts/styles inline autorisés (page mono-fichier) ; tout le reste
-/// verrouillé : une XSS future ne peut ni charger de code externe ni exfiltrer.
-const UI_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+/// pas). Depuis le split en assets servis (v0.7.19), scripts et styles sont
+/// des fichiers même origine ('self') ; 'unsafe-inline' reste nécessaire pour
+/// les attributs on* des gabarits (la délégation d'événements est le chantier
+/// suivant) et pour les styles inline générés par le JS. Une XSS future ne
+/// peut toujours ni charger du code externe ni exfiltrer (connect-src 'self').
+const UI_CSP: &str = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 /// Version de spec annoncée par litemcp — premier signal du fingerprint :
 /// litemcp répond initialize avec 2026-07-28 même quand le client demande
@@ -814,11 +817,17 @@ pub fn handle_conn(mut stream: TcpStream, state: Arc<AppState>) {
     if ctype == "application/json" || ctype == "text/event-stream" {
         resp.push_str("Cache-Control: no-store\r\n");
     }
-    // CSP sur la page UI : la page est mono-fichier inline, mais une XSS future
-    // ne doit ni charger du code externe ni exfiltrer (connect-src 'self').
-    // ipc: / http://ipc.localhost = transport IPC du shell Tauri (desktop).
+    // Coquille HTML : no-cache — chaque navigation doit repartir du lien
+    // ?v=VERSION à jour vers les assets.
     if ctype.starts_with("text/html") {
         resp.push_str(&format!("Content-Security-Policy: {}\r\n", UI_CSP));
+        resp.push_str("Cache-Control: no-cache\r\n");
+    }
+    // Assets UI : no-cache aussi — les fichiers sont locaux (refetch négligeable
+    // sur loopback) et un cache même versionné créerait des pages périmées en
+    // dev (même version, binaire différent). Le 304/ETag reste le chantier perf.
+    if ctype.starts_with("text/css") || ctype.starts_with("text/javascript") {
+        resp.push_str("Cache-Control: no-cache\r\n");
     }
     if let Some((_, o)) = headers.iter().find(|(n, _)| n == "origin") {
         if allowed_origins.iter().any(|a| a == o) {
@@ -829,6 +838,13 @@ pub fn handle_conn(mut stream: TcpStream, state: Arc<AppState>) {
     let _ = stream.write_all(resp.as_bytes());
     let _ = stream.write_all(&payload);
     let _ = stream.flush();
+}
+
+/// Versionne un asset UI : le placeholder de version devient la version réelle
+/// (utilisé par app.js pour afficher sa version et par les query ?v=).
+fn ui_asset(s: &str) -> Vec<u8> {
+    s.replace("__MCC_VERSION__", env!("CARGO_PKG_VERSION"))
+        .into_bytes()
 }
 
 pub fn route(
@@ -845,6 +861,22 @@ pub fn route(
         // et le présente sur chaque appel /api/* (bind loopback : jamais demandé).
         let html = ui::INDEX_HTML.replace("__MCC_VERSION__", env!("CARGO_PKG_VERSION"));
         return (200, "text/html; charset=utf-8", html.into_bytes());
+    }
+    // Assets de l'UI (split v0.7.19) : servis PRÉ-authentification comme la
+    // coquille — ils ne contiennent aucun secret (le code d'accès ne quitte
+    // jamais le serveur) et la page de login en a besoin pour s'afficher.
+    if method == "GET" && bare_path == "/app.css" {
+        return (200, "text/css; charset=utf-8", ui_asset(ui::APP_CSS));
+    }
+    if method == "GET" && bare_path == "/app-boot.js" {
+        return (
+            200,
+            "text/javascript; charset=utf-8",
+            ui_asset(ui::APP_BOOT_JS),
+        );
+    }
+    if method == "GET" && bare_path == "/app.js" {
+        return (200, "text/javascript; charset=utf-8", ui_asset(ui::APP_JS));
     }
     if method == "GET" && bare_path == "/api/hello" {
         // amorce de la preuve de pair : identité + nonce à usage unique, aucun secret
@@ -1353,6 +1385,41 @@ mod tests {
             html.contains("loginDlg"),
             "la page doit proposer le déverrouillage (loginDlg)"
         );
+    }
+
+    #[test]
+    fn les_assets_ui_sont_servis_avec_type_et_version() {
+        let state = test_state_with_access(None);
+        let version = env!("CARGO_PKG_VERSION");
+        for (path, ctype_attendu, contenu) in [
+            ("/app.css", "text/css", "--accent"),
+            ("/app-boot.js", "text/javascript", "dataset.theme"),
+            ("/app.js", "text/javascript", "const MCC_VERSION"),
+        ] {
+            let (status, ctype, body) = route(&state, "GET", path, b"");
+            assert_eq!(status, 200, "{path} doit être servi");
+            assert_eq!(ctype, format!("{ctype_attendu}; charset=utf-8"), "{path}");
+            let text = String::from_utf8_lossy(&body).to_string();
+            assert!(text.contains(contenu), "{path} : contenu attendu absent");
+            assert!(
+                !text.contains("__MCC_VERSION__"),
+                "{path} : placeholder de version NON substitué"
+            );
+        }
+        // la coquille pointe vers les assets VERSIONNÉS (substitution faite)
+        let (_, _, shell) = route(&state, "GET", "/", b"");
+        let html = String::from_utf8_lossy(&shell).to_string();
+        assert!(
+            html.contains(&format!("/app.css?v={version}")),
+            "lien css non versionné"
+        );
+        assert!(
+            html.contains(&format!("/app.js?v={version}")),
+            "lien js non versionné"
+        );
+        // asset inconnu → pas de 200 travesti (le 404 du routeur prend le relais)
+        let (status, _, _) = route(&state, "GET", "/app.inexistant", b"");
+        assert_ne!(status, 200);
     }
 
     #[test]

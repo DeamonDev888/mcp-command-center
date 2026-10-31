@@ -1,3 +1,13 @@
+## [0.7.19] — UI en assets servis : fin du monolithe, CSP serrée
+
+### Split de `ui.rs` : `/app.css` + `/app.js` + `/app-boot.js`
+- **3 073 lignes** de HTML/CSS/JS inline dans une raw string Rust deviennent une **coquille HTML de ~240 lignes** + trois vrais fichiers (`src/ui/app.css` 652 lignes, `src/ui/app.js` 1 807, `src/ui/app-boot.js` 2) : diffs d'UI lisibles, plus la contrainte du guillemet-double-suivi-de-dièse interdit dans la raw string, édition directe des fichiers.
+- **Service** : GET `/app.css`, `/app-boot.js`, `/app.js` (types `text/css` et `text/javascript`, charset explicite), pré-authentification comme la coquille — ils ne contiennent aucun secret (le code d'accès ne quitte jamais le serveur) et la page de login en a besoin.
+- **CSP** : `script-src self unsafe-inline` et `style-src self unsafe-inline` — les fichiers externes sont même origine ; `unsafe-inline` reste requis par les attributs `on*` des gabarits (la délégation d'événements est le chantier suivant) et les styles inline générés.
+- **Cache** : coquille `no-cache` (chaque navigation repart du lien ?v=VERSION à jour) ; le 304/ETag reste le chantier perf dédié.
+- `app-boot.js` (thème anti-flash) reste chargé **bloquant dans <head>** — 2 lignes, zéro flash de thème ; le script principal passe en `defer`.
+- **Contrats de tests étendus** : tout-handler-câblé, actions-connues-du-moteur et valeurs reset scannent désormais coquille + `app.js` ; nouveaux tests — la coquille référence les trois assets versionnés, `route()` sert chaque asset avec le bon type, la version substituée et **jamais le placeholder résiduel**.
+
 ## [0.7.18] — Favoris ⭐ épinglés, vrais logos de langages, mise à jour directe et explorateur refondu
 
 ### Favoris (⭐) : épingle tes serveurs en haut de la liste

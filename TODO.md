@@ -45,7 +45,7 @@ Vérification UI réelle faite (moteur de test + navigateur) : volets, badge « 
 
 ### Reste à faire (priorisé, repris des sections ci-dessous)
 1. **Split `manage.rs`** (3.1) : 7 300 lignes, `handle_action` ~1 000 — le découpage en modules + helpers `with_server_mut`/`commit` reste LE chantier de refactorisation (moves purs, API stable).
-2. **Split `ui.rs` en assets servis** (3.2) : `/app.css` + `/app.js` → CSP `script-src 'self'` (ferme le P3 `unsafe-inline`).
+2. ~~**Split `ui.rs` en assets servis** (3.2)~~ — **SPLIT LIVRÉ** (v0.7.19) : `/app.css` + `/app-boot.js` + `/app.js` servis, CSP `script-src 'self' 'unsafe-inline'`. **Reste** : fermer totalement `unsafe-inline` = réécrire les attributs `on*` des gabarits en délégation d'événements (data-act + un listener) — chantier UI dédié.
 3. **Schéma unique des réglages** (3.3) : `SETTINGS_SCHEMA` consommée JS+Rust — la validation par champ livrée en A1 est JS-only, le Rust garde ses clamps ; unifier pour supprimer la duplication ui.rs ↔ manage.rs.
 4. **Optimisations mesurées** (2.1-2.6) : borner `ssh_exec`, pool de workers `poll_all`, plafond `probe_http`, 304/compteur `rev`, slowloris — inchangées, toujours valides.
 5. ~~**Sécurité** (4)~~ — **LIVRÉ** (v0.7.18) : `Host` validé (403 si hors allowlist, testé), nonce flood → éviction (`HELLO_NONCE_MAX` + TTL), **CSPRNG `random_hex`** (BCryptGenRandom / /dev/urandom — RandomState était corrélable entre appels successifs), `${esc(i.kind)}` (ui.rs), CI épinglée par SHA.
