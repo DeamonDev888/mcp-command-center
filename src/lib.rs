@@ -60,17 +60,57 @@ pub fn effective_require_access(bind_is_loopback: bool, peer_is_loopback: bool) 
     !bind_is_loopback && !peer_is_loopback
 }
 
-/// Hex aléatoire de `words` × 64 bits — pas de dépendance crypto : RandomState
-/// est semé aléatoirement par process (OS entropy). Suffisant pour un secret LAN
-/// et pour les nonces à usage unique.
+/// Hex aléatoire de `words` × 64 bits — CSPRNG de l'OS : les nonces de preuve
+/// de pair et les codes d'accès exigent une imprévisibilité cryptographique.
+/// RandomState (SipHash semé au boot, puis compteur thread-local) ne la
+/// fournit PAS — deux appels successifs y sont corrélables. Zéro dépendance :
+/// BCryptGenRandom sur Windows, /dev/urandom sur Unix. Repli (hors pratique,
+/// les deux sources OS sont toujours disponibles) : hash semé aléatoirement
+/// mélangé à l'horloge et à un compteur atomique — strictement mieux que
+/// RandomState seul, et le résultat reste improvisible entre processus.
 fn random_hex(words: usize) -> String {
-    use std::hash::{BuildHasher, Hasher};
     let mut out = String::with_capacity(words * 16);
+    let mut buf = [0u8; 8];
     for _ in 0..words {
-        let h = std::collections::hash_map::RandomState::new().build_hasher();
-        out.push_str(&format!("{:016x}", h.finish()));
+        if !os_random(&mut buf) {
+            use std::hash::{BuildHasher, Hasher};
+            static FALLBACK_COUNTER: std::sync::atomic::AtomicU64 =
+                std::sync::atomic::AtomicU64::new(0);
+            let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+            h.write_u64(crate::types::now_ts());
+            h.write_u64(FALLBACK_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+            buf = h.finish().to_le_bytes();
+        }
+        out.push_str(&format!("{:016x}", u64::from_le_bytes(buf)));
     }
     out
+}
+
+/// Remplit `buf` avec des octets cryptographiquement aléatoires de l'OS.
+/// `true` = rempli ; `false` = source indisponible (l'appelant a son repli).
+fn os_random(buf: &mut [u8]) -> bool {
+    #[cfg(windows)]
+    {
+        #[link(name = "bcrypt")]
+        extern "system" {
+            fn BCryptGenRandom(
+                hAlgorithm: usize,
+                pBuffer: *mut u8,
+                cbBuffer: u32,
+                dwFlags: u32,
+            ) -> i32;
+        }
+        // BCRYPT_USE_SYSTEM_PREFERRED_RNG : le RNG préféré du système.
+        // NTSTATUS 0 = succès.
+        unsafe { BCryptGenRandom(0, buf.as_mut_ptr(), buf.len() as u32, 0x0000_0002) == 0 }
+    }
+    #[cfg(not(windows))]
+    {
+        use std::io::Read;
+        std::fs::File::open("/dev/urandom")
+            .and_then(|mut f| f.read_exact(buf))
+            .is_ok()
+    }
 }
 
 /// Code d'accès aléatoire 128 bits (hex).
@@ -1158,6 +1198,32 @@ mod tests {
         assert_eq!(a.len(), 32);
         assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
         assert_ne!(a, b, "deux tirages RandomState ne doivent pas coller");
+    }
+
+    #[test]
+    fn random_hex_nonce_est_corrige_et_non_correle() {
+        // CSPRNG obligatoire : les mots successifs d'un nonce (et d'un appel au
+        // suivant) ne doivent montrer AUCUNE corrélation — RandomState suivait
+        // un compteur thread-local, prévisible après observation.
+        let a = random_hex(4);
+        let b = random_hex(4);
+        assert_eq!(a.len(), 64);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_ne!(a, b);
+        // mots distincts à l'intérieur d'un même tirage (64 bits chacun)
+        let mots: Vec<&str> = a
+            .as_bytes()
+            .chunks(16)
+            .map(|c| std::str::from_utf8(c).unwrap())
+            .collect();
+        assert_eq!(mots.len(), 4);
+        assert!(
+            mots.iter().collect::<std::collections::HashSet<_>>().len() == 4,
+            "mots identiques dans un même nonce : entropie insuffisante"
+        );
+        // os_random répond (source OS toujours disponible en pratique)
+        let mut buf = [0u8; 8];
+        assert!(os_random(&mut buf), "source d'entropie OS indisponible");
     }
 
     #[test]

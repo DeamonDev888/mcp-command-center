@@ -48,7 +48,7 @@ Vérification UI réelle faite (moteur de test + navigateur) : volets, badge « 
 2. **Split `ui.rs` en assets servis** (3.2) : `/app.css` + `/app.js` → CSP `script-src 'self'` (ferme le P3 `unsafe-inline`).
 3. **Schéma unique des réglages** (3.3) : `SETTINGS_SCHEMA` consommée JS+Rust — la validation par champ livrée en A1 est JS-only, le Rust garde ses clamps ; unifier pour supprimer la duplication ui.rs ↔ manage.rs.
 4. **Optimisations mesurées** (2.1-2.6) : borner `ssh_exec`, pool de workers `poll_all`, plafond `probe_http`, 304/compteur `rev`, slowloris — inchangées, toujours valides.
-5. **Sécurité** (4) : `Host` requis (400), nonce flood → éviction, CSPRNG `random_hex`, `${esc(i.kind)}` (ui.rs), CI pinning.
+5. ~~**Sécurité** (4)~~ — **LIVRÉ** (v0.7.18) : `Host` validé (403 si hors allowlist, testé), nonce flood → éviction (`HELLO_NONCE_MAX` + TTL), **CSPRNG `random_hex`** (BCryptGenRandom / /dev/urandom — RandomState était corrélable entre appels successifs), `${esc(i.kind)}` (ui.rs), CI épinglée par SHA.
 
 ---
 

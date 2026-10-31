@@ -2779,7 +2779,7 @@ function renderStoreItems() {
     /* Pas de ligne de commande sur la carte : la description suffit, la
        commande est visible dans le détail une fois installé. */
     return `<div class="scard">
-      <div class="scard-top">${storeLogo(i)}<b>${esc(i.name)}</b><span class="tag ${i.kind==='npm'?'npm':'py'}">${i.kind}</span></div>
+      <div class="scard-top">${storeLogo(i)}<b>${esc(i.name)}</b><span class="tag ${i.kind==='npm'?'npm':'py'}">${esc(i.kind)}</span></div>
       <div class="scard-desc">${esc(i.desc)}</div>
       ${isInst
         ? `<button class="btn-inst" disabled title="Ce serveur est d&eacute;j&agrave; dans ta liste">${ic('check')} D&eacute;j&agrave; install&eacute;</button>`
