@@ -1,3 +1,10 @@
+## [Non publié] — manage.rs éclaté en 14 modules (refactorisation, zéro changement de comportement)
+
+### `manage.rs` : 7 543 → 84 lignes
+- **Le monolithe est éclaté** en modules thématiques purs (moves, API inchangée via réexports `pub(crate) use`) : `store` (boutique), `import` (parsing mcpServers), `config` (config.json), `json` (state/detail/runtime), `scans` (ports/netstat/réseau), `peers` + SSH, `update` (GitHub), `cache`, `autostart`, `litemcp`, `log`, `events` (notifications d'incident), `actions` (dispatcher +1 346 lignes), `tests` (2 426 lignes).
+- **160 tests verts à chaque étape**, 7 commits incrémentaux — chaque move vérifié indépendamment.
+- **Pourquoi** : les diffs d'UI et de moteur deviennent lisibles, les modules se lisent seuls, et le prochain raffinement (découper `actions.rs` par famille avec helpers `with_server_mut`/`commit`) se fera sans toucher au monolithe.
+
 ## [0.7.20] — Le wizard Windows épingle MCP Control à la barre des tâches
 
 ### Raccourci barre des tâches créé par l'installateur
