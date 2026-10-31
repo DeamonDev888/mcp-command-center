@@ -14,6 +14,11 @@
 - Zéro requête réseau (SVG inline au binaire), tooltips inchangés (« Langage inféré : … »), badge framework toujours coloré par langage.
 - Dans l'explorateur tous les logos descendent à **14 px** (hauteur de ligne préservée) ; 18 px dans l'en-tête de détail.
 
+### Boutique : 100 % des cartes ont leur logo
+- Inventaire complet : **21 items du catalogue** n'avaient aucune icône (Neon, Logfire, iOS Simulator, N-able, OrcaReplay, Trace, Alpaca Trading, LiveTennisAPI, Memex, Google Workspace, HumanPen, Local MCP, BrowserAct, HikerAPI, Lamatok, CodeGraph, World Monitor, Codebase Memory, Context Mode, Serena, Deepgraph Next.js).
+- **Marques officielles récupérées** quand Simple Icons les couvre (pomme Apple pour iOS Simulator, marque Next.js pour Deepgraph — CDN Simple Icons) ; pour les autres, **glyphes dessinés dans le style de la collection** (trait 2, couleur de marque) : éclair Neon vert, flamme Logfire, tuile « N » N-able, relecture OrcaReplay, chandeliers de trading, balle de tennis et ses coutures, grille aux quatre couleurs Google, montagnes HikerAPI, bulle Lamatok, graphe de nœuds CodeGraph, globe World Monitor, archive Codebase Memory, accolades Context Mode, étincelle Serena…
+- `LOGOS_JSON` passe de 64 à **85 entrées** — la boutique affiche désormais une identité visuelle distincte sur chacune de ses 63 cartes (le glyphe « paquet » ne sert plus que de filet de sécurité pour de futurs items).
+
 ### Boutique refondue : navigation, icônes et état « Déjà installé »
 - **En-tête collant** : recherche, tri et catégories restent visibles pendant le défilement de la grille ; **compteur de résultats** (« 63 serveurs » / « 12 affichés sur 63 »).
 - **Tri** « Ordre du catalogue » / **A→Z** ; bascule **« Masquer les installés »** (pilule cohérente avec les catégories, état actif marqué).

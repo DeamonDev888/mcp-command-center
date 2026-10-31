@@ -21,6 +21,7 @@ Revue UI complète (moteur réel + mesures DOM) → lot livré dans `ui.rs` + `m
 | B8 | **Boutique : navigation** — en-tête collant (recherche + tri + catégories visibles au défilement), tri Ordre catalogue / A→Z, compteur de résultats, bascule « Masquer les installés » | ✅ v0.7.18 |
 | B9 | **Boutique : cartes** — icône sur TOUTES les cartes (glyphe neutre en repli), état « ✓ Déjà installé » vert non cliquable selon `state.servers` (re-rendu après install), ligne de commande retirée | ✅ v0.7.18 |
 | B10 | **Raccourcis boutique** — `/` et Ctrl+K visent la recherche de la boutique quand son dialog est ouvert | ✅ v0.7.18 |
+| B11 | **Boutique : 100 % des cartes avec logo** — inventaire des 21 items sans icône, marques officielles récupérées (Apple, Next.js via Simple Icons), 20 glyphes dessinés dans le style de la collection ; `LOGOS_JSON` 64 → 85 entrées | ✅ v0.7.18 |
 
 Vérification navigateur sur moteur mocké (réponses réelles capturées, zéro contact avec l'instance en cours) : 157 tests verts (contrats UI étendus aux nouveaux handlers), vérification visuelle complète (boutique, logos, filtre, tri, bascule installés).
 
