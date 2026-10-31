@@ -148,16 +148,16 @@ async function load() {
 function render() {
   if (!state) return;
   const s = state.stats;
-  // Bandeau réseau : la passerelle LAN ne répond pas → les serveurs distants
-  // sont injoignables (VPN le plus souvent). On l'explique au lieu de laisser
-  // croire à une panne de détection.
-  const nb = document.getElementById('netBanner');
-  if (nb) {
+  // Alerte réseau : la passerelle LAN ne répond pas → les serveurs distants
+  // sont injoignables (VPN le plus souvent). Une pastille rouge dans la barre
+  // du Journal — visible même le journal replié — remplace l'ancien bandeau
+  // pleine largeur qui poussait toute l'interface ; tooltip + clic portent
+  // l'explication complète au lieu de l'imposer en permanence.
+  const nw = document.getElementById('netWarn');
+  if (nw) {
     const off = state.lan_ok === false;
-    nb.hidden = !off;
-    if (off) nb.innerHTML = '<b>' + ic('warn') + ' R&eacute;seau local injoignable</b>'
-      + '<span>les serveurs distants ne peuvent pas &ecirc;tre sond&eacute;s &mdash; VPN actif ? '
-      + '(Proton VPN : activer &laquo;&nbsp;autoriser les connexions LAN&nbsp;&raquo;)</span>';
+    nw.hidden = !off;
+    if (off && !nw.innerHTML) nw.innerHTML = ic('warn') + '<span>R&eacute;seau local injoignable</span>';
   }
   document.getElementById('stUp').textContent = s.up;
   document.getElementById('stTotal').textContent = s.total;
@@ -885,8 +885,9 @@ function ctxClose() {
   ctxId = null;
 }
 /* Toast sémantique : toast(msg) neutre, toast(msg,'ok') succès,
-   toast(msg,'err') erreur (affichée plus longtemps — un échec se lit). */
-function toast(msg, kind) {
+   toast(msg,'err') erreur (affichée plus longtemps — un échec se lit) ;
+   `ms` surcharge la durée quand le message est long à lire. */
+function toast(msg, kind, ms) {
   const t = document.getElementById('toast');
   if (!t) return;
   t.textContent = msg;
@@ -894,7 +895,14 @@ function toast(msg, kind) {
   if (kind) t.classList.add(kind);
   t.classList.add('on');
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => t.classList.remove('on'), kind === 'err' ? 3500 : 1600);
+  toast._t = setTimeout(() => t.classList.remove('on'), ms || (kind === 'err' ? 3500 : 1600));
+}
+/* Détail de l'alerte réseau (clic sur la pastille de la barre du Journal) :
+   le message complet n'encombre pas la barre, il s'affiche à la demande. */
+const NET_WARN_DETAIL = 'Réseau local injoignable : les serveurs distants ne peuvent pas être sondés'
+  + ' — VPN actif ? (Proton VPN : activer «\u00a0autoriser les connexions LAN\u00a0»)';
+function showNetDetail() {
+  toast(NET_WARN_DETAIL, 'err', 6000);
 }
 function copyText(txt) {
   const done = () => toast('copié', 'ok');

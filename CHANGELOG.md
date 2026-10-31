@@ -24,6 +24,12 @@
 - Zéro requête réseau (SVG inline au binaire), tooltips inchangés (« Langage inféré : … »), badge framework toujours coloré par langage.
 - Dans l'explorateur tous les logos descendent à **14 px** (hauteur de ligne préservée) ; 18 px dans l'en-tête de détail.
 
+### Alerte réseau : une pastille dans la barre du Journal, plus de bandeau plein écran
+- L'ancien bandeau rouge pleine largeur (« Réseau local injoignable — les serveurs distants ne peuvent pas être sondés — VPN actif ? ») **poussait toute l'interface vers le bas** à chaque incident VPN. Il devient une **pastille rouge compacte dans la barre du Journal**, côté droit juste avant « auto-détection » — visible même le journal replié, alignée avec version et mise à jour.
+- Le message complet (VPN actif ? Proton : « autoriser les connexions LAN ») vit dans le **tooltip** de la pastille et s'affiche **au clic** en toast erreur 6 s — l'explication reste complète sans encombrer la barre en permanence.
+- La marge d'alignement droit suit la pastille quand elle est visible et revient au badge auto-détection quand elle disparaît (réseau rétabli) — le groupe reste toujours aligné à droite.
+- `toast(msg, kind, ms)` accepte une durée explicite pour les messages longs.
+
 ### Boutique : 100 % des cartes ont leur logo
 - Inventaire complet : **21 items du catalogue** n'avaient aucune icône (Neon, Logfire, iOS Simulator, N-able, OrcaReplay, Trace, Alpaca Trading, LiveTennisAPI, Memex, Google Workspace, HumanPen, Local MCP, BrowserAct, HikerAPI, Lamatok, CodeGraph, World Monitor, Codebase Memory, Context Mode, Serena, Deepgraph Next.js).
 - **Marques officielles récupérées** quand Simple Icons les couvre (pomme Apple pour iOS Simulator, marque Next.js pour Deepgraph — CDN Simple Icons) ; pour les autres, **glyphes dessinés dans le style de la collection** (trait 2, couleur de marque) : éclair Neon vert, flamme Logfire, tuile « N » N-able, relecture OrcaReplay, chandeliers de trading, balle de tennis et ses coutures, grille aux quatre couleurs Google, montagnes HikerAPI, bulle Lamatok, graphe de nœuds CodeGraph, globe World Monitor, archive Codebase Memory, accolades Context Mode, étincelle Serena…

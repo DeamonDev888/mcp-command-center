@@ -15,8 +15,6 @@ pub const INDEX_HTML: &str = r#"<!doctype html>
 </head>
 <body>
 
-<div id="netBanner" class="netbanner" hidden></div>
-
 <div id="titlebar" data-tauri-drag-region>
   <span class="logo" data-tauri-drag-region>
     <svg class="mark" viewBox="0 0 24 24" aria-hidden="true">
@@ -91,6 +89,8 @@ pub const INDEX_HTML: &str = r#"<!doctype html>
 <div id="logpanel">
   <div id="loghead" onclick="toggleLog()">
     <span class="arrow">&#9662;</span><span class="lbl">Journal</span>
+    <button id="netWarn" class="tb-badge netwarn" hidden onclick="event.stopPropagation();showNetDetail()"
+      title="Les serveurs distants ne peuvent pas &ecirc;tre sond&eacute;s &mdash; VPN actif ? (Proton VPN : activer &laquo;&nbsp;autoriser les connexions LAN&nbsp;&raquo;)"></button>
     <span class="tb-badge tb-push">auto-d&eacute;tection : HTTP streamable &middot; stdio JSON-RPC</span>
     <span class="sb-ver" title="Version install&eacute;e">v__MCC_VERSION__</span>
     <button id="stUpdate" class="sb-upd" hidden onclick="event.stopPropagation();downloadUpdate()"
