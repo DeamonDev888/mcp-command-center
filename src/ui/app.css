@@ -255,13 +255,13 @@ button:disabled{opacity:.35;cursor:not-allowed}
    rouge sur fond teinté, visible même le journal replié. Le détail complet
    (VPN, Proton « autoriser les connexions LAN ») vit dans le tooltip et
    s'affiche au clic — plus de bandeau pleine largeur qui poussait l'UI.
-   Position : À DROITE, juste avant « auto-détection » — la marge auto qui
-   aligne le groupe à droite la porte quand elle est visible, et revient au
-   badge auto-détection quand elle est cachée. */
+   Ordre du groupe droit : pastille réseau, Auto-boot, auto-détection,
+   version, mise à jour — la marge auto ouvre le groupe sur la pastille quand
+   elle est visible, et sur Auto-boot (tb-push) quand elle est cachée. */
 .netwarn{color:#f0a8b6;border-color:rgba(231,94,120,.45);background:rgba(231,94,120,.12)}
 .netwarn:hover{color:#ffd7de;border-color:rgba(231,94,120,.65);background:rgba(231,94,120,.18)}
 .netwarn:not([hidden]){margin-left:auto}
-.netwarn:not([hidden]) + .tb-push{margin-left:0}
+.netwarn:not([hidden]) ~ .tb-push{margin-left:0}
 /* Boutons de ligne : 18 px, rayon 4, jamais plus hauts que le texte. */
 .rowbtn{display:inline-flex;align-items:center;justify-content:center;height:var(--h-xs);min-width:20px;
   padding:0 5px;background:none;border:1px solid var(--border-soft);border-radius:var(--r1);color:var(--t3);
