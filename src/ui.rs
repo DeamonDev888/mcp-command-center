@@ -24,10 +24,8 @@ pub const INDEX_HTML: &str = r#"<!doctype html>
     </svg>
     <span class="wordmark">MCP<span class="wm-dim"> Control</span></span>
   </span>
-  <button id="stAuto" onclick="toggleAutostart()" title="Lancer l'application au démarrage de l'OS (tray silencieux)"></button>
   <span class="tb-badge ok" title="Serveurs MCP qui répondent, sur le total suivi">UP <b id="stUp">0</b>/<b id="stTotal">0</b></span>
   <span class="tb-badge" title="Outils MCP exposés par les serveurs UP">outils <b id="stTools">0</b></span>
-  <span class="tb-badge" title="Rafraîchissement automatique de l'état (réglable dans Réglages)">refresh <b id="stRefresh">15</b>&nbsp;s</span>
   <button id="tbLogout" class="tb-logout" hidden onclick="logout()"
           title="Oublier le code d'accès enregistré dans ce navigateur"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x='4.5' y='10.5' width='15' height='10' rx='2'/><path d='M8 10.5V7a4 4 0 0 1 8 0v3.5'/></svg></button>
   <span class="tb-spacer" data-tauri-drag-region></span>
@@ -93,6 +91,8 @@ pub const INDEX_HTML: &str = r#"<!doctype html>
       title="Les serveurs distants ne peuvent pas &ecirc;tre sond&eacute;s &mdash; VPN actif ? (Proton VPN : activer &laquo;&nbsp;autoriser les connexions LAN&nbsp;&raquo;)"></button>
     <span class="tb-badge tb-push">auto-d&eacute;tection : HTTP streamable &middot; stdio JSON-RPC</span>
     <span class="sb-ver" title="Version install&eacute;e">v__MCC_VERSION__</span>
+    <button id="stAuto" class="sb-auto" onclick="event.stopPropagation();toggleAutostart()"
+      title="Lancer l'application au d&eacute;marrage de l'OS (tray silencieux)"></button>
     <button id="stUpdate" class="sb-upd" hidden onclick="event.stopPropagation();downloadUpdate()"
       title="T&eacute;l&eacute;charge directement la mise &agrave; jour pour cette machine"></button>
   </div>

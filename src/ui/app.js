@@ -162,11 +162,11 @@ function render() {
   document.getElementById('stUp').textContent = s.up;
   document.getElementById('stTotal').textContent = s.total;
   document.getElementById('stTools').textContent = s.tools;
-  document.getElementById('stRefresh').textContent = state.settings.refresh_secs;
   armPolling();
   const au = document.getElementById('stAuto');
   if (au) {
     au.innerHTML = ic('power') + '<span>Auto-boot ' + (state.autostart ? 'ON' : 'OFF') + '</span>';
+    au.classList.toggle('auto-on', !!state.autostart);
     au.classList.toggle('auto-off', !state.autostart);
   }
   const upd = document.getElementById('stUpdate');

@@ -142,8 +142,11 @@ body{background:var(--chrome);color:var(--t1);font:13px/1.5 var(--sans);display:
   border-radius:var(--r2);white-space:nowrap}
 .tb-badge b{color:var(--t1);font-weight:600;font-variant-numeric:tabular-nums}
 .tb-badge.ok b{color:var(--ok)}
+/* Auto-boot (barre du Journal, v0.7.19) : bascule ON/OFF au démarrage OS —
+   vert teinté quand actif, dashed gris sinon. */
 #stAuto{height:var(--h-sm);padding:0 9px;font:11px/1 var(--sans);border-radius:var(--r2);
   border:1px solid var(--border);color:var(--t3);background:transparent}
+.sb-auto{flex-shrink:0}
 #stAuto:hover{border-color:var(--accent);color:var(--accent);background:var(--hover)}
 #stAuto.auto-off{color:var(--t4);border-style:dashed}
 #stAuto.auto-on{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08)}
