@@ -1,3 +1,25 @@
+## [0.7.17] — Mise à jour = téléchargement direct du bon asset, version et bouton ⬆ en bas à droite
+
+### Le bouton « ⬆ Mettre à jour » télécharge directement le BON fichier
+- Avant : le bouton ouvrait la **page des releases** — il fallait encore trouver le bon fichier parmi les plateformes.
+- Maintenant : **téléchargement direct** de l'asset de la dernière release correspondant à la machine. La détection est double :
+  - **l'OS** vient du navigateur (la machine où atterrit le fichier — l'UI peut être servie par un moteur distant, cas VPS) ; le moteur valide contre une whitelist et retombe sur le sien si absent ;
+  - **le type de binaire** suit le moteur qui sert l'UI : l'app desktop propose l'**installateur desktop** (setup), le moteur headless propose la **CLI** — détection par le nom de l'exécutable courant.
+- **Sécurité** : l'URL est construite **uniquement** depuis une table blanche pure et testée (`release_asset`, 6 combos desktop×OS + CLI×OS) — jamais depuis la requête ; un `os` fourni hors whitelist est **refusé net** (jamais de repli silencieux vers une autre plateforme, aucun effet de bord avant le contrôle). Nouvelle action `download_update`, non exposée au gateway (lance un téléchargement).
+- Repli : si le moteur ne peut pas lancer de navigateur (headless), l'URL rendue est ouverte par l'UI (`window.open` — vrai navigateur) ; si le moteur est injoignable, repli sur la dernière URL connue.
+
+### Version et bouton ⬆ en bas à droite (barre d'état)
+- Nouvelle **barre d'état** discrète en bas de fenêtre : la **version installée** (`v0.7.17`) et le **bouton bleu ciel « ⬆ Mettre à jour — vX dispo »** y vivent, à droite — la barre de titre est allégée (badges UP/outils/refresh restent en haut).
+- Le bouton n'apparaît que quand une release plus récente existe (détection au boot puis chaque heure, inchangée).
+
+### Réglages → Mises à jour
+- « ⬆ Mettre à jour » fait le même téléchargement direct ; un bouton « 🔗 Releases » ouvre la page de toutes les versions (archives, anciennes releases).
+
+### Tests
+- **156 tests unitaires verts** (nouveaux : table blanche des 6 assets, refus des plateformes hors table **avant tout effet de bord**), clippy 0 warning, fmt propre.
+- Le test du refus a d'ailleurs attrapé un vrai bug pendant l'écriture : un `os` invalide retombait silencieusement sur la plateforme du moteur **et lançait le téléchargement** — corrigé en refus net.
+- Vérification navigateur : barre d'état rendue, version à droite, bouton bleu ciel visible avec la libellé « v0.7.17 dispo ».
+
 ## [0.7.16] — Réglages professionnels à volets, Notifications câblées à l'UI, contrat « tout bouton »
 
 ### Dialog Réglages refondu (navigation par sections)

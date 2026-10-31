@@ -154,13 +154,18 @@ body{background:var(--chrome);color:var(--t1);font:13px/1.5 var(--sans);display:
 #stAuto:hover{border-color:var(--accent);color:var(--accent);background:var(--hover)}
 #stAuto.auto-off{color:var(--t4);border-style:dashed}
 #stAuto.auto-on{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08)}
-/* Badge « mise à jour » = VRAI bouton bleu ciel (demande utilisateur) : bien
-   visible en haut, clic → page des releases via le moteur (window.open est
-   muet dans la webview Tauri). */
-.tb-badge.upd{color:#07293d;border-color:#8fd3ff;background:#8fd3ff;font-weight:700;cursor:pointer;box-shadow:0 1px 6px rgba(143,211,255,.35)}
-.tb-badge.upd:hover{background:#a9dcff;border-color:#a9dcff;color:#07293d}
-:root[data-theme="light"] .tb-badge.upd{color:#07293d;border-color:#5eb8ef;background:#8fd3ff}
-:root[data-theme="light"] .tb-badge.upd:hover{background:#7cc6f7;border-color:#7cc6f7}
+/* ===== Barre d'état (bas de fenêtre) : version + mise à jour, à droite ===== */
+#statusbar{height:28px;flex-shrink:0;display:flex;align-items:center;gap:10px;
+  padding:0 14px;background:var(--sidebar);border-top:1px solid var(--border-soft);
+  user-select:none}
+.sb-spacer{flex:1}
+.sb-ver{font:11px/1 var(--mono);color:var(--t3);letter-spacing:.02em}
+#statusbar .sb-upd{height:22px;padding:0 12px;font:11px/1 var(--sans);font-weight:700;gap:5px;
+  color:#07293d;border-color:#8fd3ff;background:#8fd3ff;border-radius:var(--rpill);
+  box-shadow:0 1px 6px rgba(143,211,255,.35)}
+#statusbar .sb-upd:hover{background:#a9dcff;border-color:#a9dcff;color:#07293d}
+#statusbar .sb-upd:active{background:#8fd3ff;border-color:#8fd3ff}
+:root[data-theme="light"] #statusbar .sb-upd{border-color:#5eb8ef}
 .tb-spacer{flex:1;height:100%}
 /* Groupe d'actions : un seul bloc, filets internes alignés. */
 .tb-actions{display:flex;gap:6px;align-items:center}
@@ -184,14 +189,19 @@ button:active{background:var(--active)}
 button.primary{background:var(--active);border-color:var(--active2);color:var(--accent);font-weight:500}
 button.primary:hover{background:var(--active2);border-color:var(--accent);color:var(--accent)}
 #tDark.sel,#tLight.sel{background:var(--active);border-color:var(--accent);color:var(--accent)}
-button.danger:hover{border-color:var(--bad);color:var(--bad);background:rgba(231,94,120,.06)}
+/* Destructif : bordure rouge PERMANENTE, pas seulement au survol — une action
+   irréversible ne doit pas se fondre visuellement dans les actions neutres. */
+button.danger{border-color:rgba(231,94,120,.38);color:var(--bad)}
+button.danger:hover{border-color:var(--bad);color:var(--bad);background:rgba(231,94,120,.08)}
+/* La suppression est séparée du groupe d'actions courantes du détail. */
+.d-actions button.danger{margin-left:12px}
 button:disabled{opacity:.35;cursor:not-allowed}
 
 /* ===== Layout principal : explorateur + éditeur ===== */
 #main{flex:1;display:flex;min-height:0}
 
 /* --- Explorateur (gauche) --- */
-#explorer{width:280px;flex-shrink:0;background:var(--sidebar);border-right:1px solid var(--border);
+#explorer{width:320px;flex-shrink:0;background:var(--sidebar);border-right:1px solid var(--border);
   display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;padding-bottom:2px}
 .sec-label{font:10px/1 var(--sans);font-weight:600;text-transform:uppercase;letter-spacing:.09em;
   color:var(--t4);padding:14px var(--pad-sec) 7px;user-select:none;
@@ -200,6 +210,11 @@ button:disabled{opacity:.35;cursor:not-allowed}
   border-radius:var(--r1);color:var(--t3);font:10px/1 var(--mono);padding:0 2px;cursor:pointer;
   text-transform:none;letter-spacing:0}
 .sec-label select:hover{color:var(--accent);border-color:var(--accent)}
+/* Filtre de l'explorateur (raccourcis : / ou Ctrl+K, Échap pour effacer). */
+#srvFilterWrap{padding:7px 8px 3px;display:flex;gap:6px;align-items:center}
+#srvFilter{height:24px;font-size:11.5px;flex:1;min-width:0;padding:0 8px}
+#srvFilterClear{width:22px;height:22px;padding:0;font-size:13px;color:var(--t4);border-color:transparent;flex-shrink:0}
+#srvFilterClear:hover{color:var(--t1);background:var(--wash);border-color:transparent}
 /* Lignes de serveur : 34 px de haut, filet de sélection aligné sur le texte. */
 .srow{padding:6px 10px 6px 13px;margin:1px 8px;border-radius:var(--r3);cursor:pointer;position:relative;
   border:1px solid transparent;transition:background .1s,border-color .1s}
@@ -208,10 +223,14 @@ button:disabled{opacity:.35;cursor:not-allowed}
 .srow.sel::before{content:'';position:absolute;left:0;top:6px;bottom:6px;width:2px;
   border-radius:var(--rpill);background:var(--accent)}
 .srow.off{opacity:.45}
-.srow .l1{display:flex;align-items:center;gap:7px;min-width:0;height:16px}
-.srow .l1 .nm{flex:1;font-size:12.5px;font-weight:500;color:var(--t1);white-space:nowrap;
+.srow .l1{display:flex;align-items:center;gap:7px;min-width:0;height:18px}
+/* Le nom est SEUL en ligne 1 avec les boutons d'action ; les badges descendent
+   en ligne 2. Sur une ligne commune, les badges (non rétractables) écrasaient
+   le nom (flex:1) jusqu'à 0 px : plusieurs serveurs n'affichaient plus leur
+   nom dans l'explorateur. */
+.srow .l1 .nm{flex:1;min-width:0;font-size:12.5px;font-weight:500;color:var(--t1);white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis;letter-spacing:.1px}
-.srow .l1 .cnt{font:10px/1 var(--mono);color:var(--t4);font-variant-numeric:tabular-nums}
+.srow .cnt{font:10px/1 var(--mono);color:var(--t4);font-variant-numeric:tabular-nums;flex-shrink:0}
 .legacy{font:9px/1 var(--mono);text-transform:uppercase;letter-spacing:.04em;color:var(--t4);
   border:1px dashed var(--border);border-radius:var(--r1);padding:1px 5px;white-space:nowrap;flex-shrink:0}
 .ctxmenu{position:fixed;z-index:9999;min-width:270px;background:var(--elevated);border:1px solid var(--border);
@@ -227,6 +246,9 @@ button:disabled{opacity:.35;cursor:not-allowed}
   padding:7px 14px;font-size:12px;box-shadow:var(--sh-pop);opacity:0;pointer-events:none;
   transition:opacity .15s,transform .15s;z-index:10000}
 #toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+/* Variantes sémantiques : succès et erreur ne passent plus inaperçus. */
+#toast.ok{border-color:rgba(85,165,131,.5)}
+#toast.err{border-color:rgba(231,94,120,.55);color:#f2b0bd}
 .netbanner{background:rgba(231,94,120,.12);border-bottom:1px solid rgba(231,94,120,.45);
   color:#f0a8b6;font-size:11.5px;padding:6px 12px;display:flex;gap:8px;align-items:center}
 .netbanner b{color:#ffd7de}
@@ -275,8 +297,11 @@ button:disabled{opacity:.35;cursor:not-allowed}
 .sw.on:hover{border-color:var(--bad);color:var(--bad);background:rgba(231,94,120,.06)}
 .sw.off{color:var(--t4);border-color:var(--border);text-decoration:line-through}
 .sw.off:hover{color:var(--ok);border-color:rgba(85,165,131,.45);background:rgba(85,165,131,.08);text-decoration:none}
-.srow .l2{display:flex;align-items:center;gap:6px;margin-top:2px;padding-left:20px;
+.srow .l2{display:flex;align-items:center;gap:6px;margin-top:2px;padding-left:20px;min-width:0;
   font:10.5px/1.35 var(--mono);color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.srow .l2 .langchip{height:14px}
+/* Les logos de langage sont plus petits dans l'explorateur que dans le détail. */
+.srow .rustlogo{width:14px;height:14px}
 .srow .l2 .st{font-weight:600}
 .srow .l2 .st.UP{color:var(--ok)}.srow .l2 .st.PORT-ONLY{color:var(--orange)}
 .srow .l2 .st.DOWN{color:var(--t4)}.srow .l2 .st.DISABLED{color:var(--t4)}
@@ -356,6 +381,10 @@ details.fold .kv{margin-top:12px}
 .kv{display:grid;grid-template-columns:168px 1fr;gap:7px 16px;font-size:12.5px;align-items:baseline}
 .kv .k{color:var(--t4);font-size:12px}
 .kv .v{font:12px/1.45 var(--mono);color:var(--t2);word-break:break-all}
+/* Valeur copiable d'un clic (pid, commande, url…) — l'affordance est au
+   survol, le menu contextuel reste disponible. */
+.kv .v.cpy{cursor:pointer}
+.kv .v.cpy:hover{color:var(--accent)}
 
 /* ===== Outils ============================================================
    Lignes nettes : nom en mono accent, description en gris, bascule à droite. */
@@ -365,6 +394,11 @@ details.fold .kv{margin-top:12px}
 .tool.off{opacity:.55}
 .tool code{color:var(--accent);font:12px/1.35 var(--mono);flex-shrink:0}
 .tool .desc{flex:1;font-size:12px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Rendu markdown inline des descriptions : le gras ressort légèrement, le
+   code s'affiche comme du code — au lieu d'astérisques bruts. */
+.tool .desc b{color:var(--t2);font-weight:600}
+.tool .desc code{font:11px/1.3 var(--mono);color:var(--t2);background:var(--wash);
+  border:1px solid var(--border-soft);border-radius:3px;padding:0 4px}
 .tgl{display:inline-flex;align-items:center;justify-content:center;height:var(--h-sm);min-width:52px;
   font:10.5px/1 var(--mono);font-weight:600;border-radius:var(--rpill);padding:0 12px;
   border:1px solid var(--border-soft);background:transparent;color:var(--t3)}
@@ -383,6 +417,11 @@ details.fold .kv{margin-top:12px}
 .tile .n{font:22px/1.1 var(--mono);font-weight:600;color:var(--t1);font-variant-numeric:tabular-nums}
 .tile .n.ok{color:var(--ok)}
 .tile .lbl{font-size:11px;color:var(--t4);margin-top:3px}
+/* Tuiles cliquables (filtre UP, tri par tools, machines) : une tuile est un
+   bouton sans l'apparence bouton par défaut. */
+button.tile{height:auto;text-align:left;font:inherit;color:inherit;cursor:pointer}
+button.tile:hover{border-color:var(--border-strong)}
+.tile.sel{border-color:var(--active2);background:var(--active)}
 
 /* --- Journal (bas, style console IDE) --- */
 #logpanel{flex-shrink:0;height:170px;background:var(--sidebar);border-top:1px solid var(--border);
@@ -413,15 +452,25 @@ details.fold .kv{margin-top:12px}
 .tag.sse{color:var(--ok);border-color:rgba(85,165,131,.45)}
 .tag.ws{color:#8b909b;border-color:rgba(139,144,155,.42);background:rgba(139,144,155,.06)}
 .tag.https{color:#e8e8ec;border-color:rgba(232,232,236,.45);background:rgba(232,232,236,.07)}
-/* LiteMCP (fingerprint) : le SEUL badge à halo — orange, la couleur de Rust. */
-.tag.litemcp{color:#fdba74;border-color:#f9731699;background:#f973161f;box-shadow:0 0 10px rgba(249,115,22,.55);animation:glowLite 2.4s ease-in-out infinite}
+/* LiteMCP (fingerprint) : le SEUL badge à halo — orange, la couleur de Rust.
+   Halo STATIQUE : un pulse permanent sur une liste attire l'œil sans fin ;
+   l'effet reste lisible sans animation. */
+.tag.litemcp{color:#fdba74;border-color:#f9731699;background:#f973161f;box-shadow:0 0 8px rgba(249,115,22,.4)}
 /* FastMCP (mcp-proxy httpStream) : repli neutre — le JS inline impose la couleur du langage */
 .tag.fastmcp{color:#8fd3dE;border-color:#6f9ba688;background:#6f9ba61f;box-shadow:0 0 8px rgba(111,155,166,.45)}
 /* autres frameworks MCP détectés par nom (rmcp, mcp-go, Spring AI, xmcp…) */
 .tag.fw{color:#a5b4fc;border-color:#a5b4fc55;background:#a5b4fc11}
-@keyframes glowPulse{50%{box-shadow:0 0 18px rgba(210,168,255,.9)}}
-@keyframes glowLite{50%{box-shadow:0 0 18px rgba(249,115,22,.9)}}
-.srow .l1 .tag{font-size:8.5px;padding:0 5px;height:15px}
+/* Icônes SVG (jeu unique, trait 1.5, couleur courante — aucun emoji) :
+   rendu identique quelle que soit la version d'Windows, alignement
+   typographique propre, cohérence avec l'interface monochrome. */
+.ic{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5;
+  stroke-linecap:round;stroke-linejoin:round;display:inline-block;vertical-align:-2px;flex-shrink:0}
+.rowbtn .ic{width:10px;height:10px}
+.ctxitem .ic{width:13px;height:13px}
+.tb-badge .ic{width:12px;height:12px}
+.scard .ic,.set-nav-btn .ic{width:13px;height:13px}
+.netbanner .ic,.d-err .ic{width:13px;height:13px}
+.srow .l2 .tag{font-size:8.5px;padding:0 5px;height:14px}
 .langchip{display:inline-flex;align-items:center;height:15px;font:8.5px/1 var(--mono);font-weight:700;
   border:1px solid;border-radius:var(--r1);padding:0 4px;flex-shrink:0}
 .langchip.unk{color:var(--t4);border-color:var(--border-soft);background:transparent;font-weight:400}
@@ -597,22 +646,20 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
     </svg>
     <span class="wordmark">MCP<span class="wm-dim"> Control</span></span>
   </span>
-  <span class="tb-badge" title="Version installée">v__MCC_VERSION__</span>
   <button id="stAuto" onclick="toggleAutostart()" title="Lancer l'application au démarrage de l'OS (tray silencieux)"></button>
-  <span class="tb-badge upd" id="stUpdate" hidden></span>
-  <span class="tb-badge ok">UP <b id="stUp">0</b>/<b id="stTotal">0</b></span>
-  <span class="tb-badge">outils <b id="stTools">0</b></span>
-  <span class="tb-badge">refresh <b id="stRefresh">15</b>s</span>
+  <span class="tb-badge ok" title="Serveurs MCP qui répondent, sur le total suivi">UP <b id="stUp">0</b>/<b id="stTotal">0</b></span>
+  <span class="tb-badge" title="Outils MCP exposés par les serveurs UP">outils <b id="stTools">0</b></span>
+  <span class="tb-badge" title="Rafraîchissement automatique de l'état (réglable dans Réglages)">refresh <b id="stRefresh">15</b>&nbsp;s</span>
   <button id="tbLogout" class="tb-logout" hidden onclick="logout()"
-          title="Oublier le code d'accès enregistré dans ce navigateur">&#128275;</button>
+          title="Oublier le code d'accès enregistré dans ce navigateur"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x='4.5' y='10.5' width='15' height='10' rx='2'/><path d='M8 10.5V7a4 4 0 0 1 8 0v3.5'/></svg></button>
   <span class="tb-spacer" data-tauri-drag-region></span>
   <div class="tb-actions">
-    <button class="primary" onclick="doScan()" title="Balayer les ports locaux pour d&eacute;couvrir les serveurs MCP">&#128269; Scanner les ports</button>
-    <button onclick="doScanNet()" title="Balayer le r&eacute;seau local pour d&eacute;couvrir les serveurs MCP distants">&#127760; Scanner le r&eacute;seau</button>
-    <button onclick="openMachineDlg()">🖥️ Machines</button>
-    <button onclick="openStore()">&#128722; Boutique</button>
-    <button onclick="openSettingsDlg()" title="R&eacute;glages du client">&#9881; R&eacute;glages</button>
-    <button onclick="refreshAll()" title="Re-sonder tous les serveurs connus et d&eacute;couvrir les nouveaux (tous ports en &eacute;coute)">&#8635;</button>
+    <button class="primary" onclick="doScan()" title="Balayer les ports locaux pour d&eacute;couvrir les serveurs MCP"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx='11' cy='11' r='7'/><path d='m21 21-4.3-4.3'/></svg>Scanner les ports</button>
+    <button onclick="doScanNet()" title="Balayer le r&eacute;seau local pour d&eacute;couvrir les serveurs MCP distants"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx='12' cy='12' r='8.5'/><path d='M3.5 12h17M12 3.5c2.4 2.4 3.8 5.3 3.8 8.5s-1.4 6.1-3.8 8.5c-2.4-2.4-3.8-5.3-3.8-8.5s1.4-6.1 3.8-8.5Z'/></svg>Scanner le r&eacute;seau</button>
+    <button onclick="openMachineDlg()" title="Machines distantes (SSH) et d&eacute;tection des moteurs MCP Control du LAN"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x='2.5' y='4' width='19' height='13' rx='2'/><path d='M8 21h8M12 17v4'/></svg>Machines</button>
+    <button onclick="openStore()" title="Catalogue de serveurs MCP pr&ecirc;ts &agrave; installer"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx='9' cy='20' r='1.4'/><circle cx='17' cy='20' r='1.4'/><path d='M2.5 3.5h2.2l2.5 11.5h10.3l2-8H6'/></svg>Boutique</button>
+    <button onclick="openSettingsDlg()" title="R&eacute;glages du client"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx='12' cy='12' r='3.1'/><path d='M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.9 1.9M16.6 16.6l1.9 1.9M18.5 5.5l-1.9 1.9M7.4 16.6l-1.9 1.9'/></svg>R&eacute;glages</button>
+    <button onclick="refreshAll()" title="Re-sonder tous les serveurs connus et d&eacute;couvrir les nouveaux (tous ports en &eacute;coute)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d='M21 12a9 9 0 1 1-2.6-6.4L21 8'/><path d='M21 3v5h-5'/></svg></button>
   </div>
   <div id="winCtrls">
     <button class="wbtn" id="wMin" title="R&eacute;duire">&#x2500;</button>
@@ -636,6 +683,12 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
         <option value="transport">transport</option>
       </select>
     </div>
+    <div id="srvFilterWrap">
+      <input id="srvFilter" placeholder="Filtrer les serveurs&hellip;"
+        title="Filtre par nom, port, framework ou &eacute;tat &mdash; raccourcis : / ou Ctrl+K, &Eacute;chap efface"
+        oninput="renderServers()">
+      <button id="srvFilterClear" hidden onclick="clearFilter()" title="Effacer le filtre">&times;</button>
+    </div>
     <div id="localSec">
       <div class="grphead" id="localHead" onclick="toggleGroup('local')"
         title="Serveurs MCP locaux &agrave; cette machine (loopback) — cliquer pour replier/d&eacute;plier">
@@ -651,6 +704,13 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
   </aside>
   <div id="grip" title="Glisser pour ajuster la largeur"></div>
   <section id="content"></section>
+</div>
+
+<div id="statusbar">
+  <span class="sb-spacer"></span>
+  <span class="sb-ver" title="Version installée">v__MCC_VERSION__</span>
+  <button id="stUpdate" class="sb-upd" hidden onclick="downloadUpdate()"
+    title="Télécharge directement la mise à jour pour cette machine"></button>
 </div>
 
 <div id="logpanel">
@@ -707,7 +767,7 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
 
 <dialog id="storeDlg">
   <div class="dlg-head">
-    <h2>&#128722; Boutique &mdash; serveurs MCP <span id="storeCount" class="store-count"></span></h2>
+    <h2><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx='9' cy='20' r='1.4'/><circle cx='17' cy='20' r='1.4'/><path d='M2.5 3.5h2.2l2.5 11.5h10.3l2-8H6'/></svg> Boutique &mdash; serveurs MCP <span id="storeCount" class="store-count"></span></h2>
     <button class="close" onclick="storeDlg.close()">&times;</button>
   </div>
   <div class="dlg-body dlg-body-tight">
@@ -721,7 +781,7 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
 
 <dialog id="machineDlg">
   <div class="dlg-head">
-    <h2>🖥️ Machines distantes</h2>
+    <h2><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x='2.5' y='4' width='19' height='13' rx='2'/><path d='M8 21h8M12 17v4'/></svg> Machines distantes</h2>
     <button class="close" onclick="machineDlg.close()">&times;</button>
   </div>
   <div class="dlg-body">
@@ -731,12 +791,12 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
     <div class="machine-form">
       <input id="mIp" placeholder="IP ou h&ocirc;te (ex. 192.168.1.42)">
       <input id="mUser" placeholder="Utilisateur SSH">
-      <button class="primary" onclick="sshDiscover()">🔗 SSH &amp; d&eacute;couvrir</button>
-      <button onclick="sshSave()">💾 Enregistrer</button>
+      <button class="primary" onclick="sshDiscover()"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d='M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7'/><path d='M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7'/></svg> SSH &amp; d&eacute;couvrir</button>
+      <button onclick="sshSave()"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d='M5 3.5h11L20.5 8v11a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 19V5A1.5 1.5 0 0 1 5 3.5Z'/><path d='M8 3.5V8h7V3.5M7.5 20.5v-6h9v6'/></svg> Enregistrer</button>
     </div>
     <div id="machineMsg" class="machine-msg"></div>
     <div id="machineList"></div>
-    <div class="stack"><button onclick="doPeers();setTimeout(renderMachines,3000)">🔄 D&eacute;tecter les moteurs MCP Control sur le LAN</button></div>
+    <div class="stack"><button onclick="doPeers();setTimeout(renderMachines,3000)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d='M21 12a9 9 0 1 1-2.6-6.4L21 8'/><path d='M21 3v5h-5'/></svg> D&eacute;tecter les moteurs MCP Control sur le LAN</button></div>
   </div>
 </dialog>
 
@@ -757,13 +817,13 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
   </div>
   <div class="set-shell">
     <nav class="set-nav" id="setNav" aria-label="Sections des r&eacute;glages">
-      <button class="set-nav-btn sel" data-pane="general" onclick="setPane('general')">&#9881; G&eacute;n&eacute;ral</button>
-      <button class="set-nav-btn" data-pane="decouverte" onclick="setPane('decouverte')">&#128269; D&eacute;couverte</button>
-      <button class="set-nav-btn" data-pane="interface" onclick="setPane('interface')">&#128421; Interface</button>
-      <button class="set-nav-btn" data-pane="notifications" onclick="setPane('notifications')">&#128276; Notifications</button>
-      <button class="set-nav-btn" data-pane="updates" onclick="setPane('updates')">&#11014; Mises &agrave; jour</button>
+      <button class="set-nav-btn sel" data-pane="general" onclick="setPane('general')"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx='12' cy='12' r='3.1'/><path d='M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.9 1.9M16.6 16.6l1.9 1.9M18.5 5.5l-1.9 1.9M7.4 16.6l-1.9 1.9'/></svg>G&eacute;n&eacute;ral</button>
+      <button class="set-nav-btn" data-pane="decouverte" onclick="setPane('decouverte')"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx='11' cy='11' r='7'/><path d='m21 21-4.3-4.3'/></svg>D&eacute;couverte</button>
+      <button class="set-nav-btn" data-pane="interface" onclick="setPane('interface')"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x='2.5' y='4' width='19' height='13' rx='2'/><path d='M8 21h8M12 17v4'/></svg>Interface</button>
+      <button class="set-nav-btn" data-pane="notifications" onclick="setPane('notifications')"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d='M6 9a6 6 0 0 1 12 0c0 5 2 6.5 2 6.5H4S6 14 6 9Z'/><path d='M10 19.5a2.2 2.2 0 0 0 4 0'/></svg>Notifications</button>
+      <button class="set-nav-btn" data-pane="updates" onclick="setPane('updates')"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d='M12 15.5V4m0 0L7.5 8.5M12 4l4.5 4.5'/><path d='M4 16.5V19a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 20 19v-2.5'/></svg>Mises &agrave; jour</button>
       <div class="set-nav-sep"></div>
-      <button class="set-nav-btn danger" data-pane="reset" onclick="setPane('reset')">&#9888; R&eacute;initialiser</button>
+      <button class="set-nav-btn danger" data-pane="reset" onclick="setPane('reset')"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d='M12 3.5 2.5 20h19L12 3.5Z'/><path d='M12 10v4.5M12 17.1v.1'/></svg>R&eacute;initialiser</button>
     </nav>
     <div class="set-panes">
       <section class="set-pane sel" data-pane="general">
@@ -886,7 +946,7 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
           <div class="set-row">
             <div class="set-label"><span>Test</span>
               <em>Enregistre la section puis &eacute;met une notification sur chaque canal activ&eacute;.</em></div>
-            <div class="set-ctrl"><button onclick="testNotify()">&#128276; Tester</button></div>
+            <div class="set-ctrl"><button onclick="testNotify()"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d='M6 9a6 6 0 0 1 12 0c0 5 2 6.5 2 6.5H4S6 14 6 9Z'/><path d='M10 19.5a2.2 2.2 0 0 0 4 0'/></svg> Tester</button></div>
           </div>
           <div class="set-row" hidden id="notifyMsgRow">
             <div class="set-ctrl set-ctrl-wide"><span id="notifyMsg" class="set-note"></span></div>
@@ -906,8 +966,9 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
               <em id="updMsg">&nbsp;</em></div>
             <div class="set-ctrl">
               <span class="set-static" id="sLatest">&ndash;</span>
-              <button onclick="checkUpdateNow()" title="Interroge l'API GitHub releases/latest maintenant">&#8635; V&eacute;rifier</button>
-              <button class="primary" onclick="openUpdate()" title="Ouvre la page de la derni&egrave;re release">&#11014; Mettre &agrave; jour</button>
+              <button onclick="checkUpdateNow()" title="Interroge l'API GitHub releases/latest maintenant"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d='M21 12a9 9 0 1 1-2.6-6.4L21 8'/><path d='M21 3v5h-5'/></svg> V&eacute;rifier</button>
+              <button class="primary" onclick="downloadUpdate()" title="T&eacute;l&eacute;charge directement l'installateur pour cette machine"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d='M12 15.5V4m0 0L7.5 8.5M12 4l4.5 4.5'/><path d='M4 16.5V19a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 20 19v-2.5'/></svg> Mettre &agrave; jour</button>
+              <button onclick="openReleasePage()" title="Toutes les versions et archives"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d='M14 4h6v6M20 4l-9 9'/><path d='M19 14v5a1.5 1.5 0 0 1-1.5 1.5h-12A1.5 1.5 0 0 1 4 19V7.5A1.5 1.5 0 0 1 5.5 6H10'/></svg> Releases</button>
             </div>
           </div>
         </div>
@@ -956,7 +1017,7 @@ try{document.documentElement.dataset.theme=localStorage.getItem('mcc.theme')==='
 
 <dialog id="loginDlg">
   <div class="dlg-head">
-    <h2>&#128274; Acc&egrave;s prot&eacute;g&eacute;</h2>
+    <h2><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x='4.5' y='10.5' width='15' height='10' rx='2'/><path d='M8 10.5V7a4 4 0 0 1 8 0v3.5'/></svg> Acc&egrave;s prot&eacute;g&eacute;</h2>
   </div>
   <div class="dlg-body">
     <div class="conf-note">Cette UI est expos&eacute;e au r&eacute;seau : saisis le <b>code d'acc&egrave;s API</b>
@@ -1065,6 +1126,45 @@ let detailCache = null;
 let detailTab = 'outils';
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const js = s => esc(JSON.stringify(String(s ?? '')));
+let overviewFilter = null; // filtre de tuile d'accueil : 'up' = ne montrer que les UP
+
+/* ===== Icônes =============================================================
+   Un seul jeu SVG inline (trait 1.5, couleur courante, zéro emoji) : rendu
+   identique quelle que soit la version d'Windows et alignement typographique
+   propre dans une interface monochrome. Chaque icône est inlinée par ic() —
+   pas de référence à un symbole (guillemet-double suivi de dièse interdit
+   dans la raw string Rust qui embarque cette page), attributs en simples
+   quotes comme le reste des SVG de la page. */
+const ICONS = {
+  search: "<circle cx='11' cy='11' r='7'/><path d='m21 21-4.3-4.3'/>",
+  globe: "<circle cx='12' cy='12' r='8.5'/><path d='M3.5 12h17M12 3.5c2.4 2.4 3.8 5.3 3.8 8.5s-1.4 6.1-3.8 8.5c-2.4-2.4-3.8-5.3-3.8-8.5s1.4-6.1 3.8-8.5Z'/>",
+  monitor: "<rect x='2.5' y='4' width='19' height='13' rx='2'/><path d='M8 21h8M12 17v4'/>",
+  cart: "<circle cx='9' cy='20' r='1.4'/><circle cx='17' cy='20' r='1.4'/><path d='M2.5 3.5h2.2l2.5 11.5h10.3l2-8H6'/>",
+  gear: "<circle cx='12' cy='12' r='3.1'/><path d='M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.9 1.9M16.6 16.6l1.9 1.9M18.5 5.5l-1.9 1.9M7.4 16.6l-1.9 1.9'/>",
+  refresh: "<path d='M21 12a9 9 0 1 1-2.6-6.4L21 8'/><path d='M21 3v5h-5'/>",
+  power: "<path d='M18.4 6.6a9 9 0 1 1-12.8 0'/><path d='M12 2.5V12'/>",
+  lock: "<rect x='4.5' y='10.5' width='15' height='10' rx='2'/><path d='M8 10.5V7a4 4 0 0 1 8 0v3.5'/>",
+  zap: "<path d='M13 2.5 4.5 13.5H11l-1 8 8.5-11H12l1-8Z'/>",
+  play: "<path d='M7 4.5 19 12 7 19.5Z'/>",
+  stop: "<rect x='6' y='6' width='12' height='12' rx='1.5'/>",
+  pause: "<path d='M9 5v14M15 5v14'/>",
+  trash: "<path d='M3.5 6h17M8.5 6V4.5A1.5 1.5 0 0 1 10 3h4a1.5 1.5 0 0 1 1.5 1.5V6M19 6l-.8 13a2 2 0 0 1-2 1.9H7.8a2 2 0 0 1-2-1.9L5 6'/><path d='M10 10.5v6M14 10.5v6'/>",
+  copy: "<rect x='9' y='9' width='12' height='12' rx='2'/><path d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'/>",
+  tag: "<path d='m3 11 8-8h9v9l-8.5 8.5a2 2 0 0 1-2.8 0L3 13.8a2 2 0 0 1 0-2.8Z'/><circle cx='16.5' cy='7.5' r='1.3'/>",
+  link: "<path d='M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7'/><path d='M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7'/>",
+  terminal: "<path d='m4 17 6-5-6-5'/><path d='M12 19h8'/>",
+  folder: "<path d='M3.5 7A1.5 1.5 0 0 1 5 5.5h4.2l1.8 2h9A1.5 1.5 0 0 1 21.5 9v8a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 17Z'/>",
+  external: "<path d='M14 4h6v6M20 4l-9 9'/><path d='M19 14v5a1.5 1.5 0 0 1-1.5 1.5h-12A1.5 1.5 0 0 1 4 19V7.5A1.5 1.5 0 0 1 5.5 6H10'/>",
+  activity: "<path d='M22 12h-4l-3 8L9 4l-3 8H2'/>",
+  check: "<path d='m4.5 12.5 5 5L19.5 7'/>",
+  x: "<path d='m6 6 12 12M18 6 6 18'/>",
+  bell: "<path d='M6 9a6 6 0 0 1 12 0c0 5 2 6.5 2 6.5H4S6 14 6 9Z'/><path d='M10 19.5a2.2 2.2 0 0 0 4 0'/>",
+  upload: "<path d='M12 15.5V4m0 0L7.5 8.5M12 4l4.5 4.5'/><path d='M4 16.5V19a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 20 19v-2.5'/>",
+  download: "<path d='M12 4v11.5m0 0L7.5 11M12 15.5l4.5-4.5'/><path d='M4 16.5V19a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 20 19v-2.5'/>",
+  warn: "<path d='M12 3.5 2.5 20h19L12 3.5Z'/><path d='M12 10v4.5M12 17.1v.1'/>",
+  save: "<path d='M5 3.5h11L20.5 8v11a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 19V5A1.5 1.5 0 0 1 5 3.5Z'/><path d='M8 3.5V8h7V3.5M7.5 20.5v-6h9v6'/>",
+};
+const ic = n => `<svg class='ic' viewBox='0 0 24 24' aria-hidden='true'>${ICONS[n] || ''}</svg>`;
 
 async function load() {
   if (document.hidden) return; // fenêtre masquée (tray) : polling suspendu — CPU/mémoire au repos
@@ -1090,7 +1190,7 @@ function render() {
   if (nb) {
     const off = state.lan_ok === false;
     nb.hidden = !off;
-    if (off) nb.innerHTML = '<b>&#9888; R&eacute;seau local injoignable</b>'
+    if (off) nb.innerHTML = '<b>' + ic('warn') + ' R&eacute;seau local injoignable</b>'
       + '<span>les serveurs distants ne peuvent pas &ecirc;tre sond&eacute;s &mdash; VPN actif ? '
       + '(Proton VPN : activer &laquo;&nbsp;autoriser les connexions LAN&nbsp;&raquo;)</span>';
   }
@@ -1101,15 +1201,15 @@ function render() {
   armPolling();
   const au = document.getElementById('stAuto');
   if (au) {
-    au.textContent = (state.autostart ? '⏭ Auto-boot ON' : '⏭ Auto-boot OFF');
+    au.innerHTML = ic('power') + '<span>Auto-boot ' + (state.autostart ? 'ON' : 'OFF') + '</span>';
     au.classList.toggle('auto-off', !state.autostart);
   }
   const upd = document.getElementById('stUpdate');
   if (state.update_available && state.latest_version) {
     upd.hidden = false;
-    upd.textContent = '⬆ Mettre à jour — v' + state.latest_version + ' dispo';
-    upd.title = 'Nouvelle version ' + state.latest_version + ' publiée sur GitHub (installée : v' + MCC_VERSION + ') — clic : ouvre la page de téléchargement dans ton navigateur';
-    upd.onclick = openReleasePage;
+    upd.innerHTML = ic('upload') + ' Mettre &agrave; jour &mdash; v' + esc(state.latest_version) + ' dispo';
+    upd.title = 'Nouvelle version ' + state.latest_version + ' publiée sur GitHub (installée : v' + MCC_VERSION
+      + ') — clic : téléchargement direct pour cette machine';
   } else upd.hidden = true;
   renderServers();
   renderPeers();
@@ -1142,12 +1242,16 @@ function srvRow(s) {
     ? (s.transport_info.host ? `${esc(s.transport_info.host)}:` : '') + s.transport_info.port
     : 'stdio &middot; ' + esc(s.transport_info.program);
   const off = s.tools_disabled.length ? ` &middot; ${s.tools_disabled.length} off` : '';
+  /* Ligne 1 : état + nom + actions (le nom ne se bat plus avec les badges).
+     Ligne 2 : état textuel, transport, badges langage/transport/framework,
+     compteur d'outils. Les badges sont non rétractables : à très faible
+     largeur la fin de la ligne 2 se coupe, jamais le nom ni les actions. */
   return `<div class="srow ${selectedId===s.id?'sel':''} ${s.enabled?'':'off'}" draggable="true" data-id="${esc(s.id)}"
     onclick="select(${js(s.id)})"
     ondragstart="rowDragStart(event,${js(s.id)})" ondragover="rowDragOver(event)"
     ondragleave="rowDragLeave(event)" ondrop="rowDrop(event)" ondragend="rowDragEnd(event)">
-    <div class="l1"><span class="dot ${s.state}"></span><span class="nm" title="${esc(s.label)}">${esc(s.label)}</span>${langChip(s)}${typeBadge(s)}${frameworkBadge(s)}${s.transport==='stdio'?'<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>':''}<span class="cnt">${s.tools_count}</span>${rowAuto(s)}${rowToggle(s)}${rowCtl(s)}</div>
-    <div class="l2"><span class="st ${esc(s.state)}">${esc(s.state)}</span> ${ti}${off}</div>
+    <div class="l1"><span class="dot ${s.state}"></span><span class="nm" title="${esc(s.label)}">${esc(s.label)}</span>${rowAuto(s)}${rowCtl(s)}${rowToggle(s)}</div>
+    <div class="l2"><span class="st ${esc(s.state)}">${esc(s.state)}</span> ${ti}${off}${langChip(s)}${typeBadge(s)}${frameworkBadge(s)}${s.transport==='stdio'?'<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">legacy</span>':''}<span class="cnt">${s.tools_count}</span></div>
   </div>`;
 }
 /* Replis des groupes mémorisés (localStorage) : 'local' + une clé par machine. */
@@ -1163,10 +1267,21 @@ function groupHeadHtml(key, label, up, total, machine) {
     ? `Machine distante ${esc(label)} &mdash; cliquer pour replier/d&eacute;plier`
     : 'Serveurs MCP locaux &agrave; cette machine (loopback) &mdash; cliquer pour replier/d&eacute;plier';
   const act = machine
-    ? `<button class="gact" title="Oublier cette machine (les serveurs d&eacute;j&agrave; import&eacute;s restent)" onclick="event.stopPropagation();sshForget(${js(label)})">&#128465;</button>` : '';
+    ? `<button class="gact" title="Oublier cette machine (les serveurs d&eacute;j&agrave; import&eacute;s restent)" onclick="event.stopPropagation();sshForget(${js(label)})">${ic('trash')}</button>` : '';
   return `<div class="grphead ${groupClosed(key)?'closed':''}" onclick="toggleGroup(${js(key)})"
     ondragover="groupDragOver(event)" ondragleave="groupDragLeave(event)" ondrop="groupDrop(event,${js(key)})"
     title="${tip}"><span class="gchev">&#9662;</span><span class="gname">${esc(label)}</span>${act}<span class="gcount">${up}/${total}</span></div>`;
+}
+/* Filtre courant de l'explorateur : texte (champ #srvFilter) + filtre de tuile
+   d'accueil (overviewFilter). Renvoie true si le serveur doit être affiché. */
+function srvVisible(s, q) {
+  if (overviewFilter === 'up' && s.state !== 'UP') return false;
+  if (q) {
+    const hay = (s.label + ' ' + s.id + ' ' + (s.framework || '') + ' '
+      + (s.transport === 'http' ? (s.transport_info.port ?? '') : '') + ' ' + (s.state || '')).toLowerCase();
+    if (!hay.includes(q)) return false;
+  }
+  return true;
 }
 function renderServers() {
   const localBox = document.getElementById('srvList');
@@ -1174,27 +1289,38 @@ function renderServers() {
   const label = document.getElementById('remoteLabel');
   const count = document.getElementById('localCount');
   const localHead = document.getElementById('localHead');
+  const clr = document.getElementById('srvFilterClear');
+  const qRaw = (document.getElementById('srvFilter')?.value || '').trim();
+  const q = qRaw.toLowerCase();
+  if (clr) clr.hidden = !qRaw;
   if (!state.servers.length) {
     localHead.hidden = true; count.textContent = '';
     localBox.innerHTML = '<div class="empty-sec">aucun serveur — lance un scan</div>';
     label.hidden = true; groupsBox.innerHTML = '';
     return;
   }
-  const local = state.servers.filter(s => hostOf(s) === 'local');
+  // Les compteurs de groupe comptent TOUS les serveurs du groupe ; seules les
+  // lignes affichées passent par le filtre.
+  const localAll = state.servers.filter(s => hostOf(s) === 'local');
+  const local = localAll.filter(s => srvVisible(s, q));
   const remotes = state.servers.filter(s => hostOf(s) !== 'local');
   const byKey = {};
   remotes.forEach(s => { const k = hostOf(s); (byKey[k] = byKey[k] || []).push(s); });
   const upOf = rows => rows.filter(s => s.state === 'UP').length;
+  const noneMatch = '<div class="empty-sec">aucun serveur ne correspond au filtre</div>';
   localHead.hidden = false;
-  count.textContent = upOf(local) + '/' + local.length;
-  localBox.innerHTML = local.map(srvRow).join('');
+  count.textContent = upOf(localAll) + '/' + localAll.length;
+  localBox.innerHTML = local.length ? local.map(srvRow).join('')
+    : (localAll.length ? noneMatch : '<div class="empty-sec">aucun serveur — lance un scan</div>');
   const keys = groupKeys();
   label.hidden = !keys.length;
   groupsBox.innerHTML = keys.map(k => {
-    const rows = byKey[k] || [];
+    const all = byKey[k] || [];
+    const rows = all.filter(s => srvVisible(s, q));
     const body = rows.length ? rows.map(srvRow).join('')
-      : '<div class="empty-sec empty-indent">aucun serveur import&eacute; de cette machine</div>';
-    return groupHeadHtml(k, k, upOf(rows), rows.length, true)
+      : (all.length ? noneMatch
+        : '<div class="empty-sec empty-indent">aucun serveur import&eacute; de cette machine</div>');
+    return groupHeadHtml(k, k, upOf(all), all.length, true)
       + `<div class="grpbody mbody ${groupClosed(k)?'closed':''}">${body}</div>`;
   }).join('');
 }
@@ -1276,7 +1402,7 @@ function rowToggle(s) {
 function rowCtl(s) {
   if (!s.can_start) return '';
   const up = s.state === 'UP';
-  return `<button class="rowbtn" title="${up?'Arr\u00eater':'D\u00e9marrer'} ce serveur" onclick="event.stopPropagation();act('${up?'kill':'start'}',${js(s.id)})">${up?'\u25a0':'\u25b6'}</button>`;
+  return `<button class="rowbtn" title="${up?'Arr\u00eater':'D\u00e9marrer'} ce serveur" onclick="event.stopPropagation();act('${up?'kill':'start'}',${js(s.id)})">${up?ic('stop'):ic('play')}</button>`;
 }
 
 // Autoboot PAR SERVEUR : relance automatique de CE serveur au démarrage
@@ -1287,7 +1413,7 @@ function rowAuto(s) {
   return `<button class="rowbtn auto ${on?'on':'off'}" title="${on
     ? 'Autoboot ACTIV\u00c9 : ce serveur est relanc\u00e9 au d\u00e9marrage et apr\u00e8s un crash \u2014 cliquer pour d\u00e9sactiver'
     : 'Autoboot D\u00c9SACTIV\u00c9 : ce serveur ne sera pas relanc\u00e9 automatiquement \u2014 cliquer pour activer'}"
-    onclick="event.stopPropagation();setAuto(${js(s.id)},${on?'false':'true'})">\u26a1</button>`;
+    onclick="event.stopPropagation();setAuto(${js(s.id)},${on?'false':'true'})">${ic('zap')}</button>`;
 }
 
 /* État des replis du détail (mémorisé entre les cycles et les sessions) */
@@ -1462,23 +1588,49 @@ function renderLog() {
 }
 
 /* ===== Zone de détail ===== */
+/* Tuiles cliquables : « serveurs UP » filtre l'explorateur sur les UP,
+   « serveurs suivis » remet l'affichage complet, « tools actifs » applique le
+   tri par nombre d'outils, « machines distantes » ouvre le dialog SSH. */
+function tileFilter(mode) {
+  overviewFilter = (mode === 'up' && overviewFilter !== 'up') ? 'up' : null;
+  renderServers();
+  if (!selectedId) renderOverview();
+}
+function tileSortTools() {
+  const sel = document.getElementById('sortSel');
+  if (sel) sel.value = 'tools';
+  applySort('tools');
+}
+function clearFilter() {
+  const inp = document.getElementById('srvFilter');
+  if (inp) inp.value = '';
+  renderServers();
+}
 function renderOverview() {
   const s = state.stats;
   const nbMachines = (state.settings.ssh_hosts || []).length;
   document.getElementById('content').innerHTML = `
     <div class="tiles">
-      <div class="tile"><div class="n ok">${s.up}</div><div class="lbl">serveurs UP</div></div>
-      <div class="tile"><div class="n">${s.total}</div><div class="lbl">serveurs suivis</div></div>
-      <div class="tile"><div class="n">${s.tools}</div><div class="lbl">tools actifs</div></div>
-      <div class="tile"><div class="n">${nbMachines}</div><div class="lbl">machines distantes</div></div>
+      <button class="tile${overviewFilter === 'up' ? ' sel' : ''}" onclick="tileFilter('up')"
+        title="Cliquer : ne montrer que les serveurs UP dans l'explorateur (re-cliquer pour tout afficher)">
+        <div class="n ok">${s.up}</div><div class="lbl">serveurs UP</div></button>
+      <button class="tile${overviewFilter ? '' : ' sel'}" onclick="tileFilter('all')"
+        title="Cliquer : réafficher tous les serveurs dans l'explorateur">
+        <div class="n">${s.total}</div><div class="lbl">serveurs suivis</div></button>
+      <button class="tile" onclick="tileSortTools()"
+        title="Cliquer : trier l'explorateur par nombre d'outils">
+        <div class="n">${s.tools}</div><div class="lbl">tools actifs</div></button>
+      <button class="tile" onclick="openMachineDlg()"
+        title="Cliquer : gérer les machines distantes (SSH)">
+        <div class="n">${nbMachines}</div><div class="lbl">machines distantes</div></button>
     </div>
     <div class="welcome">
       <div class="big">Centre de contr&ocirc;le de tes serveurs MCP</div>
       <div class="hint">S&eacute;lectionne un serveur dans l'explorateur pour voir ses tools, ses infos et les basculer ON/OFF un par un.</div>
       <div class="qa">
-        <button onclick="doScan()">&#128269; Scanner les ports locaux</button>
-        <button onclick="doScanNet()">&#127760; Scanner le r&eacute;seau</button>
-        <button onclick="openMachineDlg()">🖥️ Choisir une machine</button>
+        <button onclick="doScan()">${ic('search')} Scanner les ports locaux</button>
+        <button onclick="doScanNet()">${ic('globe')} Scanner le r&eacute;seau</button>
+        <button onclick="openMachineDlg()">${ic('monitor')} Choisir une machine</button>
       </div>
       <div class="hint hint-gap">Le scan utilise la plage configur&eacute;e. Pour une machine du LAN : connexion SSH par cl&eacute;,
       l'app liste ses ports en &eacute;coute, y sonde les serveurs MCP et les importe ici.</div>
@@ -1543,21 +1695,28 @@ function renderDetail() {
   const ti = s.transport === 'http'
     ? `HTTP ${s.transport_info.host ? s.transport_info.host + ':' : ''}${s.transport_info.port}${s.transport_info.path}`
     : `stdio \u00b7 ${s.transport_info.program} ${(s.transport_info.args || []).join(' ')}`;
+  /* Ligne clé/valeur : toute valeur informative se copie d'un clic (pid,
+     commande, url…). Tiret cadratin pour « pas de valeur » — cohérent partout. */
+  const kvRow = (k, v) => {
+    const cpy = v && v !== '—';
+    return `<div class="k">${k}</div><div class="v${cpy ? ' cpy' : ''}"${cpy
+      ? ' title="Cliquer pour copier dans le presse-papiers" onclick="copyText(this.textContent)"' : ''}>${esc(v)}</div>`;
+  };
   const kv = [
     ['id', s.id], ['transport', ti],
     ['origine', s.origin],
-    ['bind', s.bound_host ?? '-'], ['serveur MCP', s.server_name ?? '-'],
-    ['version', s.version ?? '-'], ['protocole', s.protocol ?? '-'],
+    ['bind', s.bound_host ?? '—'], ['serveur MCP', s.server_name ?? '—'],
+    ['version', s.version ?? '—'], ['protocole', s.protocol ?? '—'],
     ['framework', s.framework
       ? ((FRAMEWORKS[s.framework] || {label: s.framework, lang: '?'}).label
          + ' (' + (FRAMEWORKS[s.framework] || {lang: s.lang || '?'}).lang
          + ' · spec ' + (s.protocol || '?') + ')')
-      : '-'],
+      : '—'],
     ['sonde', s.via_ssh ? 'via SSH (interne à la machine)' : 'directe'],
-    ['latence', s.latency_ms != null ? s.latency_ms + ' ms' : '-'],
-    ['dernier vu', s.last_seen ? new Date(s.last_seen * 1000).toLocaleString('fr-FR') : '-'],
-    ['erreur', s.last_error ?? '-'],
-  ].map(([k, v]) => `<div class="k">${k}</div><div class="v">${esc(v)}</div>`).join('');
+    ['latence', s.latency_ms != null ? s.latency_ms + ' ms' : '—'],
+    ['dernier vu', s.last_seen ? new Date(s.last_seen * 1000).toLocaleString('fr-FR') : '—'],
+    ['erreur', s.last_error ?? '—'],
+  ].map(([k, v]) => kvRow(k, v)).join('');
   /* Panneau Démarrage : contrôle du process par MCP Control.
      « au démarrage » = process lancé ici et vivant, mais MCP pas encore répondu. */
   const starting = s.enabled && s.managed && s.state !== 'UP';
@@ -1573,10 +1732,10 @@ function renderDetail() {
     ['contr&ocirc;le', s.managed ? 'process lanc\u00e9 et maintenu par MCP Control'
       : (cmd ? 'commande pr\u00eate \u2014 process externe non d\u00e9marr\u00e9 par ici' : 'aucune \u2014 process externe')],
     ['&eacute;tat du process', etatProcess],
-    ['pid', s.pid ?? '-'],
+    ['pid', s.pid ?? '—'],
     ['auto-restart', s.auto_restart ? 'ON \u2014 relance automatique au boot/crash' : 'OFF'],
-    ['commande', cmd ?? '-'],
-  ].map(([k, v]) => `<div class="k">${k}</div><div class="v">${esc(v)}</div>`).join('');
+    ['commande', cmd ?? '—'],
+  ].map(([k, v]) => kvRow(k, v)).join('');
   /* Replis à état mémorisé : le rendu tourne à chaque cycle de rafraîchissement,
      l'état ouvert/fermé choisi par l'utilisateur est donc persisté (localStorage)
      et relu ici — sinon le triangle revenait à son état d'origine toutes les 5 s
@@ -1590,10 +1749,18 @@ function renderDetail() {
   };
   const fold = (name, title, inner) =>
     `<details class="fold" data-fold="${name}"${foldOpen(name) ? ' open' : ''} ontoggle="saveFold(this)"><summary>${title}</summary>${inner}</details>`;
+  /* Rendu « markdown inline » minimal pour les descriptions d'outils : les
+     serveurs MCP renvoient souvent **gras** et `code` — affichés bruts, les
+     astérisques cassent la lecture. Le texte est ÉCHAPPÉ d'abord (aucun < >
+     ne peut donc passer dans le HTML généré) : injection impossible. */
+  const mdInline = t => esc(t)
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<i>$2</i>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
   const tools = (s.tools_list || []).map(t =>
     `<div class="tool ${t.disabled?'off':''}" data-tool="${esc(t.name)}">
        <code>${esc(t.name)}</code>
-       <span class="desc" title="${esc(t.desc)}">${esc(t.desc) || '&mdash;'}</span>
+       <span class="desc" title="${esc(t.desc)}">${t.desc ? mdInline(t.desc) : '&mdash;'}</span>
        <button class="tgl ${t.disabled?'off':'on'}" title="${t.disabled?'R&eacute;activer ce tool':'D&eacute;sactiver ce tool'}"
                onclick="toggleTool(${js(s.id)},${js(t.name)})">
          ${t.disabled ? 'OFF' : 'ON'}
@@ -1612,24 +1779,24 @@ function renderDetail() {
       ${langChip(s)}
       ${typeBadge(s)}
       ${frameworkBadge(s)}
-      ${s.transport === 'stdio' ? '<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">d&eacute;suet</span>' : ''}
+      ${s.transport === 'stdio' ? '<span class="legacy" title="Legacy : serveur stdio uniquement (pas de transport HTTP)">legacy</span>' : ''}
       <span class="sub">${s.server_name ? esc(s.server_name) + ' v' + esc(s.version || '?') : ''}${s.latency_ms != null ? ' &middot; ' + s.latency_ms + ' ms' : ''}</span>
       <div class="d-actions">
-        ${s.can_start && s.state !== 'UP' ? `<button class="primary" onclick="act('start',${js(s.id)})">&#9654; Start</button>` : ''}
-        ${s.can_start && s.state === 'UP' ? `<button class="danger" onclick="act('kill',${js(s.id)})">&#9632; Stop</button>` : ''}
-        <button onclick="act('refresh',${js(s.id)})">Sonder</button>
+        ${s.can_start && s.state !== 'UP' ? `<button class="primary" onclick="act('start',${js(s.id)})">${ic('play')} Start</button>` : ''}
+        ${s.can_start && s.state === 'UP' ? `<button class="danger" onclick="act('kill',${js(s.id)})">${ic('stop')} Stop</button>` : ''}
+        <button onclick="act('refresh',${js(s.id)})">${ic('activity')} Sonder</button>
         ${s.can_start ? `<button class="autobtn ${s.auto_restart?'on':''}" onclick="setAuto(${js(s.id)},${s.auto_restart?'false':'true'})"
-          title="Autoboot : relance automatique de ce serveur au d&eacute;marrage de MCP Control et apr&egrave;s un crash">&#9889; Autoboot ${s.auto_restart?'ON':'OFF'}</button>` : ''}
+          title="Autoboot : relance automatique de ce serveur au d&eacute;marrage de MCP Control et apr&egrave;s un crash">${ic('zap')} Autoboot ${s.auto_restart?'ON':'OFF'}</button>` : ''}
         <button onclick="act('toggle',${js(s.id)})" title="${s.enabled
           ? 'Mettre en pause : le process est arr&ecirc;t&eacute; et le serveur n&#39;est plus sond&eacute; (il reste dans la liste, r&eacute;activable d&#39;un clic)'
-          : 'Reprendre la supervision : le serveur sera sond&eacute; et d&eacute;marr&eacute; si une commande est connue'}">${s.enabled ? '&#9208; Mettre en pause' : '&#9654; Reprendre'}</button>
+          : 'Reprendre la supervision : le serveur sera sond&eacute; et d&eacute;marr&eacute; si une commande est connue'}">${s.enabled ? ic('pause') + ' Mettre en pause' : ic('play') + ' Reprendre'}</button>
         ${s.origin !== 'seed'
-          ? `<button class="danger" onclick="removeSrv(${js(s.id)})">&#128465; Supprimer</button>`
-          : `<button class="danger" onclick="removeSeedForever(${js(s.id)})" title="Supprime ce seed de la config : il ne sera pas r&eacute;inject&eacute; au red&eacute;marrage">&#128465; Supprimer d&eacute;finitivement</button>`}
+          ? `<button class="danger" onclick="removeSrv(${js(s.id)})">${ic('trash')} Supprimer</button>`
+          : `<button class="danger" onclick="removeSeedForever(${js(s.id)})" title="Supprime ce seed de la config : il ne sera pas r&eacute;inject&eacute; au red&eacute;marrage">${ic('trash')} Supprimer d&eacute;finitivement</button>`}
       </div>
     </div>
     ${s.origin === 'seed' ? '<div class="seed-note">Serveur seed : <b>Retirer durablement</b> l&rsquo;efface m&ecirc;me apr&egrave;s red&eacute;marrage (consign&eacute; dans config.json) ; <b>D&eacute;sactiver</b> l&rsquo;&eacute;teint sans le supprimer.</div>' : ''}
-    ${s.last_error ? `<div class="d-err">&#9888; ${esc(s.last_error)}</div>` : ''}
+    ${s.last_error ? `<div class="d-err">${ic('warn')} ${esc(s.last_error)}</div>` : ''}
     ${fold('demarrage', 'D&eacute;marrage', `<div class="kv">${kvd}</div>${startCmdForm(s)}`)}
     ${fold('infos', 'Informations', `<div class="kv">${kv}</div>`)}
     <div class="tabs">
@@ -1676,7 +1843,15 @@ async function setStartCmd(id) {
   if (!j.ok) alert(j.error || 'erreur');
   else { await load(); detailCache = null; if (selectedId) renderDetail(); }
 }
-function removeSrv(id) { selectedId = null; detailCache = null; act('remove', id); }
+function removeSrv(id) {
+  // La suppression d'un serveur importé ne demandait aucune confirmation :
+  // un clic loupé coûtait la ligne. Les seeds ont déjà leur confirmation
+  // dédiée (removeSeedForever) car l'effacement est durable.
+  const s = byId(id);
+  if (!confirm('Supprimer « ' + (s ? (s.label || id) : id) + ' » de la liste ? '
+    + 'Un serveur re-détecté par un scan réapparaîtra.')) return;
+  selectedId = null; detailCache = null; act('remove', id);
+}
 function removeSeedForever(id) {
   if (!confirm('Retirer ce seed DURABLEMENT ? Il ne sera pas réinjecté au redémarrage de MCP Control.')) return;
   selectedId = null; detailCache = null;
@@ -1692,16 +1867,20 @@ function ctxClose() {
   if (m) { m.hidden = true; m.innerHTML = ''; }
   ctxId = null;
 }
-function toast(msg) {
+/* Toast sémantique : toast(msg) neutre, toast(msg,'ok') succès,
+   toast(msg,'err') erreur (affichée plus longtemps — un échec se lit). */
+function toast(msg, kind) {
   const t = document.getElementById('toast');
   if (!t) return;
   t.textContent = msg;
+  t.classList.remove('ok', 'err');
+  if (kind) t.classList.add(kind);
   t.classList.add('on');
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => t.classList.remove('on'), 1200);
+  toast._t = setTimeout(() => t.classList.remove('on'), kind === 'err' ? 3500 : 1600);
 }
 function copyText(txt) {
-  const done = () => toast('copié');
+  const done = () => toast('copié', 'ok');
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(txt).then(done).catch(() => { copyFallback(txt); done(); });
   } else { copyFallback(txt); done(); }
@@ -1779,8 +1958,8 @@ async function openInExplorer(path) {
     const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({action: 'open_path', path: path})});
     const j = await r.json();
-    toast(j.ok ? 'explorateur ouvert' : ('échec : ' + (j.error || 'inconnu')));
-  } catch (e) { toast('échec : ' + e); }
+    toast(j.ok ? 'explorateur ouvert' : ('échec : ' + (j.error || 'inconnu')), j.ok ? 'ok' : 'err');
+  } catch (e) { toast('échec : ' + e, 'err'); }
 }
 function rowCtx(ev, id) {
   ev.preventDefault();
@@ -1791,19 +1970,19 @@ function rowCtx(ev, id) {
   const p = srvPaths(s);
   const items = [];
   const add = (lbl, fn, dis) => items.push({lbl: lbl, fn: fn, dis: !!dis});
-  add('📋 Copier toutes les infos', () => copyText(srvInfoText(s)));
-  add('🏷 Copier le nom', () => copyText(s.label));
-  if (ctxUrl(s)) add('🔗 Copier l URL', () => copyText(ctxUrl(s)));
-  if (srvCmd(s)) add('⌨ Copier la commande', () => copyText(srvCmd(s)));
-  add('🗂 Copier le chemin', () => copyText(p.abs), !p.abs);
-  add('🗂 Copier le chemin relatif', () => copyText(p.rel), !p.rel);
-  add('📂 Ouvrir dans l explorateur', () => openInExplorer(p.abs || p.workdir), !(p.abs || p.workdir));
+  add(ic('copy') + ' Copier toutes les infos', () => copyText(srvInfoText(s)));
+  add(ic('tag') + ' Copier le nom', () => copyText(s.label));
+  if (ctxUrl(s)) add(ic('link') + " Copier l'URL", () => copyText(ctxUrl(s)));
+  if (srvCmd(s)) add(ic('terminal') + ' Copier la commande', () => copyText(srvCmd(s)));
+  add(ic('folder') + ' Copier le chemin', () => copyText(p.abs), !p.abs);
+  add(ic('folder') + ' Copier le chemin relatif', () => copyText(p.rel), !p.rel);
+  add(ic('external') + " Ouvrir dans l'explorateur", () => openInExplorer(p.abs || p.workdir), !(p.abs || p.workdir));
   if (s.can_start) {
     add('—', null, false);
-    add(s.state === 'UP' ? '■ Arrêter ce serveur' : '▶ Démarrer ce serveur',
+    add(s.state === 'UP' ? ic('stop') + ' Arrêter ce serveur' : ic('play') + ' Démarrer ce serveur',
         () => act(s.state === 'UP' ? 'kill' : 'start', s.id));
   }
-  add('🔄 Sonder maintenant', () => act('refresh', s.id));
+  add(ic('refresh') + ' Sonder maintenant', () => act('refresh', s.id));
   showMenu(ev, items);
 }
 // Affiche un menu d'entrées {lbl, fn, dis} à la position du curseur.
@@ -1837,16 +2016,16 @@ function toolCtx(ev, id, name) {
   const t = (d.tools_list || []).find(x => x.name === name) || {name: name, desc: ''};
   const items = [];
   const add = (lbl, fn, dis) => items.push({lbl: lbl, fn: fn, dis: !!dis});
-  add('📋 Copier le nom de l outil', () => copyText(name));
-  add('📋 Copier « serveur.outil »', () => copyText((d.label || s.label || id) + '.' + name));
-  if (t.desc) add('📃 Copier la description', () => copyText(t.desc));
-  add('🧾 Copier l appel JSON-RPC', () => copyText(JSON.stringify({
+  add(ic('copy') + " Copier le nom de l'outil", () => copyText(name));
+  add(ic('copy') + ' Copier « serveur.outil »', () => copyText((d.label || s.label || id) + '.' + name));
+  if (t.desc) add(ic('copy') + ' Copier la description', () => copyText(t.desc));
+  add(ic('terminal') + " Copier l'appel JSON-RPC", () => copyText(JSON.stringify({
     jsonrpc: '2.0', id: 1, method: 'tools/call',
     params: {name: name, arguments: {}}
   }, null, 2)));
-  if (ctxUrl(s)) add('🔗 Copier l URL + outil', () => copyText(ctxUrl(s) + '   # outil : ' + name));
+  if (ctxUrl(s)) add(ic('link') + " Copier l'URL + outil", () => copyText(ctxUrl(s) + '   # outil : ' + name));
   add('—', null, false);
-  add(t.disabled ? '✅ Réactiver cet outil' : '⛔ Désactiver cet outil',
+  add(t.disabled ? ic('check') + ' Réactiver cet outil' : ic('x') + ' Désactiver cet outil',
       () => toggleTool(id, name));
   showMenu(ev, items);
 }
@@ -1872,7 +2051,29 @@ window.addEventListener('unhandledrejection', (e) => {
   try { document.title = 'JSERR promesse ' + ((e.reason && e.reason.message) || e.reason || 'inconnu'); } catch (_) {}
 });
 document.addEventListener('click', ctxClose);
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') ctxClose(); });
+/* Échap ferme le menu contextuel PUIS efface le filtre de l'explorateur ;
+   « / » et Ctrl+K posent le focus dans le champ de filtre (raccourci
+   standard : recherche instantanée depuis n'importe où). */
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    ctxClose();
+    const f = document.getElementById('srvFilter');
+    if (f && (f.value || document.activeElement === f)) {
+      f.value = '';
+      renderServers();
+      f.blur();
+    }
+    return;
+  }
+  const el = document.activeElement;
+  const typing = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'
+    || el.tagName === 'SELECT' || el.isContentEditable);
+  if (!typing && (e.key === '/' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k'))) {
+    e.preventDefault();
+    const f = document.getElementById('srvFilter');
+    if (f) { f.focus(); f.select(); }
+  }
+});
 window.addEventListener('resize', ctxClose);
 
 async function act(action, id) {
@@ -2046,7 +2247,7 @@ async function checkUpdateNow() {
   const j = await r.json();
   if (j.ok && j.checked && j.update_available) {
     document.getElementById('sLatest').textContent = 'v' + j.latest;
-    msg.textContent = '⬆ v' + j.latest + ' disponible (installée : v' + j.current + ') — bouton bleu en haut de la fenêtre';
+    msg.textContent = '\u2b06 v' + j.latest + ' disponible (installée : v' + j.current + ') — bouton « Mettre à jour » en bas à droite';
     msg.style.color = 'var(--warn)';
   } else if (j.ok && j.checked) {
     document.getElementById('sLatest').textContent = j.latest ? 'v' + j.latest : '—';
@@ -2072,7 +2273,41 @@ async function openReleasePage() {
   } catch (e) { /* moteur injoignable : on tente le repli */ }
   window.open('https://github.com/DeamonDev888/mcp-control/releases/latest', '_blank', 'noopener,noreferrer');
 }
-function openUpdate() { openReleasePage(); }
+/* OS du navigateur — la machine où atterrit le téléchargement quand l'UI est
+   servie par un moteur distant (VPS). Le moteur valide et retombe sur le sien. */
+function browserOs() {
+  const ua = navigator.userAgent || '';
+  if (ua.includes('Windows')) return 'windows';
+  if (ua.includes('Mac OS') || ua.includes('Macintosh')) return 'macos';
+  if (ua.includes('Linux') && !ua.includes('Android')) return 'linux';
+  return null;
+}
+let lastUpdateUrl = null;
+/* ⬆ Mettre à jour : téléchargement DIRECT de l'asset de la dernière release
+   pour CETTE machine (OS du navigateur + type du binaire qui sert l'UI :
+   desktop → installateur, sinon CLI) — plus de détour par la page des
+   releases. L'URL est fabriquée par le moteur depuis une table blanche, jamais
+   par la requête. Repli : si le moteur n'a pas pu lancer de navigateur
+   (headless), l'URL rendue est ouverte ici — utile quand l'UI tourne dans un
+   vrai navigateur. */
+async function downloadUpdate() {
+  const body = {action: 'download_update'};
+  const os = browserOs();
+  if (os) body.os = os;
+  try {
+    const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)});
+    const j = await r.json();
+    if (j.url) lastUpdateUrl = j.url;
+    if (j.ok) { toast('téléchargement lancé : ' + (j.asset || 'mise à jour'), 'ok'); return; }
+    if (j.url) { window.open(j.url, '_blank', 'noopener,noreferrer'); return; }
+    toast(j.error || 'échec du téléchargement', 'err');
+  } catch (e) {
+    // moteur injoignable : repli sur la dernière URL connue, sinon message
+    if (lastUpdateUrl) window.open(lastUpdateUrl, '_blank', 'noopener,noreferrer');
+    else toast('moteur injoignable — réessaie plus tard', 'err');
+  }
+}
 async function resetState(what) {
   const sel = document.getElementById('sResetWhat');
   const label = sel.options[sel.selectedIndex].text;
@@ -2242,7 +2477,7 @@ function renderMachines() {
       <div class="l1"><span class="dot UP"></span><span class="nm">${esc(h.ip)}</span><span class="tag http">${esc(h.user)}</span>${peer ? '<span class="tag sse">pair</span>' : ''}</div>
       <div class="l2">${st}</div>
       <div class="macts">
-        <button class="primary" onclick="sshDiscover(${js(h.ip)},${js(h.user)})">🔗 SSH &amp; d&eacute;couvrir</button>
+        <button class="primary" onclick="sshDiscover(${js(h.ip)},${js(h.user)})">${ic('link')} SSH &amp; d&eacute;couvrir</button>
         ${peer ? `<button onclick="importPeer(${js(h.ip)})">Importer ses serveurs</button>` : ''}
         <button class="danger" onclick="sshForget(${js(h.ip)})">Oublier</button>
       </div>
@@ -2402,7 +2637,7 @@ function renderStoreItems() {
       <div class="scard-top">${storeLogo(i)}<b>${esc(i.name)}</b><span class="tag ${i.kind==='npm'?'npm':'py'}">${i.kind}</span></div>
       <div class="scard-desc">${esc(i.desc)}</div>
       <div class="scard-cmd" title="${esc(i.program + ' ' + i.args.join(' '))}">${esc(cmd)}</div>
-      <button class="primary" onclick="installStore(${js(i.id)}, this)">&#10515; Installer</button>
+      <button class="primary" onclick="installStore(${js(i.id)}, this)">${ic('download')} Installer</button>
     </div>`;
   }).join('') || '<div class="empty-sec">aucun r&eacute;sultat</div>';
 }

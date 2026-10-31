@@ -1795,8 +1795,12 @@ pub enum UpdateCheck {
 /// silence hors ligne — le poller horaire ne doit pas spammer : le verdict est
 /// RENVOYÉ et l'action `check_update` le traduit pour l'UI.
 pub fn check_update(state: &Arc<AppState>) -> UpdateCheck {
+    // Le tag GitHub arrive sous la forme « v0.7.16 » : on range la version SANS
+    // son préfixe. Tous les consommateurs (message du journal, latest_version de
+    // /api/state, réponse check_update) affichent « v » + version — préfixer le
+    // tag tel quel produisait « vv0.7.16 » dans le journal et le badge.
     let tag = match github_latest_tag() {
-        Ok(Some(t)) => t,
+        Ok(Some(t)) => t.strip_prefix('v').unwrap_or(&t).to_string(),
         Ok(None) | Err(_) => return UpdateCheck::Unreachable,
     };
     let current = env!("CARGO_PKG_VERSION");
@@ -3507,9 +3511,46 @@ pub const ACTIONS: &[&str] = &[
     "reset_runtime",
     "check_update",
     "open_release_page",
+    "download_update",
     "open_path",
     "test_notify",
 ];
+
+/// Asset de la release correspondant à (type de binaire, OS) — table blanche
+/// pure et testée. `None` = plateforme inconnue (jamais d'URL fabriquée hors
+/// de cette table). Les assets n'embarquent pas la version : l'URL
+/// `releases/latest/download/<asset>` sert toujours LA dernière release.
+pub fn release_asset(kind: &str, os: &str) -> Option<&'static str> {
+    match (kind, os) {
+        ("desktop", "windows") => Some("mcp-control-desktop-windows-x86_64-setup.exe"),
+        ("desktop", "macos") => Some("mcp-control-desktop-macos-universal"),
+        ("desktop", "linux") => Some("mcp-control-desktop-linux-x86_64"),
+        ("cli", "windows") => Some("mcp-control-cli-windows-x86_64.exe"),
+        ("cli", "macos") => Some("mcp-control-cli-macos-universal"),
+        ("cli", "linux") => Some("mcp-control-cli-linux-x86_64"),
+        _ => None,
+    }
+}
+
+/// L'OS du binaire qui tourne, tel que nommé dans la table ci-dessus.
+pub fn engine_os() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        "windows"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "macos"
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        "linux"
+    }
+    #[cfg(not(any(windows, target_os = "macos", all(unix, not(target_os = "macos")))))]
+    {
+        "inconnu"
+    }
+}
 
 pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
     let req: Value = match serde_json::from_str(body) {
@@ -4379,6 +4420,99 @@ pub fn handle_action(state: &Arc<AppState>, body: &str) -> Value {
                 json!({
                     "ok": false,
                     "url": RELEASES_URL,
+                    "error": "pas de navigateur lançable sur cette machine — ouvre l'URL à la main",
+                })
+            }
+        }
+        "download_update" => {
+            // Bouton « ⬆ Mettre à jour » : téléchargement DIRECT du BON asset
+            // (installateur desktop ou CLI, pour le BON OS) au lieu de la page
+            // des releases. Détection : l'OS vient de la requête quand l'UI
+            // connaît celui du NAVIGATEUR (la machine où atterrit le fichier —
+            // cas UI servie par un moteur distant), sinon l'OS du binaire qui
+            // tourne ; le type (desktop/cli) suit le binaire courant. L'URL est
+            // construite UNIQUEMENT depuis la table blanche `release_asset` —
+            // jamais depuis la requête. Non exposé au gateway (ouvre un
+            // téléchargement).
+            let kind = match std::env::current_exe()
+                .ok()
+                .and_then(|p| p.file_name().map(|s| s.to_string_lossy().to_lowercase()))
+            {
+                Some(exe) if exe.contains("desktop") => "desktop",
+                _ => "cli",
+            };
+            let os = match req.get("os").and_then(Value::as_str) {
+                Some(o @ ("windows" | "macos" | "linux")) => o,
+                // os fourni mais hors whitelist → refus net : JAMAIS un
+                // téléchargement pour une plateforme différente de celle
+                // demandée (le repli silencieux sur le moteur serait une
+                // surprise) ; aucun effet de bord avant ce contrôle.
+                Some(other) => {
+                    return json!({
+                        "ok": false,
+                        "error": format!("os inconnu : {other} (windows, macos ou linux attendus)"),
+                    });
+                }
+                None => engine_os(),
+            };
+            let Some(asset) = release_asset(kind, os) else {
+                return json!({
+                    "ok": false,
+                    "error": format!("plateforme inconnue : {kind}/{os}"),
+                });
+            };
+            let url = format!(
+                "https://github.com/DeamonDev888/mcp-control/releases/latest/download/{asset}"
+            );
+            #[cfg(windows)]
+            let mut cmd = {
+                let mut c = std::process::Command::new("rundll32");
+                c.args(["url.dll,FileProtocolHandler", &url]);
+                c
+            };
+            #[cfg(target_os = "macos")]
+            let mut cmd = {
+                let mut c = std::process::Command::new("open");
+                c.arg(&url);
+                c
+            };
+            #[cfg(all(unix, not(target_os = "macos")))]
+            let mut cmd = {
+                let mut c = std::process::Command::new("xdg-open");
+                c.arg(&url);
+                c
+            };
+            let opened = {
+                #[cfg(any(windows, target_os = "macos", all(unix, not(target_os = "macos"))))]
+                {
+                    probe::probe_hidden_cmd(&mut cmd);
+                    cmd.spawn().is_ok()
+                }
+                #[cfg(not(any(
+                    windows,
+                    target_os = "macos",
+                    all(unix, not(target_os = "macos"))
+                )))]
+                {
+                    false
+                }
+            };
+            add_log(
+                state,
+                "info",
+                &format!("[maj] téléchargement {kind} pour {os} : {asset}"),
+            );
+            if opened {
+                json!({"ok": true, "url": url, "asset": asset, "kind": kind, "os": os})
+            } else {
+                // l'URL reste rendue : l'UI (vrai navigateur) fait le repli
+                // window.open elle-même
+                json!({
+                    "ok": false,
+                    "url": url,
+                    "asset": asset,
+                    "kind": kind,
+                    "os": os,
                     "error": "pas de navigateur lançable sur cette machine — ouvre l'URL à la main",
                 })
             }
@@ -6706,6 +6840,40 @@ mod tests {
         assert!(wh["error"].as_str().unwrap_or("").contains("invalide"));
         // canal desktop jamais activé → absent de la réponse (pas d'échec inventé)
         assert!(j2["desktop"].is_null());
+    }
+
+    #[test]
+    fn download_update_refuse_les_plateformes_hors_table() {
+        // os fourni mais invalide → refus AVANT tout lancement de navigateur
+        // (aucun repli silencieux sur la plateforme du moteur, aucun effet de
+        // bord visible) ; l'UI affiche l'erreur telle quelle.
+        let state = test_state();
+        let j = handle_action(&state, "{\"action\":\"download_update\",\"os\":\"beos\"}");
+        assert_eq!(j["ok"], serde_json::json!(false));
+        assert!(j["error"].as_str().unwrap_or("").contains("os inconnu"));
+    }
+
+    #[test]
+    fn release_asset_table_blanche_couvre_toutes_les_plateformes() {
+        // 6 combos : l'installateur desktop par OS + la CLI par OS. La table
+        // est la SEULE source d'URL — hors table, rien n'est fabriqué.
+        for (kind, os, attendu) in [
+            (
+                "desktop",
+                "windows",
+                "mcp-control-desktop-windows-x86_64-setup.exe",
+            ),
+            ("desktop", "macos", "mcp-control-desktop-macos-universal"),
+            ("desktop", "linux", "mcp-control-desktop-linux-x86_64"),
+            ("cli", "windows", "mcp-control-cli-windows-x86_64.exe"),
+            ("cli", "macos", "mcp-control-cli-macos-universal"),
+            ("cli", "linux", "mcp-control-cli-linux-x86_64"),
+        ] {
+            assert_eq!(release_asset(kind, os), Some(attendu), "{kind}/{os}");
+        }
+        assert_eq!(release_asset("cli", "beos"), None);
+        assert_eq!(release_asset("autre", "windows"), None);
+        assert_eq!(release_asset("", ""), None);
     }
 
     #[test]
