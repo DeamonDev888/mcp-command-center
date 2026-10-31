@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::types::{AppState, Settings};
 use std::collections::VecDeque;
