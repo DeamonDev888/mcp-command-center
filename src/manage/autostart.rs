@@ -2,6 +2,8 @@
 // (split v0.7.20 : manage.rs reste la racine — API stable via réexport)
 use super::*;
 
+/// Clé/valeur du registre Run (Windows) ou fichiers autostart (Linux/macOS).
+#[cfg_attr(not(windows), allow(dead_code))] // utilisé par le registre Run (Windows)
 const AUTOSTART_RUN_NAME: &str = "MCP Control";
 
 /// Arguments de l'entrée de démarrage automatique (compilé hors tests seulement :
