@@ -109,7 +109,7 @@ ou d'un serveur qui n'a pas encore été lancé.
 *Exemple concret* — un serveur stdio dont le process n'est pas démarré :
 
 ```
-Filesystem        [JS] [STDIO] désuet           DOWN  stdio · npx
+Filesystem        [JS] [STDIO] legacy          DOWN  stdio · npx
 ```
 
 Différence avec PORT-ONLY : ici **le port est libre**. Le serveur peut être
@@ -166,10 +166,10 @@ au PHP, avec leur langage. Le badge `STDIO` / `HTTP` / `WS` indique le transport
 👉 La liste complète des 37 frameworks : **[docs/frameworks.md](docs/frameworks.md)**
 
 ![Les trois familles de badges](assets/readme-badges.png)
-*Trois familles, trois codes couleur. **Langage** (à gauche) : la couleur du langage — JS jaune, Python vert, Rust orange, Go cyan. **Transport** : monochrome — `HTTP` le plus clair, `STDIO` médian, `WS` le plus sourd — et le chip `désuet` en pointillés pour les serveurs stdio. **Framework** (à droite) : la couleur du langage qu'il fait tourner ; seul **LiteMCP** porte un halo orange.*
+*Trois familles, trois codes couleur. **Langage** (à gauche) : le vrai logo du langage — carré jaune JS, serpents Python, engrenage Rust, tuile Go. **Transport** : monochrome — `HTTP` le plus clair, `STDIO` médian, `WS` le plus sourd — et le chip `legacy` en pointillés pour les serveurs stdio. **Framework** (à droite) : la couleur du langage qu'il fait tourner ; seul **LiteMCP** porte un halo orange.*
 
 ![Onze frameworks côte à côte dans la liste](assets/readme-frameworks.png)
-*Onze frameworks différents supervisés en même temps, chacun reconnu et badgé en direct : MCP SDK (JS et Python), FastMCP, rust-mcp-sdk, mcp-go, tower-mcp, ViteMCP, rmcp, LiteMCP… — avec le langage, le transport, le nombre d'outils et l'état UP de chacun. Les deux serveurs stdio (`npx`) portent le chip `désuet`.*
+*Onze frameworks différents supervisés en même temps, chacun reconnu et badgé en direct : MCP SDK (JS et Python), FastMCP, rust-mcp-sdk, mcp-go, tower-mcp, ViteMCP, rmcp, LiteMCP… — avec le logo du langage, le transport, le nombre d'outils et l'état UP de chacun.*
 
 ![Un serveur en détail](assets/readme-detail.png)
 *Clique sur un serveur : tu vois tous ses outils (tools), son état, sa vitesse, sa version — et des boutons pour l'allumer, l'éteindre, ou couper un outil précis.*
@@ -185,7 +185,7 @@ au PHP, avec leur langage. Le badge `STDIO` / `HTTP` / `WS` indique le transport
 | **🔍 Scan ports** | Cherche des serveurs sur une plage de ports |
 | **🌐 Scan réseau** | Cherche des serveurs sur les autres PC du réseau |
 | **🖥️ Machines** | Va chercher les serveurs d'une autre machine (VPS, serveur…) via SSH |
-| **🛒 Boutique** | 64 serveurs MCP prêts à installer en 1 clic |
+| **🛒 Boutique** | 63 serveurs MCP prêts à installer en 1 clic |
 | **+ Ajouter** | Ajouter un serveur à la main |
 | **ON/OFF** | Allumer / éteindre un serveur |
 | **▶ / ■** | Démarrer / arrêter le programme du serveur |
@@ -193,10 +193,10 @@ au PHP, avec leur langage. Le badge `STDIO` / `HTTP` / `WS` indique le transport
 | **⏸ Mettre en pause** | Retire le serveur de la supervision (il reste dans la liste, réactivable) |
 | **🗑 Supprimer** | Enlève le serveur de la liste |
 | **⇅** | Ranger la liste (A→Z, état, rapidité…) — ou glisse une ligne à la main |
-| **⏭ Auto-boot** (barre du haut) | Ouvrir l'app elle-même au démarrage de Windows |
+| **Auto-boot** (barre du Journal, en bas) | Ouvrir l'app elle-même au démarrage de Windows |
 
 ![La boutique](assets/readme-boutique.png)
-*64 serveurs MCP à installer d'un clic, avec leurs logos. Une barre de recherche pour trouver le bon.*
+*63 serveurs MCP à installer d'un clic, avec leurs logos officiels. En-tête collant : recherche instantanée, tri A→Z, filtre « Masquer les installés » — les déjà présents sont marqués.*
 
 ## Gateway MCP : la console est un serveur MCP
 
