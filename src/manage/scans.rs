@@ -2,6 +2,7 @@
 // (split v0.7.20 : manage.rs reste la racine — API stable via réexport)
 use super::*;
 
+#[allow(unused_must_use)]
 pub fn poll_one(state: &Arc<AppState>, id: &str) {
     let (transport, enabled) = {
         let servers = lockv(&state.servers);

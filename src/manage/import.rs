@@ -245,7 +245,12 @@ pub fn import_mcp_text(state: &Arc<AppState>, raw: &str) -> Value {
     json!({"ok": false, "error": "rien de reconnu : colle un mcp.json, une commande npx/uvx, une URL, ou `claude mcp add ...`"})
 }
 
-pub(super) fn push_imported(state: &Arc<AppState>, name: String, program: String, args: Vec<String>) -> Value {
+pub(super) fn push_imported(
+    state: &Arc<AppState>,
+    name: String,
+    program: String,
+    args: Vec<String>,
+) -> Value {
     let id = format!("store-{}", name);
     let mut servers = lockv(&state.servers);
     if servers.iter().any(|s| s.id == id) {
