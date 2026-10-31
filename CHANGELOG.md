@@ -1,3 +1,12 @@
+## [0.7.20] — Le wizard Windows épingle MCP Control à la barre des tâches
+
+### Raccourci barre des tâches créé par l'installateur
+- Nouveau point d'ancrage NSIS (`installerHooks` de Tauri v2) : à la fin de l'installation, le wizard **épine le raccourci du menu Démarrer à la barre des tâches** (verbe shell `taskbarpin`, Win10/11) — l'épingle apparaît immédiatement, sans redémarrage d'Explorer.
+- La **désinstallation désépingle d'abord** (verbe `taskbarunpin` avant la suppression du raccourci — le verbe a besoin que le .lnk source existe) : plus d'icône morte dans la barre des tâches après désinstallation.
+- `ExecShell` n'est jamais fatale : un verbe refusé par une stratégie d'entreprise n'interrompt pas l'installation.
+- macOS et Linux n'ont pas de wizard ni d'API d'épinglage universelle : leurs binaires restent livrés bruts.
+- Validé en local : `tauri build --bundles nsis` compile les hooks (makensis OK), installateur 2,81 Mo.
+
 ## [0.7.19] — UI en assets servis : fin du monolithe, CSP serrée
 
 ### Split de `ui.rs` : `/app.css` + `/app.js` + `/app-boot.js`
